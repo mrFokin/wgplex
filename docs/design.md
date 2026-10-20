@@ -53,7 +53,7 @@ wgplex — отдельный продукт на основе кода Wirefork
 | Сокет | `<prefix>/var/run/wgplex.sock` |
 | Состояние | `<prefix>/var/wgplex/state.json` |
 | Лог | `<prefix>/var/log/wgplex/wgplex.log` (+ архивы, раздел 15) |
-| Сервис | `sudo brew services start wgplex` (LaunchDaemon, генерирует brew) |
+| Сервис | `sudo brew services start --sudo-service-user=root wgplex` (LaunchDaemon `sh.brew.wgplex`, plist `/Library/LaunchDaemons/sh.brew.wgplex.plist` генерирует brew, 16.4) |
 | Приложение | `/Applications/Wgplex.app`, bundle id `io.github.mrfokin.wgplex` |
 
 ## 4. Архитектура
@@ -80,7 +80,9 @@ wgplex — отдельный продукт на основе кода Wirefork
 
 ### 4.1. Демон
 
-- `wgplex daemon` запускается launchd при загрузке, работает от root, перезапускается при падении (`KeepAlive`).
+- `wgplex daemon` запускается launchd при загрузке, работает от root, перезапускается при падении (`KeepAlive`, кроме выхода с кодом 0).
+- Запущен не от root (`brew services start` без `sudo` ставит копию как LaunchAgent пользователя, M0, H7) — ошибка в stderr (лог root ему недоступен) и выход с кодом 0: launchd его не перезапускает (16.4; проверка — M6).
+- Каталоги `var/wgplex`, `var/log/wgplex` и `var/run` (для сокета) создаёт формула (10.3); демон создаёт только недостающее внутри `var/wgplex` и `var/log/wgplex`. Родителей (`var`, `var/log`, `var/run`) не создаёт: созданный root общий каталог ломает brew пользователю (M0, H6); нет каталога — ошибка в stderr.
 - Со старта читает конфиг и поднимает туннели по состоянию (11) — вход пользователя не нужен.
 - Не следит за пользователем за консолью: ни сброса при выходе, ни переключателей на пользователя.
 - Конфиг с ошибками при старте — демон работает без туннелей, ошибка в `status.get`; не падает (иначе `KeepAlive` гонял бы перезапуски).
@@ -110,8 +112,8 @@ wgplex — отдельный продукт на основе кода Wirefork
 | `status.get`, `diag.*` | все |
 | изменяющие (`config.reload`, `tunnel.*`, `daemon.*`) | root, владелец каталога конфига, члены `control_group` |
 
-- uid соединения — `LOCAL_PEERCRED`. Группы из `LOCAL_PEERCRED` не используются: их не больше 16, а у администратора macOS их часто больше. Членство проверяется через Directory Services: `dsmemberutil checkmembership -u <uid> -G <группа>` (учитывает вложенные группы), только для изменяющих методов.
-- `control_group` — в `wgplex.yaml`, по умолчанию `admin`. Несуществующая группа — ошибка конфига; пока конфиг не применён, управляют только root и владелец.
+- uid соединения — `LOCAL_PEERCRED`. Группы из `LOCAL_PEERCRED` не используются: их не больше 16, а у администратора macOS их часто больше. Членство проверяется через Directory Services вызовом `mbr_check_membership` (cgo, `membership.h`; uid и имя группы → UUID через `mbr_uid_to_uuid` и `mbr_identifier_to_uuid`), только для изменяющих методов. Учитывает вложенные группы, изменения членства видны сразу, 0,1–2 мс, root не нужен (M0, G1, G5, G7). `dsmemberutil` не используется: код выхода у «член» и «не член» одинаковый (M0, G2).
+- `control_group` — имя группы в `wgplex.yaml`, по умолчанию `admin`. Несуществующая группа (`ENOENT` при поиске имени; у числового gid она неотличима от «не член») — ошибка конфига; пока конфиг не применён, управляют только root и владелец.
 - Ключи не попадают в логи и ответы API (как в Wirefork 9.4).
 
 ## 6. Туннели
@@ -131,14 +133,30 @@ wgplex — отдельный продукт на основе кода Wirefork
 - домены сервисов из всех правил (`=example.com` — зона `example.com`);
 - `dns_domains` туннелей.
 
+Ключ сервиса (M0, D1–D7, D11):
+
+| Поле | Значение |
+|---|---|
+| `ServerAddresses` | `[127.0.0.1]` |
+| `ServerPort` | порт резолвера (ниже) |
+| `SupplementalMatchDomains` | зоны |
+| `SupplementalMatchOrders` | для каждой зоны — `1`: при той же зоне у чужого VPN выигрывает wgplex (без явного порядка победитель случаен, D7). Что меньшее значение выигрывает, spike не проверил — проверка M4 |
+| `SupplementalMatchDomainsNoSearch` | `1`: иначе все зоны попадают в search list, короткие имена и каждый сброс кэша дают сотни запросов |
+
+- Других ключей (`Setup:`, `State:/Network/Global/DNS`) не нужно.
+- Запись — через SystemConfiguration (`SCDynamicStoreSetValue`, cgo), не `scutil`: `scutil` принимает не больше 99 значений поля и молча обрезает длинные строки (M0, D2). Запись 500 зон — 10–15 мс, ответы по новым зонам — через ~0,1 с.
+- **Лимит — 1000 зон**, больше — ошибка конфига. Около 4000 зон система молча оставляет прежнюю DNS-конфигурацию (предел зависит от длины имён, M0, D9). После записи демон проверяет разбором `scutil --dns`, что резолверы для зон появились (приватный `dns_configuration_copy` не используется: недокументированный ABI, `dnsinfo.h` под APSL); нет — ошибка в `status.get` и лог.
+- Конкретная зона выигрывает у `[""]` чужого VPN при любом порядке публикации: решает самый длинный суффикс (M0, D5). Более длинная зона чужого сервиса (`www.example.com` против нашей `example.com`) забирает свои имена — ограничение (18).
+- Резолвер отвечает на любые типы запросов, в том числе `SVCB _dns.resolver.arpa` (DDR от mDNSResponder, M0, D12).
+
 Остальные имена mDNSResponder резолвит сам, мимо демона. Следствия:
 
-- сбой или перезапуск демона ломает только имена из правил, а не весь DNS машины;
+- сбой или перезапуск демона ломает только имена из правил, а не весь DNS машины: они не резолвятся около 60 с (к исходному DNS сами не уходят, M0, D10), остальные работают. Поэтому при остановке демон снимает ключ первым делом — это сразу освобождает и зависшие запросы. Ключ постоянный, не `SCDynamicStoreAddTemporaryValue`: при падении демона имена из правил лучше минуту не резолвить, чем пустить мимо туннеля (как в Wirefork);
 - конкретный supplemental-домен точнее `[""]` чужого VPN — имена из правил работают и рядом с ним (в Wirefork они шли мимо);
 - в резолвер приходят и поддомены зон, которым правило не подходит (`mail.google.com` при `=google.com`), и имена правил в `fallback: default` — они уходят исходным DNS системы, как в Wirefork;
 - захват — если список зон не пуст; меняется при `config.reload`.
 
-**Адрес резолвера** — `127.0.0.1` на нестандартном порту (ключ `ServerPort`), порт — константа. `127.0.0.1:53` часто занят: dnsmasq (в том числе Laravel Valet для `*.test`), sing-box, dnscrypt-proxy, unbound, AdGuard Home. На своём порту wgplex работает рядом с ними: благодаря точечному захвату имена из правил идут в wgplex, остальные — тому, кто на `:53`. Работа `ServerPort` с supplemental-резолвером — spike (20).
+**Адрес резолвера** — `127.0.0.1` на нестандартном порту (ключ `ServerPort`), порт — константа. `127.0.0.1:53` часто занят: dnsmasq (в том числе Laravel Valet для `*.test`), sing-box, dnscrypt-proxy, unbound, AdGuard Home. На своём порту wgplex работает рядом с ними: благодаря точечному захвату имена из правил идут в wgplex, остальные — тому, кто на `:53`. `ServerPort` у supplemental-резолвера работает (M0, D3); вид `127.0.0.1.<порт>` в `ServerAddresses` — нет (D11).
 
 **Порт занят** — демон не падает (иначе `KeepAlive` гонял бы перезапуски): работает без правил по доменам (динамических адресов и захвата нет, CIDR-правила работают), ошибка — в `status.get` и в лог; повтор — при `config.reload`.
 
@@ -170,7 +188,7 @@ control_group: admin   # кто, кроме root и владельца, упра
 
 ### 10.3. Шаблон
 
-Формула в `post_install` создаёт каталог (`0700`) и `wgplex.yaml` (`0600`) из шаблона, если каталога нет. Шаблон целиком закомментирован (пустой конфиг валиден: туннелей нет, DNS не захватывается): что положить в каталог и пример 9.1 Wirefork. Обновление формулы существующий каталог не трогает.
+Формула в `post_install_steps` (`post_install` в Homebrew 7 устарел, M0, H2, H18) создаёт каталог (`0700`) и `wgplex.yaml` (`0600`) из шаблона, если каталога нет (`unless_path_exists`), а также `var/wgplex`, `var/log/wgplex` и `var/run` (4.1). Шаблон целиком закомментирован (пустой конфиг валиден: туннелей нет, DNS не захватывается): что положить в каталог и пример 9.1 Wirefork. Обновление формулы существующий каталог не трогает.
 
 ## 11. Состояние
 
@@ -244,7 +262,8 @@ JSON-RPC 2.0 на `github.com/mrFokin/jrpc/v2` (Echo v5), HTTP поверх unix
 
 ## 15. Логи
 
-- `log/slog`; демон сам пишет `<prefix>/var/log/wgplex/wgplex.log` и подменяет им stderr (`dup2` на fd 2 — туда попадают и паники Go).
+- `log/slog`; демон сам пишет `<prefix>/var/log/wgplex/wgplex.log` и подменяет им stdout и stderr (`dup2` на fd 1 и 2 — туда попадают и паники Go; иначе после ротации fd 1 писал бы в архив).
+- До `dup2` stderr и stdout — тот же файл через `log_path`/`error_log_path` формулы (16.4): без них launchd отдаёт `/dev/null`, и ранние ошибки теряются (M0, H5).
 - Ротация в демоне: при 5 МБ файл переименовывается в `wgplex.log.1` (старый `.1` — в `.2`, `.2` удаляется), открывается новый. newsyslog, pid-файл и SIGUSR1 не нужны.
 - Файл `0644`: его читает окно приложения у любого пользователя. Имена из DNS-запросов — только на уровне debug (`-v`), как в Wirefork.
 
@@ -256,7 +275,7 @@ JSON-RPC 2.0 на `github.com/mrFokin/jrpc/v2` (Echo v5), HTTP поверх unix
 |---|---|---|
 | `mrFokin/wgplex` | движок | тег `vX.Y.Z`, `wgplex-X.Y.Z-darwin-universal.tar.gz` в релизе |
 | `mrFokin/wgplex-app` | приложение (17) | тег `vX.Y.Z`, `Wgplex-X.Y.Z.dmg` в релизе |
-| `mrFokin/homebrew-tap` | формула `wgplex`, позже cask `wgplex-app` | — |
+| `mrFokin/homebrew-tap` | формула `wgplex`, cask `wgplex-app` (A5) | — |
 
 - Все публичные, лицензия MIT (у `wireguard-go` — MIT, у `gvisor` — Apache-2.0, конфликтов нет).
 - Версии движка и приложения независимы, semver, начало — `0.1.0`. Совместимость — `api_version` (14): приложение знает минимальную нужную.
@@ -265,6 +284,7 @@ JSON-RPC 2.0 на `github.com/mrFokin/jrpc/v2` (Echo v5), HTTP поверх unix
 ### 16.2. Сборка
 
 - `make check` — `gofmt -l` (пусто), `go vet ./...`, `go test ./...`.
+- Сборка с cgo (`CGO_ENABLED=1`: SystemConfiguration для DNS, `membership.h` для прав, 5 и 8) — нужны Command Line Tools; срез `amd64` — `CC="clang -arch x86_64"`. У пользователя бинарник готовый (16.4).
 - `make build` — `build/wgplex`: `GOARCH=arm64` и `amd64`, склейка `lipo -create`, ad-hoc подпись (`codesign --sign -`: линкер подписывает только срез arm64), версия — `-ldflags -X main.version=…`. Запуск для разработки: `sudo ./build/wgplex daemon` (пути — по архитектуре, 3).
 - `make release` — `make check`, `make build`, архив `wgplex-X.Y.Z-darwin-universal.tar.gz`, sha256.
 
@@ -272,15 +292,19 @@ JSON-RPC 2.0 на `github.com/mrFokin/jrpc/v2` (Echo v5), HTTP поверх unix
 
 1. Поднять версию, `make release`, тег, `gh release create` с архивом.
 2. В tap — новые `url`, `sha256`, `version` формулы, коммит.
-3. Проверка: `brew upgrade wgplex`, `brew test wgplex`, `wgplex version`.
+3. Проверка: `brew upgrade wgplex`, `sudo brew services restart --sudo-service-user=root wgplex`, `brew list --versions wgplex` — одна версия, `brew test wgplex`, `wgplex version`.
 
 ### 16.4. Формула
 
 - `wgplex` в `mrFokin/homebrew-tap` (`brew install mrfokin/tap/wgplex`): **готовый universal-бинарник** из релиза, Go у пользователя не нужен, установка — секунды. Так принято в собственных tap (например, `hashicorp/tap`); собрать самому — `make build` из репозитория. Формулы карантин не получают, Gatekeeper бинарник не проверяет. `depends_on :macos`.
-- `service do`: `run [opt_bin/"wgplex", "daemon"]`, `require_root true`, `keep_alive true`.
-- `caveats`: `sudo brew services start wgplex`; где конфиг; что root запускает бинарник из prefix владельца (5).
+- Установка — только по полному имени `brew install mrfokin/tap/wgplex`: Homebrew 7 загружает формулы стороннего tap только при доверии, полное имя доверяет сам (иначе — `brew trust mrfokin/tap`, M0, H1).
+- `service do`: `run [opt_bin/"wgplex", "daemon"]`, `require_root true`, `keep_alive successful_exit: false` (4.1), `log_path` и `error_log_path` — `var/"log/wgplex/wgplex.log"` (15).
+- **Запуск — `sudo brew services start --sudo-service-user=root wgplex`.** Без `--sudo-service-user=root` brew делает root владельцем бинарника и симлинков формулы, после чего `brew upgrade`, `cleanup` и `uninstall` от пользователя оставляют мусор или падают (M0, H3, H8–H13); с опцией владельцы не меняются, демон всё равно root (H16). Защиты бинарника от владельца prefix это не убирает — её нет и так (5). Опция нужна при каждом `start` и `restart`.
+- **`brew upgrade` службу не перезапускает** (M0, H8): новая версия — после `sudo brew services restart --sudo-service-user=root wgplex`.
+- `brew services` без `sudo` управляет не службой root, а копией от пользователя (M0, H7).
+- `caveats`: команда запуска с `--sudo-service-user=root` (строка, которую brew добавляет сам, — без опции), перезапуск после `upgrade`, `brew services` только через `sudo`; где конфиг; что root запускает бинарник из prefix владельца (5).
 - `test do`: `wgplex version`, `wgplex check` на шаблоне.
-- Удаление: `sudo brew services stop wgplex`, `brew uninstall wgplex`. Каталог конфига остаётся (`etc` brew не удаляет). При остановке демон снимает маршруты и захват DNS (как в Wirefork).
+- Удаление — строго в этом порядке: `sudo brew services stop wgplex` (выгружает службу и удаляет plist), затем `brew uninstall wgplex`. Наоборот — plist остаётся, а `brew services` его уже не видит: `uninstall` снимает доверие к формуле (M0, H17). Каталог конфига остаётся (`etc` brew не удаляет), `var/wgplex` и `var/log/wgplex` — тоже (файлы root, `sudo rm`). При остановке демон снимает маршруты и захват DNS (как в Wirefork).
 - CI — вне v1.
 
 ## 17. Приложение Wgplex.app
@@ -289,14 +313,16 @@ JSON-RPC 2.0 на `github.com/mrFokin/jrpc/v2` (Echo v5), HTTP поверх unix
 
 ### 17.1. Поставка
 
-- `.dmg` в релизах GitHub (universal, ad-hoc подпись) — основной канал; cask `wgplex-app` с `depends_on formula: "mrfokin/tap/wgplex"` — по желанию.
-- Developer ID пока нет: первый запуск — «Системные настройки → Конфиденциальность и безопасность → Всё равно открыть». После обновления разрешение может понадобиться снова (README). С подписью меняется только этап сборки.
-- Обновления: раз в сутки запрос последнего релиза через GitHub API (если включено «Проверять обновления»). Новая версия — одно уведомление на версию (17.6) и баннер в окне до обновления; щелчок открывает страницу релиза. Sparkle не используется.
+- **Основной канал — cask `wgplex-app`** в `mrFokin/homebrew-tap`: `depends_on formula: "mrfokin/tap/wgplex"`, `depends_on macos: ">= :ventura"`, `.dmg` из релиза GitHub. Запасной — тот же `.dmg` вручную (universal, ad-hoc подпись).
+- Установка: `brew trust mrfokin/tap`, затем `brew install --cask mrfokin/tap/wgplex-app`. Homebrew 7 доверяет по полному имени только самому cask, а формулу-зависимость из того же tap без `brew trust` не загружает (M0, K4, K11).
+- Developer ID пока нет. Первый запуск (M0, K6, K7): диалог «"Wgplex" Not Opened — Apple could not verify…», кнопка «Done» (не «Move to Trash»); затем «Системные настройки → Конфиденциальность и безопасность» → «"Wgplex" was blocked to protect your Mac» → «Open Anyway» → пароль администратора. Тексты — в README. С подписью меняется только этап сборки.
+- **Обновление через `brew upgrade --cask` повторного разрешения не требует:** Homebrew сохраняет каталог `.app` и переносит одобрение (M0, K8, K9). Ручная замена из `.dmg` — требует «Open Anyway» снова (K10).
+- Обновления: раз в сутки запрос последнего релиза через GitHub API (если включено «Проверять обновления»). Новая версия — одно уведомление на версию (17.6) и баннер в окне до обновления: команда `brew upgrade --cask wgplex-app` с копированием и ссылка на страницу релиза. Sparkle не используется.
 
 ### 17.2. Движок
 
 - Сокет ищется по `/opt/homebrew/var/run/wgplex.sock`, затем `/usr/local/var/run/wgplex.sock`; переопределение — в настройках.
-- Три состояния без движка: сокета нет — «wgplex не установлен», «Как установить…»; сокет не отвечает — «Демон не запущен», команда `sudo brew services start wgplex` с копированием; `api_version` меньше нужной — «Обновите wgplex: `brew upgrade wgplex`».
+- Три состояния без движка: сокета нет — «wgplex не установлен», «Как установить…»; сокет не отвечает — «Демон не запущен», команда `sudo brew services start --sudo-service-user=root wgplex` с копированием; `api_version` меньше нужной — «Обновите wgplex»: `brew upgrade wgplex` и `sudo brew services restart --sudo-service-user=root wgplex`.
 - «Выход» закрывает только приложение: туннели принадлежат машине. Остановка демона — `brew services`, не GUI.
 
 ### 17.3. Меню
@@ -335,7 +361,7 @@ JSON-RPC 2.0 на `github.com/mrFokin/jrpc/v2` (Echo v5), HTTP поверх unix
 
 ### 17.5. Автозапуск
 
-- `SMAppService.mainApp` (видно в «Объектах входа» под своим именем). Переживает ли регистрация обновление с ad-hoc подписью — spike (20); если нет — plist в `~/Library/LaunchAgents`.
+- `SMAppService.mainApp` (видно в «Объектах входа» → «Open at Login» одной записью под своим именем). С ad-hoc подписью регистрация — сразу `enabled`, без одобрения; система один раз показывает уведомление. Регистрация переживает обновление бандла с другим cdhash и перезагрузку — запись та же (M0, S1–S5). После `unregister` запись остаётся выключенной, повторная регистрация уведомления не даёт (S6).
 - По умолчанию выключен. При первом запуске — один вопрос «Запускать Wgplex при входе?» и запрос разрешения на уведомления.
 - Каждый пользователь включает сам. Для всех пользователей сразу — команда для админа в README (plist в `/Library/LaunchAgents`), без привилегированного кода в приложении.
 
@@ -358,16 +384,17 @@ JSON-RPC 2.0 на `github.com/mrFokin/jrpc/v2` (Echo v5), HTTP поверх unix
 
 ### 17.7. Сборка
 
-Swift Package, macOS 13+, без сторонних зависимостей. `make dmg` — `swift build -c release --arch arm64 --arch x86_64`, бандл, ad-hoc подпись, `hdiutil create`; релиз — `gh release create` с `.dmg` (16.1). Код — копия `app/` Wirefork (клиент RPC, модели статуса) без чтения и отправки конфига; меню переписывается на AppKit. Логика (клиент, представление статуса, вычисление уведомлений) — в библиотечном таргете под XCTest, с фейковым сервером API.
+Swift Package, macOS 13+, без сторонних зависимостей. `make dmg` — `swift build -c release --arch arm64 --arch x86_64`, бандл, ad-hoc подпись с постоянным требованием `codesign --sign - -r='designated => identifier "io.github.mrfokin.wgplex"'` (иначе требование — cdhash, и при `brew upgrade --cask` Homebrew пишет «signer changed» и не переносит одобрение, M0, K8, K9), `hdiutil create`; релиз — `gh release create` с `.dmg` (16.1). Код — копия `app/` Wirefork (клиент RPC, модели статуса) без чтения и отправки конфига; меню переписывается на AppKit. Логика (клиент, представление статуса, вычисление уведомлений) — в библиотечном таргете под XCTest, с фейковым сервером API.
 
 ## 18. Ограничения v1
 
+- Не больше 1000 зон захвата DNS (8). Зона чужого VPN, более длинная, чем наша (`www.example.com` при нашей `example.com`), забирает свои имена.
 - Ограничения DNS Wirefork (16): DoH в браузере, iCloud Private Relay, scoped-запросы, `/etc/resolver/*`, CNAME на сторонний CDN.
 - Туннели и правила общие: трафик всех пользователей машины идёт по конфигу владельца.
 - Root запускает бинарник из каталога владельца prefix (5).
 - Уведомления — только пока у пользователя запущено приложение.
 - Wirefork и wgplex на одной машине друг другу маршрутов не удаляют (свои метки, 4.1), но их правила на одних префиксах конфликтуют, а захват DNS у каждого свой: одновременная работа не поддерживается.
-- Без Developer ID приложение каждый раз разрешается вручную.
+- Без Developer ID приложение разрешается вручную при установке и при каждой ручной замене из `.dmg`; `brew upgrade --cask` — без этого.
 - Остальные ограничения маршрутизации — как в Wirefork 16.
 
 ## 19. Вне v1
@@ -384,15 +411,18 @@ Swift Package, macOS 13+, без сторонних зависимостей. `m
 Этап M0, в VM tart через `scripts/vm.sh` (CLAUDE.md, «Root и система»). Подготовка:
 
 - образ `wgp-base`: Homebrew, гостевой агент tart (общий буфер обмена с хостом), вход по SSH только по ключу, `sudo` для `admin`;
-- bridged-сеть поверх Wi‑Fi хоста; если не работает — NAT и DNS VM на публичный резолвер;
+- bridged-сеть поверх Wi‑Fi хоста; NAT tart — только при выключенных туннелях хоста: трафик VM идёт по маршрутам хоста, адреса за utun недоступны (M0, B3);
 - WireGuard-сервер во второй VM — тестовый стенд для этапа здоровья и failover, не для M0.
 
 Проверки:
 
 1. **Точечный захват DNS:** `SupplementalMatchDomains` со списком зон (сотни доменов), приоритет перед `[""]` чужого VPN, `ServerPort` с нестандартным портом.
-2. **`dsmemberutil checkmembership`:** вложенные группы, время вызова, поведение для несуществующих uid и группы.
+2. **`dsmemberutil checkmembership`:** вложенные группы, время вызова, поведение для несуществующих uid и группы. Итог — `mbr_check_membership` (5).
 3. **`SMAppService.mainApp` с ad-hoc подписью:** регистрация, обновление на новую сборку, перелогин.
 4. **Неподписанный cask на Homebrew 7** из стороннего tap: ставится ли, что при `brew upgrade --cask`.
+5. **Формула со службой от root:** `service do … require_root true`, `sudo brew services start`, затем `upgrade`, `uninstall`, `cleanup` от пользователя — владельцы путей, перезапуск службы, stderr до `dup2`.
+
+Факты — `docs/plans/m0-spike.md`, «Факты spike».
 
 ## 21. План реализации
 
@@ -405,10 +435,10 @@ Swift Package, macOS 13+, без сторонних зависимостей. `m
 | M0 | Spike | образ `wgp-base`, `scripts/vm.sh`, мост; проверки 20; правки дизайна по фактам | факты в плане этапа |
 | M1 | Перенос | копия `internal/*` и `cmd/` из `master` Wirefork; один бинарник `cmd/wgplex`; свои имена, пути, `RTF_PROTO2`, UUID; prefix при запуске (3); удалены приложение, pkg, console user, переключатели на пользователя; `Makefile` | `make check` на перенесённых тестах; демон запускается в VM |
 | M2 | Системный режим | чтение каталога конфига демоном, права файлов (5), `config.reload`, `state.json` (11), старт с битым конфигом, `wgplex check`, логи с ротацией (15) | unit; VM: перезагрузка без входа — туннели подняты |
-| M3 | Доступ и API | права по методам, `control_group` и `dsmemberutil`, ошибка `5`, поля `status.get`, `tunnel.enable`/`disable`, пауза и `down -all` (12), `-json`, код выхода `3`, `docs/api.md` | unit; VM: второй пользователь — член группы и не член |
-| M4 | Точечный DNS | захват по зонам, `ServerPort`, запасной режим при занятом порте (8) | VM: имена из правил и вне их, рядом с dnsmasq на `:53` |
+| M3 | Доступ и API | права по методам, `control_group` и `mbr_check_membership`, ошибка `5`, поля `status.get`, `tunnel.enable`/`disable`, пауза и `down -all` (12), `-json`, код выхода `3`, `docs/api.md` | unit; VM: второй пользователь — член группы и не член |
+| M4 | Точечный DNS | захват по зонам через SystemConfiguration (cgo), `ServerPort`, `NoSearch`, `SupplementalMatchOrders` (направление — проверка в VM), лимит зон и проверка `scutil --dns`, запасной режим при занятом порте (8) | VM: имена из правил и вне их, рядом с dnsmasq на `:53` |
 | M5 | Failover | возврат на приоритетный туннель (9); стенд — WireGuard-сервер во второй VM | VM: отказ и восстановление сервера, возврат через 5 минут |
-| M6 | Поставка | `make release`, `mrFokin/homebrew-tap`, формула (16), шаблон в `post_install`; релиз `0.1.0` | VM: `brew install`, `upgrade`, `uninstall`; финальная проверка на хосте |
+| M6 | Поставка | `make release`, `mrFokin/homebrew-tap`, формула (16), шаблон и каталоги в `post_install_steps`; релиз `0.1.0` | VM: `brew install` на чистом prefix (каталоги `var/*` — владелец пользователь), `upgrade`, `uninstall`, `brew services restart` без `sudo` (копия выходит с кодом 0 и не перезапускается); финальная проверка на хосте |
 
 ### 21.2. Приложение (`wgplex-app`, этапы `a<N>`)
 
@@ -419,7 +449,7 @@ Swift Package, macOS 13+, без сторонних зависимостей. `m
 | A2 | Меню | `NSStatusItem`, иконка, галочки туннелей, пауза, строка проблемы (17.3) |
 | A3 | Окно | туннели, правила, диагностика, логи, панель действий, баннер, папка конфига, настройки (17.4) |
 | A4 | Фон | автозапуск (17.5), уведомления (17.6), проверка обновлений (17.1) |
-| A5 | Поставка | `make dmg`, релиз `0.1.0`, cask по желанию |
+| A5 | Поставка | `make dmg`, релиз `0.1.0`, cask `wgplex-app` в tap |
 
 ### 21.3. Зависимости и порядок
 
