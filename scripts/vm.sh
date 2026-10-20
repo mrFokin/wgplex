@@ -103,7 +103,8 @@ vm_running() {
 # tart_exec_ok checks `tart exec <vm> true` with a time limit.
 tart_exec_ok() {
 	guard "$1"
-	perl -e 'alarm shift; exec @ARGV' 15 "$TART" exec "$1" true >/dev/null 2>&1
+	# Subshell: keeps bash's "Alarm clock" job notice out of the output.
+	(perl -e 'alarm shift; exec @ARGV' 15 "$TART" exec "$1" true >/dev/null 2>&1) 2>/dev/null
 }
 
 # ---- guarded tart mutations -------------------------------------------------
@@ -312,16 +313,23 @@ cmd_up() {
 	ip="$(wait_ip "$vm")"
 	wait_sshd "$vm" "$ip"
 	key_ok "$ip" || die "$vm: key login to $ip failed"
-	if [[ "$net" == nat ]]; then
-		log "setting VM DNS to 1.1.1.1 9.9.9.9"
-		rssh "$ip" bash -s <<'EOF'
+	[[ "$net" == nat ]] && set_vm_dns "$ip" 1.1.1.1 9.9.9.9
+	printf '%s\n' "$ip"
+}
+
+# set_vm_dns sets the DNS servers of every network service in the VM
+# ("empty" restores DHCP-provided DNS). The NAT DNS proxy on the host goes
+# through the host resolver and is unreliable when the host DNS is captured.
+set_vm_dns() { # <ip> <server>... | empty
+	local ip="$1"
+	shift
+	log "setting VM DNS to $*"
+	rssh "$ip" bash -s "$@" <<'EOF'
 set -euo pipefail
 networksetup -listallnetworkservices | tail -n +2 | sed 's/^\*//' | while IFS= read -r svc; do
-	sudo -n networksetup -setdnsservers "$svc" 1.1.1.1 9.9.9.9 </dev/null
+	sudo -n networksetup -setdnsservers "$svc" "$@" </dev/null
 done
 EOF
-	fi
-	printf '%s\n' "$ip"
 }
 
 need_vm() { # <suffix> -> name of an existing VM
@@ -425,10 +433,11 @@ cmd_base() {
 	else
 		log "reusing existing $BUILD"
 	fi
-	# NAT for the build: it does not depend on the Wi-Fi bridge and leaves
-	# the image DNS settings untouched.
+	# Bridged, like the checks: with tunnels on the host, tart NAT sends VM
+	# traffic into the host routing table, and hosts routed into a utun
+	# (github.com) are unreachable from the VM.
 	if ! vm_running "$BUILD"; then
-		tart_start "$BUILD" nat 0
+		tart_start "$BUILD" bridged 0
 	fi
 	local ip
 	ip="$(wait_ip "$BUILD")"
@@ -490,9 +499,11 @@ if sudo -n test -f /etc/sudoers.d/admin 2>/dev/null; then
 fi
 SUDO=(sudo -n)
 sudo -n true 2>/dev/null || SUDO=(sudo -S -p '')
+# No global 'visudo -c': the vanilla image ships sudoers.d/admin-nopasswd
+# with mode 0640, which it rejects although sudo accepts the file.
 tmp="$(mktemp)"
 echo 'admin ALL=(ALL) NOPASSWD: ALL' >"$tmp"
-printf '%s\n' "$pw" | "${SUDO[@]}" sh -c "visudo -cf '$tmp' && mkdir -p /etc/sudoers.d && install -m 0440 -o root -g wheel '$tmp' /etc/sudoers.d/admin && { visudo -c || { rm -f /etc/sudoers.d/admin; exit 1; }; }"
+printf '%s\n' "$pw" | "${SUDO[@]}" sh -c "visudo -cf '$tmp' && mkdir -p /etc/sudoers.d && install -m 0440 -o root -g wheel '$tmp' /etc/sudoers.d/admin"
 rm -f "$tmp"
 sudo -n true
 EOF
@@ -511,8 +522,8 @@ if [ "$(sudo -n cat "$f" 2>/dev/null || true)" != "$want" ]; then
 fi
 sudo -n sshd -t
 sudo -n sshd -T | grep -Ei '^(passwordauthentication|kbdinteractiveauthentication) '
-# sshd is socket-activated on macOS; kickstart is a no-op when it is idle.
-sudo -n launchctl kickstart -k system/com.openssh.sshd 2>/dev/null || true
+# sshd is socket-activated on macOS: each connection reads the config anew,
+# no restart needed (kickstart -k left it unreachable for a while).
 EOF
 	log "sshd: checking that password login is rejected"
 	local out

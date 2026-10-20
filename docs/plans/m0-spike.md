@@ -146,9 +146,18 @@ docs/design.md           правки по фактам (шаг 5, после с
 
 ## Факты spike
 
-(заполняется по ходу)
+### Образ и сеть (2026-10-20, `vm.sh base`, VM `wgp-check-smoke`)
+
+- B1. **Vanilla-образ:** гостевого агента tart нет; `/etc/sudoers.d/admin-nopasswd` с правами `0640` — `sudo` его принимает, а `visudo -c` отвергает («bad permissions»): общий `visudo -c` в `vm.sh` не делаем, свой файл проверяется `visudo -cf`.
+- B2. **sshd в macOS запускается на каждое соединение** и читает конфиг заново; `launchctl kickstart -k system/com.openssh.sshd` делает его недоступным на время («Connection timed out during banner exchange») — перезапуск не нужен. Вход паролем после drop-in: `Permission denied (publickey)`.
+- B3. **NAT tart при туннелях хоста не годится.** DNS VM (`192.168.64.1`) идёт через резолвер хоста, захваченный Wirefork: `dig` то отвечает, то нет, системный резолвер VM — таймаут. Трафик к адресам, которые хост маршрутизирует в туннель (`github.com` → `utun9`), из VM не проходит (`Failed to connect … port 443`), публичный DNS этого не лечит. Сборка образа и проверки — в мосте; `--nat` — только при выключенных туннелях хоста.
+- B4. **Мост `en0` работает:** VM получает адрес из сети хоста (`192.168.10.19`), DNS и шлюз — роутер `192.168.10.1`, `github.com` — 200. `vm.sh up` от клона до SSH — 13 с; `tart ip --resolver=arp` находит адрес сразу.
+- B5. **Гостевой агент** — релиз GitHub `tart-guest-agent` 0.15.0 (LaunchAgent `--run-agent`): `tart exec` работает в VM без окна, вызов — 0,36 с.
+- B6. **Homebrew 7.0.10** ставится по SSH без tty (`NONINTERACTIVE=1`), Command Line Tools 27.0 — сам через `softwareupdate`.
+- B7. `tart run` из `vm.sh up` (`nohup … &`) переживает конец вызова Bash-инструмента: VM работает дальше.
 
 ## Ход работы
 
 - [x] План и решения 1–6 утверждены (2026-10-20)
-- [ ] Шаг 2 — `scripts/vm.sh`, ревью
+- [x] Шаг 2 — `scripts/vm.sh` (767044b), ревью: блокер B1 — `tart clone` чистит OCI-кэш при нехватке места (`TART_NO_AUTO_PRUNE=1`), замечания — штатное выключение перед клоном, таймаут `tart exec`, `vm_running` без `grep -q` под pipefail, `up` с другими флагами — ошибка, подсказка `--nat`; исправлено (8585397). Решения сверх плана: сборка образа в NAT; гостевой агент — из релиза GitHub (в vanilla его нет), LaunchAgent `--run-agent`
+- [ ] Шаг 3 — `vm.sh base`, проверка сети: образ собран, факты B1–B7; правки `vm.sh` по ходу (оркестратор): без общего `visudo -c` (B1), без `kickstart` sshd (B2), сборка в мосте (B3), `set_vm_dns` для `--nat`. Осталось: буфер обмена (пользователь)
