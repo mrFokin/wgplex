@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -19,6 +22,10 @@ import (
 // owns the WireGuard tunnels, the routing table and the local DNS resolver
 // (design 4.1). It logs to stderr (-v: debug, including verbose
 // wireguard-go) and returns the exit code.
+//
+// Not root, it reports to stderr and exits 0: "brew services start" without
+// sudo installs a LaunchAgent of the user, and launchd must not restart it
+// (design 4.1).
 func daemonMain(cmd command) int {
 	level := slog.LevelInfo
 	if cmd.Verbose {
@@ -26,8 +33,8 @@ func daemonMain(cmd command) int {
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	if os.Geteuid() != 0 {
-		log.Error("wgplex daemon must run as root")
-		return 1
+		log.Error("wgplex daemon must run as root: sudo brew services start --sudo-service-user=root wgplex")
+		return 0
 	}
 	return runDaemon(log, cmd.Socket)
 }
@@ -54,7 +61,7 @@ func runDaemon(log *slog.Logger, socket string) int {
 
 	ln, err := rpc.Listen(socket)
 	if err != nil {
-		log.Error("rpc socket", "err", err)
+		logListenError(log, socket, err)
 		return 1
 	}
 
@@ -126,6 +133,18 @@ loop:
 	d.shutdown()
 	log.Info("stopped")
 	return code
+}
+
+// logListenError reports a failure to listen on socket. The daemon creates
+// no directories (design 4.1): a missing directory of the socket gets its
+// own message.
+func logListenError(log *slog.Logger, socket string, err error) {
+	dir := filepath.Dir(socket)
+	if _, serr := os.Stat(dir); errors.Is(serr, fs.ErrNotExist) {
+		log.Error("rpc socket: directory "+dir+" does not exist; the daemon does not create it", "socket", socket)
+		return
+	}
+	log.Error("rpc socket", "err", err)
 }
 
 // allow lets only root use the RPC (M1: per-method rights come in M3).

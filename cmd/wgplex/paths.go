@@ -1,5 +1,12 @@
 package main
 
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+)
+
 // paths are the default paths of wgplex, derived from the Homebrew prefix
 // (design 3). On M1 only these two are used.
 type paths struct {
@@ -15,16 +22,37 @@ type paths struct {
 // The first "/Cellar/" counts; the prefix has no trailing "/". An unknown
 // goarch gives /opt/homebrew.
 func brewPrefix(exe, goarch string) string {
-	panic("not implemented")
+	if i := strings.Index(exe, "/Cellar/"); i >= 0 {
+		return exe[:i]
+	}
+	return archPrefix(goarch)
+}
+
+// archPrefix is the default Homebrew prefix for goarch (design 3).
+func archPrefix(goarch string) string {
+	if goarch == "amd64" {
+		return "/usr/local"
+	}
+	return "/opt/homebrew"
 }
 
 // pathsFor derives the default paths from prefix (design 3).
 func pathsFor(prefix string) paths {
-	panic("not implemented")
+	return paths{
+		Socket:    filepath.Join(prefix, "var", "run", "wgplex.sock"),
+		ConfigDir: filepath.Join(prefix, "etc", "wgplex"),
+	}
 }
 
 // defaultPrefix is brewPrefix of os.Executable after EvalSymlinks and
 // runtime.GOARCH; on an error of either — the goarch default.
 func defaultPrefix() string {
-	panic("not implemented")
+	exe, err := os.Executable()
+	if err == nil {
+		exe, err = filepath.EvalSymlinks(exe)
+	}
+	if err != nil {
+		return archPrefix(runtime.GOARCH)
+	}
+	return brewPrefix(exe, runtime.GOARCH)
 }
