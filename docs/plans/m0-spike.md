@@ -203,6 +203,31 @@ docs/design.md           правки по фактам (шаг 5, после с
 - G6. Работает без root (admin и обычный пользователь — те же ответы).
 - G7. **`mbr_check_membership` (cgo)** — те же ответы, несуществующая группа — `ENOENT` при поиске имени; 0,14–2 мс, без root.
 
+### Проверка 3 — `SMAppService.mainApp` с ad-hoc подписью (2026-10-20, `wgp-check-gui`)
+
+Помощники — scratchpad `m0-spike/gui/` (`main.swift`, `SMSpike.app` сборки 1 и 2, `SMSpikeCask.app` 1–4, `.dmg`).
+
+- S1. `open -a … --args` по SSH работает в GUI-сессии `admin`. `register()` — без ошибки, статус сразу `enabled` (не `requiresApproval`).
+- S2. `sfltool dumpbtm`: одна запись — Name SMSpike, Type app, Developer Name (null), Disposition `[enabled, allowed, notified]`, Generation 1. BTM показывает уведомление «“SMSpike” will open automatically when you log in…».
+- S3. После перезагрузки с автовходом приложение запускается само.
+- S4. **Обновление как из `.dmg`** (`rm -rf` бандла, `ditto` сборки 2 с другим cdhash): статус `enabled` без повторной регистрации, после перезагрузки запускается сборка 2; в BTM та же запись (UUID прежний, Generation 1 → 2), нового уведомления нет.
+- S5. Пользователь: было уведомление (одно, закрыто щелчком); в «Open at Login» — одна запись SMSpike; в «App Background Activity» SMSpike нет.
+- S6. `unregister()` → `notRegistered`, запись в BTM остаётся `[disabled, allowed, notified]`; повторный `register()` — `enabled` без уведомления.
+
+### Проверка 4 — неподписанный cask из стороннего tap (2026-10-20, `wgp-check-gui`, Homebrew 7.0.10)
+
+- K1. Cask `smspike` (ad-hoc `SMSpikeCask.app` в `.dmg`, раздача по http с хоста) в локальном tap `mrfokin/spike`.
+- K2. **Gatekeeper в образе — режим «App Store»:** `sudo spctl --master-enable` → `assessments enabled`, но `developer id disabled`; «App Store & Known Developers» из CLI не включить (`spctl --enable --label "Developer ID"` — «This operation is no longer supported», код 4) — только в настройках.
+- K3. `brew install --cask mrfokin/spike/smspike` — код 0, о подписи ни слова; на `.app` карантин `0181;…;Homebrew Cask`, `spctl --assess` — `rejected`. `--no-quarantine` в Homebrew 7 нет.
+- K4. **Доверие к tap:** установка по полному имени доверяет cask сама; `brew tap` не доверяет; без доверия по короткому имени, `brew info` и даже `brew untap` — «Refusing to load cask … from untrusted tap».
+- K5. `brew audit --cask` проходит; `brew style` — «Add depends_on :macos»; `--strict --online` — нет минимальной версии macOS (`depends_on macos: ">= :ventura"`), livecheck, homepage. Проверка подписи — только в `--new` (требование `homebrew/cask`); сторонний tap не блокирует.
+- K6. **Первый запуск из Finder:** “"SMSpikeCask" Not Opened” — “Apple could not verify "SMSpikeCask" is free of malware that may harm your Mac or compromise your privacy.”, кнопки «Move to Trash» (основная) и «Done»; процесс не стартует.
+- K7. **Privacy & Security:** “"SMSpikeCask" was blocked to protect your Mac.” → «Open Anyway» → «You are attempting to open an app that may cause harm to your Mac or compromise your privacy. Enter an administrator's username and password to allow this.» → приложение запускается; карантин `01c1` (одобрено).
+- K8. **`brew upgrade --cask` (другой cdhash)** — «Warning: smspike's signer changed so macOS may prompt at next launch.», новая копия с карантином `0181`, но **запускается без блокировки**: Homebrew 7 сохраняет каталог `.app` (тот же inode) и переносит в него содержимое, одобрение держится на объекте. Следующий upgrade тоже без блокировки.
+- K9. Ad-hoc с постоянным designated requirement (`codesign -s - -r='designated => identifier "<bundle id>"'`): `upgrade` без предупреждения, Homebrew переносит одобрение (`01c1`). Одобрение предыдущей версии выставлено вручную (`xattr`) — имитация.
+- K10. **Ручная замена бандла** (`rm -rf` + `ditto`, карантин браузера) — запуск снова заблокирован, нужно «Всё равно открыть»; постоянный requirement не помогает.
+- K11. **Cask с `depends_on formula:` из того же tap:** cask доверяется по полному имени, формула — нет («Refusing to load formula … from untrusted tap»); после `brew trust mrfokin/spike` ставится.
+
 ### Проверка 5 — формула со службой от root (2026-10-20, `wgp-check-brew`, Homebrew 7.0.10)
 
 Помощники — scratchpad `m0-spike/brew/` (`svcspike` 0.1.0–0.4.0, шаблоны формулы, `snap.sh`/`sdiff.sh` — снимок и дифф владельцев).
@@ -236,4 +261,4 @@ docs/design.md           правки по фактам (шаг 5, после с
 - [x] Решения по фактам 1–2 (пользователь, 2026-10-20): ключи DNS — через SystemConfiguration (cgo); членство — `mbr_check_membership` (cgo) вместо `dsmemberutil`; лимит 1000 зон и проверка `dnsinfo` после записи; `SupplementalMatchOrders = 1` для своих зон. Внесено в design 5, 8, 16.2, 18, 20, 21 вместе с `NoSearch` (D4), 60 с при мёртвом резолвере (D10), DDR (D12)
 - [x] Проверка 5 (агент В): факты H1–H18; VM удалена
 - [x] Решения по фактам 5 (пользователь, 2026-10-20): запуск `sudo brew services start --sudo-service-user=root wgplex`; `log_path`/`error_log_path` на лог демона; каталоги `var/wgplex`, `var/log/wgplex` — формула (`post_install_steps`), демон родителей не создаёт; не от root — выход с кодом 0 и `keep_alive successful_exit: false`; перезапуск после `upgrade` — в caveats. Внесено в design 3, 4.1, 10.3, 15, 16.3, 16.4, 17.2, 21 вместе с меткой `sh.brew.wgplex`, установкой по полному имени (H1) и порядком удаления (H17)
-- [ ] Проверки 3–4 (агент Б): автоматические шаги и шаги пользователя 1–5 пройдены, осталось `--unregister`, `brew upgrade --cask`
+- [x] Проверки 3–4 (агент Б, шаги в GUI — пользователь): факты S1–S6, K1–K11; VM удалена
