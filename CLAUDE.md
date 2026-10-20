@@ -28,7 +28,8 @@ internal/dns/      резолвер, точечный захват систем�
 internal/tunnel/   wireguard-go, utun
 internal/health/   handshake, ping, HTTP, failover
 internal/netwatch/ смена сети, сон
-internal/rpc/      методы JSON-RPC, права по методам
+internal/rpc/      методы JSON-RPC, права по методам, урезание ответов
+internal/state/    state.json: переключатели, пауза, снимок блокировки
 scripts/           vm.sh и скрипты проверок
 docs/              документация (на русском; api.md — на английском)
 ```
