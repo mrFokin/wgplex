@@ -39,7 +39,10 @@ wgplex — отдельный продукт на основе кода Wirefork
 
 ## 3. Имена и пути
 
-`<prefix>` — `HOMEBREW_PREFIX` (`/opt/homebrew` или `/usr/local`). Формула зашивает его при сборке (`-ldflags -X main.prefix=…`), все пути по умолчанию выводятся из него; флаги нужны только для отладки.
+`<prefix>` — `HOMEBREW_PREFIX`; все пути по умолчанию выводятся из него, флаги нужны только для отладки. Бинарник готовый и universal (16), поэтому prefix определяется при запуске:
+
+1. путь к исполняемому файлу без симлинков содержит `/Cellar/` — prefix — всё до `/Cellar/` (установка через brew, в том числе в нестандартный prefix);
+2. иначе — по архитектуре процесса: `/opt/homebrew` на arm64, `/usr/local` на x86_64 (сборка для разработки, `make build`).
 
 | Что | Значение |
 |---|---|
@@ -245,14 +248,40 @@ JSON-RPC 2.0 на `github.com/mrFokin/jrpc/v2` (Echo v5), HTTP поверх unix
 - Ротация в демоне: при 5 МБ файл переименовывается в `wgplex.log.1` (старый `.1` — в `.2`, `.2` удаляется), открывается новый. newsyslog, pid-файл и SIGUSR1 не нужны.
 - Файл `0644`: его читает окно приложения у любого пользователя. Имена из DNS-запросов — только на уровне debug (`-v`), как в Wirefork.
 
-## 16. Сборка и поставка движка
+## 16. Сборка, релизы и поставка движка
 
-- Формула `wgplex` в `mrFokin/homebrew-tap` (`brew install mrfokin/tap/wgplex`): исходники по тегу (`url … tag:, revision:`), `depends_on "go" => :build`, `depends_on :macos`, сборка под архитектуру машины (без `lipo`), `-ldflags` с `main.version` и `main.prefix`.
+### 16.1. Репозитории и версии
+
+| Репозиторий | Выпускает | Артефакт |
+|---|---|---|
+| `mrFokin/wgplex` | движок | тег `vX.Y.Z`, `wgplex-X.Y.Z-darwin-universal.tar.gz` в релизе |
+| `mrFokin/wgplex-app` | приложение (17) | тег `vX.Y.Z`, `Wgplex-X.Y.Z.dmg` в релизе |
+| `mrFokin/homebrew-tap` | формула `wgplex`, позже cask `wgplex-app` | — |
+
+- Все публичные, лицензия MIT (у `wireguard-go` — MIT, у `gvisor` — Apache-2.0, конфликтов нет).
+- Версии движка и приложения независимы, semver, начало — `0.1.0`. Совместимость — `api_version` (14): приложение знает минимальную нужную.
+- Порядок: сначала движок и формула, потом приложение, которому нужен новый API.
+
+### 16.2. Сборка
+
+- `make check` — `gofmt -l` (пусто), `go vet ./...`, `go test ./...`.
+- `make build` — `build/wgplex`: `GOARCH=arm64` и `amd64`, склейка `lipo -create`, ad-hoc подпись (`codesign --sign -`: линкер подписывает только срез arm64), версия — `-ldflags -X main.version=…`. Запуск для разработки: `sudo ./build/wgplex daemon` (пути — по архитектуре, 3).
+- `make release` — `make check`, `make build`, архив `wgplex-X.Y.Z-darwin-universal.tar.gz`, sha256.
+
+### 16.3. Релиз (вручную, пока нет CI)
+
+1. Поднять версию, `make release`, тег, `gh release create` с архивом.
+2. В tap — новые `url`, `sha256`, `version` формулы, коммит.
+3. Проверка: `brew upgrade wgplex`, `brew test wgplex`, `wgplex version`.
+
+### 16.4. Формула
+
+- `wgplex` в `mrFokin/homebrew-tap` (`brew install mrfokin/tap/wgplex`): **готовый universal-бинарник** из релиза, Go у пользователя не нужен, установка — секунды. Так принято в собственных tap (например, `hashicorp/tap`); собрать самому — `make build` из репозитория. Формулы карантин не получают, Gatekeeper бинарник не проверяет. `depends_on :macos`.
 - `service do`: `run [opt_bin/"wgplex", "daemon"]`, `require_root true`, `keep_alive true`.
 - `caveats`: `sudo brew services start wgplex`; где конфиг; что root запускает бинарник из prefix владельца (5).
 - `test do`: `wgplex version`, `wgplex check` на шаблоне.
 - Удаление: `sudo brew services stop wgplex`, `brew uninstall wgplex`. Каталог конфига остаётся (`etc` brew не удаляет). При остановке демон снимает маршруты и захват DNS (как в Wirefork).
-- Бутылки и CI — вне v1.
+- CI — вне v1.
 
 ## 17. Приложение Wgplex.app
 
@@ -329,7 +358,7 @@ JSON-RPC 2.0 на `github.com/mrFokin/jrpc/v2` (Echo v5), HTTP поверх unix
 
 ### 17.7. Сборка
 
-Swift Package, macOS 13+, без сторонних зависимостей. Код — копия `app/` Wirefork (клиент RPC, модели статуса) без чтения и отправки конфига; меню переписывается на AppKit. Логика (клиент, представление статуса, вычисление уведомлений) — в библиотечном таргете под XCTest, с фейковым сервером API.
+Swift Package, macOS 13+, без сторонних зависимостей. `make dmg` — `swift build -c release --arch arm64 --arch x86_64`, бандл, ad-hoc подпись, `hdiutil create`; релиз — `gh release create` с `.dmg` (16.1). Код — копия `app/` Wirefork (клиент RPC, модели статуса) без чтения и отправки конфига; меню переписывается на AppKit. Логика (клиент, представление статуса, вычисление уведомлений) — в библиотечном таргете под XCTest, с фейковым сервером API.
 
 ## 18. Ограничения v1
 
@@ -346,7 +375,7 @@ Swift Package, macOS 13+, без сторонних зависимостей. К
 - Редактор конфига в окне (для владельца): структурная правка через CLI на Go (`wgplex config …` поверх `yaml.v3` `Node`, с сохранением комментариев), проверка — `wgplex check -json`.
 - Пункт «Запускать для всех пользователей» в приложении.
 - Хуки на события (скрипт при уходе правила на резерв).
-- Бутылки, CI, автоматическое обновление формулы.
+- CI: `make check` на push, релиз и обновление формулы по тегу.
 - Developer ID, подпись и нотаризация приложения.
 - Режим «весь трафик через туннель X» (как в Wirefork 17).
 
