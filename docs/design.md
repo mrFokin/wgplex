@@ -53,7 +53,7 @@ wgplex — отдельный продукт на основе кода Wirefork
 | Сокет | `<prefix>/var/run/wgplex.sock` |
 | Состояние | `<prefix>/var/wgplex/state.json` |
 | Лог | `<prefix>/var/log/wgplex/wgplex.log` (+ архивы, раздел 15) |
-| Сервис | `sudo brew services start wgplex` (LaunchDaemon, генерирует brew) |
+| Сервис | `sudo brew services start --sudo-service-user=root wgplex` (LaunchDaemon `sh.brew.wgplex`, plist `/Library/LaunchDaemons/sh.brew.wgplex.plist` генерирует brew, 16.4) |
 | Приложение | `/Applications/Wgplex.app`, bundle id `io.github.mrfokin.wgplex` |
 
 ## 4. Архитектура
@@ -80,7 +80,9 @@ wgplex — отдельный продукт на основе кода Wirefork
 
 ### 4.1. Демон
 
-- `wgplex daemon` запускается launchd при загрузке, работает от root, перезапускается при падении (`KeepAlive`).
+- `wgplex daemon` запускается launchd при загрузке, работает от root, перезапускается при падении (`KeepAlive`, кроме выхода с кодом 0).
+- Запущен не от root (`brew services start` без `sudo` ставит копию как LaunchAgent пользователя, M0, H7) — ошибка в лог и выход с кодом 0: launchd его не перезапускает (16.4).
+- Каталоги `var/wgplex` и `var/log/wgplex` создаёт формула (10.3); демон создаёт только недостающее внутри них. Родителей (`var`, `var/log`) не создаёт: созданный root `var/log` ломает brew пользователю (M0, H6).
 - Со старта читает конфиг и поднимает туннели по состоянию (11) — вход пользователя не нужен.
 - Не следит за пользователем за консолью: ни сброса при выходе, ни переключателей на пользователя.
 - Конфиг с ошибками при старте — демон работает без туннелей, ошибка в `status.get`; не падает (иначе `KeepAlive` гонял бы перезапуски).
@@ -187,7 +189,7 @@ control_group: admin   # кто, кроме root и владельца, упра
 
 ### 10.3. Шаблон
 
-Формула в `post_install` создаёт каталог (`0700`) и `wgplex.yaml` (`0600`) из шаблона, если каталога нет. Шаблон целиком закомментирован (пустой конфиг валиден: туннелей нет, DNS не захватывается): что положить в каталог и пример 9.1 Wirefork. Обновление формулы существующий каталог не трогает.
+Формула в `post_install_steps` (`post_install` в Homebrew 7 устарел, M0, H2, H18) создаёт каталог (`0700`) и `wgplex.yaml` (`0600`) из шаблона, если каталога нет (`unless_path_exists`), а также `var/wgplex` и `var/log/wgplex` (4.1). Шаблон целиком закомментирован (пустой конфиг валиден: туннелей нет, DNS не захватывается): что положить в каталог и пример 9.1 Wirefork. Обновление формулы существующий каталог не трогает.
 
 ## 11. Состояние
 
@@ -262,6 +264,7 @@ JSON-RPC 2.0 на `github.com/mrFokin/jrpc/v2` (Echo v5), HTTP поверх unix
 ## 15. Логи
 
 - `log/slog`; демон сам пишет `<prefix>/var/log/wgplex/wgplex.log` и подменяет им stderr (`dup2` на fd 2 — туда попадают и паники Go).
+- До `dup2` stderr и stdout — тот же файл через `log_path`/`error_log_path` формулы (16.4): без них launchd отдаёт `/dev/null`, и ранние ошибки теряются (M0, H5).
 - Ротация в демоне: при 5 МБ файл переименовывается в `wgplex.log.1` (старый `.1` — в `.2`, `.2` удаляется), открывается новый. newsyslog, pid-файл и SIGUSR1 не нужны.
 - Файл `0644`: его читает окно приложения у любого пользователя. Имена из DNS-запросов — только на уровне debug (`-v`), как в Wirefork.
 
@@ -290,15 +293,19 @@ JSON-RPC 2.0 на `github.com/mrFokin/jrpc/v2` (Echo v5), HTTP поверх unix
 
 1. Поднять версию, `make release`, тег, `gh release create` с архивом.
 2. В tap — новые `url`, `sha256`, `version` формулы, коммит.
-3. Проверка: `brew upgrade wgplex`, `brew test wgplex`, `wgplex version`.
+3. Проверка: `brew upgrade wgplex`, `sudo brew services restart --sudo-service-user=root wgplex`, `brew list --versions wgplex` — одна версия, `brew test wgplex`, `wgplex version`.
 
 ### 16.4. Формула
 
 - `wgplex` в `mrFokin/homebrew-tap` (`brew install mrfokin/tap/wgplex`): **готовый universal-бинарник** из релиза, Go у пользователя не нужен, установка — секунды. Так принято в собственных tap (например, `hashicorp/tap`); собрать самому — `make build` из репозитория. Формулы карантин не получают, Gatekeeper бинарник не проверяет. `depends_on :macos`.
-- `service do`: `run [opt_bin/"wgplex", "daemon"]`, `require_root true`, `keep_alive true`.
-- `caveats`: `sudo brew services start wgplex`; где конфиг; что root запускает бинарник из prefix владельца (5).
+- Установка — только по полному имени `brew install mrfokin/tap/wgplex`: Homebrew 7 загружает формулы стороннего tap только при доверии, полное имя доверяет сам (иначе — `brew trust mrfokin/tap`, M0, H1).
+- `service do`: `run [opt_bin/"wgplex", "daemon"]`, `require_root true`, `keep_alive successful_exit: false` (4.1), `log_path` и `error_log_path` — `var/"log/wgplex/wgplex.log"` (15).
+- **Запуск — `sudo brew services start --sudo-service-user=root wgplex`.** Без `--sudo-service-user=root` brew делает root владельцем бинарника и симлинков формулы, после чего `brew upgrade`, `cleanup` и `uninstall` от пользователя оставляют мусор или падают (M0, H3, H8–H13); с опцией владельцы не меняются, демон всё равно root (H16). Защиты бинарника от владельца prefix это не убирает — её нет и так (5). Опция нужна при каждом `start` и `restart`.
+- **`brew upgrade` службу не перезапускает** (M0, H8): новая версия — после `sudo brew services restart --sudo-service-user=root wgplex`.
+- `brew services` без `sudo` управляет не службой root, а копией от пользователя (M0, H7).
+- `caveats`: команда запуска с `--sudo-service-user=root` (строка, которую brew добавляет сам, — без опции), перезапуск после `upgrade`, `brew services` только через `sudo`; где конфиг; что root запускает бинарник из prefix владельца (5).
 - `test do`: `wgplex version`, `wgplex check` на шаблоне.
-- Удаление: `sudo brew services stop wgplex`, `brew uninstall wgplex`. Каталог конфига остаётся (`etc` brew не удаляет). При остановке демон снимает маршруты и захват DNS (как в Wirefork).
+- Удаление — строго в этом порядке: `sudo brew services stop wgplex` (выгружает службу и удаляет plist), затем `brew uninstall wgplex`. Наоборот — plist остаётся, а `brew services` его уже не видит: `uninstall` снимает доверие к формуле (M0, H17). Каталог конфига остаётся (`etc` brew не удаляет), `var/wgplex` и `var/log/wgplex` — тоже (файлы root, `sudo rm`). При остановке демон снимает маршруты и захват DNS (как в Wirefork).
 - CI — вне v1.
 
 ## 17. Приложение Wgplex.app
@@ -314,7 +321,7 @@ JSON-RPC 2.0 на `github.com/mrFokin/jrpc/v2` (Echo v5), HTTP поверх unix
 ### 17.2. Движок
 
 - Сокет ищется по `/opt/homebrew/var/run/wgplex.sock`, затем `/usr/local/var/run/wgplex.sock`; переопределение — в настройках.
-- Три состояния без движка: сокета нет — «wgplex не установлен», «Как установить…»; сокет не отвечает — «Демон не запущен», команда `sudo brew services start wgplex` с копированием; `api_version` меньше нужной — «Обновите wgplex: `brew upgrade wgplex`».
+- Три состояния без движка: сокета нет — «wgplex не установлен», «Как установить…»; сокет не отвечает — «Демон не запущен», команда `sudo brew services start --sudo-service-user=root wgplex` с копированием; `api_version` меньше нужной — «Обновите wgplex»: `brew upgrade wgplex` и `sudo brew services restart --sudo-service-user=root wgplex`.
 - «Выход» закрывает только приложение: туннели принадлежат машине. Остановка демона — `brew services`, не GUI.
 
 ### 17.3. Меню
@@ -430,7 +437,7 @@ Swift Package, macOS 13+, без сторонних зависимостей. `m
 | M3 | Доступ и API | права по методам, `control_group` и `mbr_check_membership`, ошибка `5`, поля `status.get`, `tunnel.enable`/`disable`, пауза и `down -all` (12), `-json`, код выхода `3`, `docs/api.md` | unit; VM: второй пользователь — член группы и не член |
 | M4 | Точечный DNS | захват по зонам через SystemConfiguration (cgo), `ServerPort`, `NoSearch`, `SupplementalMatchOrders`, лимит зон и проверка `dnsinfo`, запасной режим при занятом порте (8) | VM: имена из правил и вне их, рядом с dnsmasq на `:53` |
 | M5 | Failover | возврат на приоритетный туннель (9); стенд — WireGuard-сервер во второй VM | VM: отказ и восстановление сервера, возврат через 5 минут |
-| M6 | Поставка | `make release`, `mrFokin/homebrew-tap`, формула (16), шаблон в `post_install`; релиз `0.1.0` | VM: `brew install`, `upgrade`, `uninstall`; финальная проверка на хосте |
+| M6 | Поставка | `make release`, `mrFokin/homebrew-tap`, формула (16), шаблон и каталоги в `post_install_steps`; релиз `0.1.0` | VM: `brew install`, `upgrade`, `uninstall`; финальная проверка на хосте |
 
 ### 21.2. Приложение (`wgplex-app`, этапы `a<N>`)
 
