@@ -6,7 +6,8 @@
 # wgp-base is only cloned (and deleted by `base --force`). Other VMs
 # in ~/.tart are never touched.
 #
-# Dependencies: tart, ssh, scp, ssh-keygen.
+# Dependencies: tart, ssh, scp, ssh-keygen; system perl for a timeout
+# around `tart exec`.
 
 set -euo pipefail
 
@@ -21,6 +22,10 @@ readonly KEY="${HOME}/.ssh/wgplex-vm"
 readonly TART_DIR="${TART_HOME:-${HOME}/.tart}"
 readonly BRIDGE_IF="${WGP_VM_IF:-en0}"
 readonly WAIT_SECONDS=300
+
+# tart clone may prune the OCI cache when disk space is low, which can
+# delete images that are not ours.
+export TART_NO_AUTO_PRUNE=1
 
 if [[ -n "${TART:-}" ]]; then
 	:
@@ -88,8 +93,17 @@ vm_dir() { printf '%s/vms/%s' "$TART_DIR" "$1"; }
 vm_exists() { [[ -n "$1" && -d "$(vm_dir "$1")" ]]; }
 
 vm_running() {
-	"$TART" list --source local --format json |
-		tr -d ' \n' | grep -Eq "\"Running\":true,[^}]*\"Name\":\"$1\"|\"Name\":\"$1\"[^}]*\"Running\":true"
+	local json
+	json="$("$TART" list --source local --format json)" || die "tart list failed"
+	json="${json//[$' \t\n']/}"
+	local re="\"Running\":true,[^}]*\"Name\":\"$1\"[,}]|\"Name\":\"$1\",[^}]*\"Running\":true"
+	[[ "$json" =~ $re ]]
+}
+
+# tart_exec_ok checks `tart exec <vm> true` with a time limit.
+tart_exec_ok() {
+	guard "$1"
+	perl -e 'alarm shift; exec @ARGV' 15 "$TART" exec "$1" true >/dev/null 2>&1
 }
 
 # ---- guarded tart mutations -------------------------------------------------
@@ -116,17 +130,27 @@ tart_delete() {
 	"$TART" delete "$1"
 }
 
+# set_run_args <vm> <net: bridged|nat> <gui: 0|1> [dir] fills RUN_ARGS
+# with the `tart run` arguments.
+RUN_ARGS=()
+set_run_args() {
+	local vm="$1" net="$2" gui="$3" dir="${4:-}"
+	RUN_ARGS=(run "$vm")
+	if [[ "$net" == bridged ]]; then RUN_ARGS+=("--net-bridged=${BRIDGE_IF}"); fi
+	if [[ "$gui" != 1 ]]; then RUN_ARGS+=(--no-graphics); fi
+	if [[ -n "$dir" ]]; then RUN_ARGS+=("--dir=spike:${dir}:ro"); fi
+}
+
 # tart_start <vm> <net: bridged|nat> <gui: 0|1> [dir]
 tart_start() {
 	local vm="$1" net="$2" gui="$3" dir="${4:-}"
 	guard "$vm"
 	local d
 	d="$(vm_dir "$vm")"
-	local args=(run "$vm")
-	[[ "$net" == bridged ]] && args+=("--net-bridged=${BRIDGE_IF}")
-	[[ "$gui" == 1 ]] || args+=(--no-graphics)
-	[[ -n "$dir" ]] && args+=("--dir=spike:${dir}:ro")
+	set_run_args "$vm" "$net" "$gui" "$dir"
+	local args=("${RUN_ARGS[@]}")
 	printf '%s\n' "$net" >"$d/wgp-net"
+	printf '%s\n' "${args[*]}" >"$d/run.args"
 	log "tart ${args[*]} (log: $d/run.log)"
 	nohup "$TART" "${args[@]}" </dev/null >"$d/run.log" 2>&1 &
 	printf '%s\n' "$!" >"$d/run.pid"
@@ -173,6 +197,9 @@ wait_ip() {
 		fi
 		sleep 3
 	done
+	if [[ "$(vm_net "$vm")" == bridged ]]; then
+		die "$vm: no IP on the ${BRIDGE_IF} bridge after ${WAIT_SECONDS}s; try 'vm.sh down ${vm#"$PREFIX"}' and 'vm.sh up ${vm#"$PREFIX"} --nat'"
+	fi
 	die "$vm: no IP after ${WAIT_SECONDS}s"
 }
 
@@ -182,7 +209,7 @@ wait_sshd() {
 	log "waiting for sshd on $ip"
 	while ((SECONDS < deadline)); do
 		check_alive "$vm"
-		if out="$(ssh "${SSH_OPTS[@]}" -o BatchMode=yes -o ConnectTimeout=5 "$USER_NAME@$ip" true 2>&1)"; then
+		if out="$(ssh "${SSH_OPTS[@]}" -o BatchMode=yes "$USER_NAME@$ip" true 2>&1)"; then
 			return 0
 		fi
 		[[ "$out" == *"Permission denied"* ]] && return 0
@@ -192,10 +219,16 @@ wait_sshd() {
 }
 
 ensure_key() {
-	[[ -f "$KEY" ]] && return 0
-	log "creating $KEY"
-	mkdir -p "$(dirname "$KEY")"
-	ssh-keygen -q -t ed25519 -N '' -C wgplex-vm -f "$KEY"
+	if [[ ! -f "$KEY" ]]; then
+		log "creating $KEY"
+		mkdir -p "$(dirname "$KEY")"
+		rm -f "$KEY.pub" # stale without its private key
+		ssh-keygen -q -t ed25519 -N '' -C wgplex-vm -f "$KEY"
+	fi
+	if [[ ! -f "$KEY.pub" ]]; then
+		log "restoring $KEY.pub"
+		ssh-keygen -y -f "$KEY" >"$KEY.pub"
+	fi
 }
 
 key_ok() { ssh "${SSH_OPTS[@]}" -o BatchMode=yes "$USER_NAME@$1" true 2>/dev/null; }
@@ -260,6 +293,12 @@ cmd_up() {
 	ensure_key
 
 	if vm_running "$vm"; then
+		set_run_args "$vm" "$net" "$gui" "$dir"
+		local had
+		had="$(cat "$(vm_dir "$vm")/run.args" 2>/dev/null || true)"
+		if [[ "$had" != "${RUN_ARGS[*]}" ]]; then
+			die "$vm is already running as 'tart ${had:-?}'; for other flags run 'vm.sh down $suffix' first"
+		fi
 		log "$vm is already running"
 		vm_ip "$vm" || die "$vm: no IP yet"
 		return 0
@@ -365,7 +404,10 @@ cmd_base() {
 	done
 
 	if vm_exists "$BASE" && ((force == 0)); then
-		log "$BASE already exists (use --force to rebuild)"
+		log "$BASE already exists; to rebuild it (also after an interrupted build) run 'vm.sh base --force'"
+		if vm_exists "$BUILD"; then
+			log "leftover $BUILD found: 'vm.sh base --force' or 'vm.sh down base' removes it"
+		fi
 		return 0
 	fi
 	if ((force)); then
@@ -399,11 +441,28 @@ cmd_base() {
 	base_brew "$ip"
 	base_agent "$ip"
 
-	tart_stop "$BUILD"
+	shutdown_vm "$BUILD" "$ip"
 	log "tart clone $BUILD $BASE"
 	"$TART" clone "$BUILD" "$BASE"
 	tart_delete "$BUILD"
 	log "$BASE is ready"
+}
+
+# shutdown_vm powers the VM off from inside so the disk is consistent
+# before cloning; tart stop is the fallback.
+shutdown_vm() {
+	local vm="$1" ip="$2" deadline=$((SECONDS + 120))
+	guard "$vm"
+	log "shutting down $vm"
+	rssh "$ip" 'sudo -n shutdown -h now' >/dev/null 2>&1 || true
+	while vm_running "$vm"; do
+		if ((SECONDS >= deadline)); then
+			log "$vm did not power off in 120s, falling back to tart stop"
+			tart_stop "$vm"
+			return 0
+		fi
+		sleep 3
+	done
 }
 
 base_key() {
@@ -433,7 +492,7 @@ SUDO=(sudo -n)
 sudo -n true 2>/dev/null || SUDO=(sudo -S -p '')
 tmp="$(mktemp)"
 echo 'admin ALL=(ALL) NOPASSWD: ALL' >"$tmp"
-printf '%s\n' "$pw" | "${SUDO[@]}" sh -c "visudo -cf '$tmp' && mkdir -p /etc/sudoers.d && install -m 0440 -o root -g wheel '$tmp' /etc/sudoers.d/admin && visudo -c"
+printf '%s\n' "$pw" | "${SUDO[@]}" sh -c "visudo -cf '$tmp' && mkdir -p /etc/sudoers.d && install -m 0440 -o root -g wheel '$tmp' /etc/sudoers.d/admin && { visudo -c || { rm -f /etc/sudoers.d/admin; exit 1; }; }"
 rm -f "$tmp"
 sudo -n true
 EOF
@@ -482,7 +541,7 @@ EOF
 
 base_agent() {
 	local ip="$1"
-	if "$TART" exec "$BUILD" true >/dev/null 2>&1; then
+	if tart_exec_ok "$BUILD"; then
 		log "guest agent: tart exec works, skipping"
 		return 0
 	fi
@@ -542,7 +601,7 @@ fi
 EOF
 	log "guest agent: checking tart exec"
 	local deadline=$((SECONDS + 60))
-	until "$TART" exec "$BUILD" true >/dev/null 2>&1; do
+	until tart_exec_ok "$BUILD"; do
 		((SECONDS < deadline)) || die "tart exec $BUILD true still fails (see /tmp/tart-guest-agent.log in the VM)"
 		sleep 3
 	done
