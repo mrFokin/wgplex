@@ -63,7 +63,8 @@ Usage: vm.sh <command> [args]
 
 <name> is a suffix: `vm.sh up dns` manages wgp-check-dns.
 Network: bridged on $WGP_VM_IF (default en0); --nat uses tart NAT and sets
-the VM DNS to 1.1.1.1 and 9.9.9.9. --gui opens the VM window. --dir shares
+the VM DNS to 1.1.1.1 and 9.9.9.9. NAT works only while the host has no
+tunnels up: VM traffic follows the host routing table. --gui opens the VM window. --dir shares
 <path> read-only as "spike".
 EOF
 }
@@ -103,8 +104,8 @@ vm_running() {
 # tart_exec_ok checks `tart exec <vm> true` with a time limit.
 tart_exec_ok() {
 	guard "$1"
-	# Subshell: keeps bash's "Alarm clock" job notice out of the output.
-	(perl -e 'alarm shift; exec @ARGV' 15 "$TART" exec "$1" true >/dev/null 2>&1) 2>/dev/null
+	# Group with stderr redirected: keeps bash's "Alarm clock" notice out.
+	{ perl -e 'alarm shift; exec @ARGV' 15 "$TART" exec "$1" true >/dev/null 2>&1; } 2>/dev/null
 }
 
 # ---- guarded tart mutations -------------------------------------------------
@@ -199,7 +200,8 @@ wait_ip() {
 		sleep 3
 	done
 	if [[ "$(vm_net "$vm")" == bridged ]]; then
-		die "$vm: no IP on the ${BRIDGE_IF} bridge after ${WAIT_SECONDS}s; try 'vm.sh down ${vm#"$PREFIX"}' and 'vm.sh up ${vm#"$PREFIX"} --nat'"
+		[[ "$vm" == "$BUILD" ]] && die "$vm: no IP on the ${BRIDGE_IF} bridge after ${WAIT_SECONDS}s"
+		die "$vm: no IP on the ${BRIDGE_IF} bridge after ${WAIT_SECONDS}s; with host tunnels off try 'vm.sh down ${vm#"$PREFIX"}' and 'vm.sh up ${vm#"$PREFIX"} --nat'"
 	fi
 	die "$vm: no IP after ${WAIT_SECONDS}s"
 }
@@ -317,10 +319,10 @@ cmd_up() {
 	printf '%s\n' "$ip"
 }
 
-# set_vm_dns sets the DNS servers of every network service in the VM
-# ("empty" restores DHCP-provided DNS). The NAT DNS proxy on the host goes
-# through the host resolver and is unreliable when the host DNS is captured.
-set_vm_dns() { # <ip> <server>... | empty
+# set_vm_dns sets the DNS servers of every network service in the VM. The NAT
+# DNS proxy on the host goes through the host resolver and is unreliable when
+# the host DNS is captured.
+set_vm_dns() { # <ip> <server>...
 	local ip="$1"
 	shift
 	log "setting VM DNS to $*"

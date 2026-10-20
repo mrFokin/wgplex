@@ -1,6 +1,6 @@
 # M0 — spike
 
-Статус: план утверждён 2026-10-20, идёт реализация. Ветка `m0-spike`.
+Статус: spike завершён 2026-10-20, ревью ветки. Ветка `m0-spike`.
 
 **Цель:** проверить в VM то, на чём держатся решения дизайна, до переноса кода: точечный захват DNS (design 8), проверку членства через `dsmemberutil` (5), `SMAppService.mainApp` с ad-hoc подписью (17.5), неподписанный cask из стороннего tap (17.1), формулу со службой от root (16.4). Попутно — инструмент VM для всех следующих этапов: образ `wgp-base` и `scripts/vm.sh`.
 
@@ -15,7 +15,7 @@
 1. **Хост:** Apple M5, macOS 26.6.2, Homebrew 7.0.10, Xcode (Swift 6.4), Go 1.27.1, tart 2.41.1 (`~/bin/tart`, из релиза GitHub: формула tap `cirruslabs/cli` на Homebrew 7 не ставится — WF 10). Wi‑Fi хоста — `en0`. На хосте постоянно работают Wirefork и сторонний VPN (`utun8`).
 2. **Образы в `~/.tart`:** `ghcr.io/cirruslabs/macos-tahoe-vanilla:latest` (macOS 26, без Xcode и brew, `admin/admin`, SSH по паролю) и `wf-base` (клон Wirefork, его не трогаем).
 3. **Не больше двух macOS-гостей одновременно** — ограничение Virtualization.framework (изв.).
-4. **Bridged:** `tart run --net-bridged=en0`; адрес VM — `tart ip --resolver=arp` (DHCP-сервер не tart, изв.). Wi‑Fi‑точки иногда не пропускают чужие MAC через клиента — тогда NAT (design 20).
+4. **Bridged:** `tart run --net-bridged=en0`; адрес VM — `tart ip --resolver=arp` (DHCP-сервер не tart, изв.). Wi‑Fi‑точки иногда не пропускают чужие MAC через клиента — тогда NAT (design 20; по факту B3 NAT работает только при выключенных туннелях хоста).
 5. **`tart exec`** работает только с гостевым агентом в VM (изв.); есть ли агент в vanilla-образе — проверит spike.
 6. **Gatekeeper в образе выключен** (`spctl --status` → `assessments disabled`, WF S2); для проверки 4 включается в клоне.
 7. **DNS-ключи** `State:/Network/Service/<UUID>/DNS` пишет root через `scutil` (`d.init`, `d.add`, `set`) — Go в VM не нужен (изв.). `dig` идёт мимо mDNSResponder; через системный резолвер — `dscacheutil -q host -a name …` и `dns-sd -G v4 …` (изв.).
@@ -46,7 +46,7 @@ vm.sh down <name>           остановить и удалить
 vm.sh list                  только wgp-check-* и wgp-base
 ```
 
-- По умолчанию — `--net-bridged=en0` (интерфейс — `WGP_VM_IF`), IP — `tart ip --resolver=arp`. `--nat` — сеть tart по умолчанию и `networksetup -setdnsservers` на `1.1.1.1 9.9.9.9` в VM.
+- По умолчанию — `--net-bridged=en0` (интерфейс — `WGP_VM_IF`), IP — `tart ip --resolver=arp`. `--nat` — сеть tart по умолчанию и `networksetup -setdnsservers` на `1.1.1.1 9.9.9.9` в VM (только при выключенных туннелях хоста, B3).
 - `--gui` — с окном (для шагов пользователя), иначе `--no-graphics`. `--dir` — общая папка `--dir=spike:<path>:ro`.
 - `tart run` — в фоне, лог — `~/.tart/vms/wgp-check-<name>/run.log`; `down` — `tart stop`, затем `tart delete`.
 - Защита: любое действие, кроме `clone` из `wgp-base`, — только над именем `wgp-check-*`; иначе выход с ошибкой.
@@ -263,4 +263,4 @@ docs/design.md           правки по фактам (шаг 5, после с
 - [x] Решения по фактам 5 (пользователь, 2026-10-20): запуск `sudo brew services start --sudo-service-user=root wgplex`; `log_path`/`error_log_path` на лог демона; каталоги `var/wgplex`, `var/log/wgplex` — формула (`post_install_steps`), демон родителей не создаёт; не от root — выход с кодом 0 и `keep_alive successful_exit: false`; перезапуск после `upgrade` — в caveats. Внесено в design 3, 4.1, 10.3, 15, 16.3, 16.4, 17.2, 21 вместе с меткой `sh.brew.wgplex`, установкой по полному имени (H1) и порядком удаления (H17)
 - [x] Проверки 3–4 (агент Б, шаги в GUI — пользователь): факты S1–S6, K1–K11; VM удалена
 - [x] Решения по фактам 3–4 (пользователь, 2026-10-20): основной канал приложения — cask, `.dmg` — запасной; ad-hoc подпись с постоянным designated requirement. Внесено в design 16.1, 17.1, 17.5, 17.7, 18, 21 вместе с `brew trust` (K11), `depends_on macos`, текстами блокировки
-- [ ] Шаг 6 — ревью ветки, слияние
+- [ ] Шаг 6 — ревью ветки: блокер — `var/run` для сокета никто не создаёт (формула создаёт и его); замечания — NAT только без туннелей хоста (design 20, справка `vm.sh`), подавление «Alarm clock» не работало в bash 3.2, направление `SupplementalMatchOrders` и способ проверки резолверов — в M4, «не от root» — ошибка в stderr, `dup2` на fd 1 и 2, проверки M6; исправлено. Открыто: CLAUDE.md (NAT, агенты spike), способ проверки резолверов, временный ключ DNS — вопросы пользователю
