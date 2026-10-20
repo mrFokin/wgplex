@@ -2,7 +2,7 @@
 
 Статус: план утверждён 2026-10-20, идёт реализация. Ветка `m0-spike`.
 
-**Цель:** проверить в VM то, на чём держатся решения дизайна, до переноса кода: точечный захват DNS (design 8), проверку членства через `dsmemberutil` (5), `SMAppService.mainApp` с ad-hoc подписью (17.5), неподписанный cask из стороннего tap (17.1). Попутно — инструмент VM для всех следующих этапов: образ `wgp-base` и `scripts/vm.sh`.
+**Цель:** проверить в VM то, на чём держатся решения дизайна, до переноса кода: точечный захват DNS (design 8), проверку членства через `dsmemberutil` (5), `SMAppService.mainApp` с ad-hoc подписью (17.5), неподписанный cask из стороннего tap (17.1), формулу со службой от root (16.4). Попутно — инструмент VM для всех следующих этапов: образ `wgp-base` и `scripts/vm.sh`.
 
 Результат этапа — `scripts/vm.sh`, раздел «Факты spike» этого плана и правки `design.md` по фактам (после согласования). Кода движка нет; `Makefile` появляется в M1.
 
@@ -107,6 +107,26 @@ vm.sh list                  только wgp-check-* и wgp-base
 5. Агент: `brew audit`/`brew style` cask'а — что Homebrew 7 говорит про отсутствие подписи (нужно ли что-то в cask, например `caveats`).
 6. Чистые факты для README и design 17.1.
 
+### 5. Формула со службой от root (`wgp-check-brew`, агент)
+
+Добавлена по ревью дизайна (2026-10-20): design 3, 16.4 — `service do … require_root true`, `sudo brew services start wgplex`, пути в prefix владельца.
+
+Помощник: `svcspike` — Go, universal не нужен (`arm64`), версии `0.1.0` и `0.2.0`: при старте пишет в stderr и stdout строку с версией, `id`, `os.Args`; затем раз в 10 с — строку в файл `<prefix>/var/svcspike/beat.log` (создаёт каталог, как демон — `var/wgplex`, `var/log/wgplex`); в лог по пути (`<prefix>/var/log/svcspike/svcspike.log`) переключается только по флагу `-dup2` — для сравнения. Архив `svcspike-X.Y.Z.tar.gz`, локальный tap в VM (`brew tap-new mrfokin/spike`), формула `svcspike` с `url "file:///…"`, `bin.install`, `service do`: `run [opt_bin/"svcspike"]`, `require_root true`, `keep_alive true`, без `log_path`/`error_log_path`; `post_install` создаёт `etc/svcspike` (`0700`) с файлом (`0600`), как шаблон design 10.3.
+
+1. `brew install svcspike` от `admin` — владельцы и права: `Cellar/svcspike`, `opt/svcspike`, `etc/svcspike`, `var`, `var/log`, `var/run`, `var/homebrew/linked`, `Library/LaunchDaemons`? (снимок `ls -la`/`stat` по prefix до и после каждой команды; дифф владельцев — главное).
+2. `sudo brew services start svcspike` — вывод и предупреждения brew; где plist (`/Library/LaunchDaemons/homebrew.mxcl.svcspike.plist`), его содержимое (`StandardErrorPath`?), `launchctl print system/homebrew.mxcl.svcspike`; кто стал владельцем каких путей в prefix (известно: brew services под sudo меняет владельца на root — проверить, каких именно); куда ушли stderr/stdout первой строки (без `error_log_path` — `/dev/null`?).
+3. От `admin` без sudo: `brew services list`, `brew services info svcspike`, `brew services restart svcspike` — что видит и что делает.
+4. Поднять версию в формуле, `brew upgrade svcspike` от `admin` — проходит ли (права после шага 2), перезапущена ли служба (pid, версия в `beat.log`), на какой путь смотрит plist (`opt` → новая версия?), нужен ли `sudo brew services restart`.
+5. `brew uninstall svcspike` от `admin` при работающей службе — что с службой, plist, `etc/svcspike`, `var/svcspike`; затем `sudo brew services stop`/`cleanup` — что требуется для чистого удаления.
+6. `brew cleanup` от `admin` после шагов 2–5 — ошибки прав на файлах, ставших root.
+7. Сверх: `brew doctor` после всего — что жалуется на root-владельцев.
+
+Отвечает на: ломает ли `sudo brew services` дальнейшие `brew upgrade`/`uninstall`/`cleanup` от пользователя; перезапускается ли служба при `upgrade`; нужен ли демону свой лог-файл с первой строки (stderr до `dup2`); как писать `caveats` и раздел удаления (design 16.4).
+
+### Хост: маршруты с флагом `2`
+
+`netstat -rn` на хосте (2026-10-20): маршрутов с флагом `2` (`RTF_PROTO2`) и `3` нет; `1` (Wirefork, `RTF_PROTO1`) — у 346 из 455 строк (`UHS1`, `US1c`, `UHS1I`, `UGHS1`). Флаг `RTF_PROTO2` на машине свободен.
+
 ## Файлы
 
 ```
@@ -189,3 +209,5 @@ docs/design.md           правки по фактам (шаг 5, после с
 - [x] Шаг 2 — `scripts/vm.sh` (767044b), ревью: блокер B1 — `tart clone` чистит OCI-кэш при нехватке места (`TART_NO_AUTO_PRUNE=1`), замечания — штатное выключение перед клоном, таймаут `tart exec`, `vm_running` без `grep -q` под pipefail, `up` с другими флагами — ошибка, подсказка `--nat`; исправлено (8585397). Решения сверх плана: сборка образа в NAT; гостевой агент — из релиза GitHub (в vanilla его нет), LaunchAgent `--run-agent`
 - [ ] Шаг 3 — `vm.sh base`, проверка сети: образ собран, факты B1–B7; правки `vm.sh` по ходу (оркестратор): без общего `visudo -c` (B1), без `kickstart` sshd (B2), сборка в мосте (B3), `set_vm_dns` для `--nat`. Осталось: буфер обмена (пользователь)
 - [x] Проверки 1–2 (агент А): факты D1–D12, G1–G7; VM удалена
+- [x] Добавлена проверка 5 — формула со службой от root (по ревью дизайна); маршрутов с флагом `2` на хосте нет
+- [ ] Проверка 5 (агент В)
