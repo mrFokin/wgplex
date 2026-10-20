@@ -62,7 +62,7 @@ func defaultPrefix() string
 Открытые места контракта (`test-dev` пишет тесты по ним; неясность — в отчёт):
 
 - `brewPrefix`: `/Cellar/` ищется первое вхождение; prefix без завершающего `/`; `/opt/homebrew/Cellar/wgplex/0.1.0/bin/wgplex` → `/opt/homebrew`; `/Users/u/brew/Cellar/wgplex/0.1.0/bin/wgplex` → `/Users/u/brew`; `/Users/u/src/wgplex/build/wgplex` + `arm64` → `/opt/homebrew`, + `amd64` → `/usr/local`; неизвестная архитектура — `/opt/homebrew`.
-- `parseArgs`: флаги — до команды (как в `wf`); неизвестная команда, лишний или пустой аргумент — `errUsage` (код 2); `-config` при командах кроме `reload` — `errUsage`; `daemon` и `version` без аргументов.
+- `parseArgs(args []string, def paths)`: флаги — до или после команды и её аргумента; `-socket` — у всех команд; неизвестная команда, лишний или пустой аргумент — `errUsage` (код 2); `-config` при командах кроме `reload` — `errUsage`; `daemon` и `version` без аргументов.
 
 ## Файлы
 
@@ -121,3 +121,6 @@ VM `wgp-check-m1`, бинарник `make build` копируется в `~/wgpl
 ## Ход работы
 
 - [x] План утверждён (2026-10-20): переключатели в памяти, `VERSION` = `0.1.0-dev`
+- [x] Шаг 2 — задача А (`go-dev`): 768c475, слита (03340dc), `make check` зелёный. Сверх плана: удалён `dns.Server.Reset` (не вызывался без сброса пользователя); `parseArgs(args, def paths)`; флаги и до, и после команды (design 13 пишет `wgplex daemon -v`, `reload -config`); `-socket` принимается всеми командами. Комментарии кода ссылаются на нумерацию разделов Wirefork — перенумерация в задаче Б. Worktree агентов создаются от `master`, не от ветки этапа — агенты переставляют ветку на `m1-port` сами
+- [ ] Шаг 3 — задача Б (`go-dev`) и тесты (`test-dev`): запущены
+- [x] Задача Д (перенос текста дизайна): запущена раньше шага 3 — от кода не зависит, файлы не пересекаются; e7f737d, слита в `m1-port` (fast-forward). 7 вопросов пользователю — на решении
