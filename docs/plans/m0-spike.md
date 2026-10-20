@@ -69,7 +69,7 @@ vm.sh list                  только wgp-check-* и wgp-base
 
 1. `dnsspike -addr 127.0.0.1:5354 -answer 10.0.0.1` («wgplex»), `dnsspike -addr 127.0.0.1:53 -answer 10.0.0.2` («чужой VPN»).
 2. Сервис W (свой UUID): `ServerAddresses = [127.0.0.1]`, `ServerPort = 5354`, `SupplementalMatchDomains = [500 зон: z0001.spike.test … ; example.com]`.
-3. Сервис V (другой UUID): `ServerAddresses = [127.0.0.1]` (порт 53), `SupplementalMatchDomains = [""]`; варианты — V до W и после W, с `SupplementalMatchOrder` у V и без.
+3. Сервис V (другой UUID): `ServerAddresses = [127.0.0.1]` (порт 53), `SupplementalMatchDomains = [""]`; варианты — V до W и после W, с `SupplementalMatchOrders` у V и без.
 4. Для каждого варианта: `scutil --dns` (резолверы, порт, порядок), `dscacheutil -q host -a name` для `www.example.com`, `z0001.spike.test`, `z0500.spike.test`, `a.b.z0250.spike.test`, `example.org` — какой сервер ответил (адрес ответа + лог `dnsspike`), время первого ответа после `set`.
 5. Без V — имя вне зон идёт исходным DNS VM.
 6. `dnsspike` W остановлен — что с именами зон (таймаут, NXDOMAIN, уход к V/исходному) и как быстро.
@@ -156,8 +156,36 @@ docs/design.md           правки по фактам (шаг 5, после с
 - B6. **Homebrew 7.0.10** ставится по SSH без tty (`NONINTERACTIVE=1`), Command Line Tools 27.0 — сам через `softwareupdate`.
 - B7. `tart run` из `vm.sh up` (`nohup … &`) переживает конец вызова Bash-инструмента: VM работает дальше.
 
+### Проверка 1 — точечный захват DNS (2026-10-20, `wgp-check-dns`, мост)
+
+Сервис W (wgplex) — `127.0.0.1:5354`, ответ `10.0.0.1`; V («чужой VPN», `[""]`) — `127.0.0.1:53`, ответ `10.0.0.2`. Помощники — scratchpad `m0-spike/dns/` (`dnsspike`, `sckeybin` — cgo `SCDynamicStoreSetValue` из plist, `mbrbin`, сценарии `s1…s12.sh`, `g1…g3.sh`).
+
+- D1. **Достаточно ключа `State:/Network/Service/<UUID>/DNS`** — `Setup:` и `State:/Network/Global/DNS` не нужны (схема Wirefork).
+- D2. **`scutil` не пишет сотни зон:** `d.add` — не больше 99 значений (100 — `too many arguments`, поле не пишется); строка длиннее ~2 КБ молча обрезается; повторный `d.add` заменяет поле. Через API (`SCDynamicStoreSetValue`, cgo) — 500–3900 зон, запись 10–15 мс. Wirefork пишет через `scutil` (`internal/dns/sysdns.go`).
+- D3. **`ServerPort` у supplemental-резолвера работает:** в `scutil --dns` `port : 5354`, запросы A и AAAA приходят на `:5354`; и через API, и через `scutil` (`d.add ServerPort # 5354`).
+- D4. **Без `SupplementalMatchDomainsNoSearch = 1` зоны попадают в search list:** 500 зон — 501 search domain, `foo` даёт 502 запроса и резолвится в `10.0.0.1`, каждый сброс кэша — 500 запросов `PTR lb._dns-sd._udp.<зона>`. С ключом — 0 search domains, зоны работают.
+- D5. **Конкретная зона выигрывает у `[""]` при любом порядке** (W→V, V→W, у V `SupplementalMatchOrders = [1]`, `[200000]`): зоны и поддомены (`a.b.z0250.spike.test`) → W, остальное → V; `dscacheutil` и `dns-sd -G` одинаково. Побеждает самый длинный суффикс.
+- D6. **Ключ — `SupplementalMatchOrders` (массив параллельно доменам)**, `SupplementalMatchOrder` и `SearchOrder` игнорируются. Порядок решает только при одинаковом домене у двух сервисов; более длинный домен чужого сервиса (`www.example.com`) забирает имя у зоны W.
+- D7. **Без явного порядка при одинаковом домене победитель случаен:** IPMonitor даёт `100000 + 200·k + i`, k — позиция сервиса в словаре, не порядок публикации и не UUID.
+- D8. **Скорость:** 500 зон — первый ответ через 86 мс после записи, замена 500 → 501 — 71 мс; 2000 зон — 450–480 мс, `scutil --dns` — 28 мс; RSS mDNSResponder ~34 МБ, configd ~33–35 МБ.
+- D9. **Молчаливый предел — 3900–4000 зон** (имена по 16 символов): ключ в store записан, а DNS-конфигурация системы остаётся прежней, ошибок в логах нет. Похоже на предел размера dnsinfo — зависит от длины имён.
+- D10. **Мёртвый резолвер W:** имена зон — `<none>` через 60 с (`dscacheutil`), к V и исходному DNS не уходят; остальные имена работают. Снятие ключа сразу освобождает и зависшие запросы (ответ исходного DNS через 2,1 с при снятии на 2-й секунде), новые — ~44 мс. После перезапуска резолвера — 24 мс.
+- D11. `ServerAddresses = [127.0.0.1.5354]` без `ServerPort` — резолвер не создаётся.
+- D12. mDNSResponder шлёт на supplemental-резолвер `SVCB _dns.resolver.arpa` (DDR) — резолвер должен отвечать на незнакомые типы, не падая.
+
+### Проверка 2 — `dsmemberutil` (2026-10-20, `wgp-check-dns`)
+
+- G1. **Вложенные группы учитываются:** u1 ∈ wgp-a ∈ wgp-b — `checkmembership -u 502 -G wgp-b` → «user is a member of the group»; root (0) ∈ admin.
+- G2. **Код выхода не различает «член» и «не член» (оба 0)** — разбирать stdout. Несуществующий uid или gid — «not a member», 0; несуществующая группа по имени — «Group not found», код 7. Текст английский при любой `LANG`.
+- G3. Удалённый пользователь — «not a member», хотя имя осталось в `GroupMembership`.
+- G4. **Время:** первый вызов после `flushcache` — 11 мс, тёплый — 6 мс, 100 вызовов — 136 мс (~85 мс — `fork/exec`).
+- G5. **Кэш не мешает:** изменение членства (`dseditgroup`, `dscl`) видно с первого вызова.
+- G6. Работает без root (admin и обычный пользователь — те же ответы).
+- G7. **`mbr_check_membership` (cgo)** — те же ответы, несуществующая группа — `ENOENT` при поиске имени; 0,14–2 мс, без root.
+
 ## Ход работы
 
 - [x] План и решения 1–6 утверждены (2026-10-20)
 - [x] Шаг 2 — `scripts/vm.sh` (767044b), ревью: блокер B1 — `tart clone` чистит OCI-кэш при нехватке места (`TART_NO_AUTO_PRUNE=1`), замечания — штатное выключение перед клоном, таймаут `tart exec`, `vm_running` без `grep -q` под pipefail, `up` с другими флагами — ошибка, подсказка `--nat`; исправлено (8585397). Решения сверх плана: сборка образа в NAT; гостевой агент — из релиза GitHub (в vanilla его нет), LaunchAgent `--run-agent`
 - [ ] Шаг 3 — `vm.sh base`, проверка сети: образ собран, факты B1–B7; правки `vm.sh` по ходу (оркестратор): без общего `visudo -c` (B1), без `kickstart` sshd (B2), сборка в мосте (B3), `set_vm_dns` для `--nat`. Осталось: буфер обмена (пользователь)
+- [x] Проверки 1–2 (агент А): факты D1–D12, G1–G7; VM удалена
