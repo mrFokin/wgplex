@@ -203,6 +203,29 @@ docs/design.md           правки по фактам (шаг 5, после с
 - G6. Работает без root (admin и обычный пользователь — те же ответы).
 - G7. **`mbr_check_membership` (cgo)** — те же ответы, несуществующая группа — `ENOENT` при поиске имени; 0,14–2 мс, без root.
 
+### Проверка 5 — формула со службой от root (2026-10-20, `wgp-check-brew`, Homebrew 7.0.10)
+
+Помощники — scratchpad `m0-spike/brew/` (`svcspike` 0.1.0–0.4.0, шаблоны формулы, `snap.sh`/`sdiff.sh` — снимок и дифф владельцев).
+
+- H1. **Доверие к tap (новое в Homebrew 7):** `brew install mrfokin/spike/svcspike` по полному имени доверяет сам («Trusted formula …», `~/.homebrew/trust.json`); по короткому имени без доверия — «Refusing to load formula … from untrusted tap», код 1. `url "file://…"` с `sha256` ставится без флагов. `tap-new` включает developer mode (выключен `brew developer off`).
+- H2. **`brew install` от `admin`:** всё `admin:admin`, `post_install` создаёт `etc/svcspike` `0700` и файл `0600`, но «Calling `post_install` is deprecated! Use `post_install_steps` instead.» `var/log`, `var/run` на чистом prefix нет. В caveats brew сам дописывает `sudo brew services start mrfokin/spike/svcspike`.
+- H3. **`sudo brew services start`** — «Warning: Taking root:admin ownership of some svcspike paths» (`chown root:admin` + sticky): `Cellar/…/<ver>/bin`, бинарник, симлинки `opt/svcspike` и `var/homebrew/linked/svcspike`; «This will require manual removal of these paths using `sudo rm` on brew upgrade/reinstall/uninstall». `etc`, `var`, `Cellar/<f>` остаются `admin`.
+- H4. **Метка — `sh.brew.<name>`**, plist `/Library/LaunchDaemons/sh.brew.svcspike.plist` (`root:admin 0644`): `KeepAlive`, `RunAtLoad`, `ProgramArguments [/opt/homebrew/opt/svcspike/bin/svcspike]`, без `StandardOutPath`/`StandardErrorPath`/`UserName`. Процесс — root.
+- H5. **Без `log_path`/`error_log_path` fd 0–2 — `/dev/null`:** всё до `dup2` теряется. С `log_path` и `error_log_path` на файл лога демона — в plist `StandardOutPath`/`StandardErrorPath`, в файле строки до и после `dup2` по порядку; каталог создаёт `brew services` (`root:admin 0755`).
+- H6. **Демон, создающий `var/log/<f>` через `MkdirAll` на чистом prefix, делает `var/log` root** — `admin` больше не может создавать там каталоги, `brew doctor`: «directories are not writable by your user: /opt/homebrew/var/log». Каталоги, созданные формулой (`post_install_steps`), остаются `admin`, root пишет в них файлы.
+- H7. **`brew services` от `admin` без sudo:** `list` — `svcspike none root`; `info` — «Running: false»; **`restart` запускает вторую копию как LaunchAgent пользователя** (`~/Library/LaunchAgents`, «Warning: `svcspike` must be run as root to start at system startup!», код 0) рядом с работающей службой root; `stop` останавливает только эту копию.
+- H8. **`brew upgrade` от `admin` при работающей службе:** код 0, «Warning: Permission denied @ apply2files …/0.1.0/bin/svcspike», остаток старой версии (`svcspike 0.1.0 0.2.0`), копится с каждой версией. **Служба не перезапускается** (тот же pid, старая версия); в `upgrade` перезапуска служб нет.
+- H9. `sudo brew services restart` — новая версия, снова «Taking root:admin ownership».
+- H10. `sudo brew services stop` перед `upgrade` владельцев не возвращает — тот же остаток.
+- H11. **`brew uninstall` от `admin` при службе:** «Error: Could not remove svcspike keg! Do so manually: sudo rm -rf …», код 1; служба работает, plist на месте. `sudo brew uninstall` — «Running Homebrew as root is extremely dangerous and no longer supported.»
+- H12. `sudo brew services stop` выгружает службу и удаляет plist; формулу после H11 снимает только `sudo rm -rf Cellar/<f> opt/<f>`.
+- H13. **`brew cleanup` от `admin` с root-остатками:** «Error: Could not cleanup old kegs! Fix your permissions on: …», код 1 — и в автоматическом cleanup после каждого `upgrade`.
+- H14. `brew doctor` на root-владельцев keg не жалуется; после неудачного uninstall — «unlinked kegs»; на `var/log` — только при H6.
+- H15. **Обход A:** `sudo chown -R -h ${USER}:admin Cellar/<f> opt/<f> var/homebrew/linked/<f>` перед `upgrade`/`cleanup`/`uninstall` — всё проходит с кодом 0; `sudo brew services restart` снова забирает новую версию в root.
+- H16. **Обход B: `sudo brew services start --sudo-service-user=root <f>`** — `UserName root` в plist, владельцев не меняет (`take_root_ownership?` — false), демон — root. `upgrade` от `admin` чистый, одна версия. Опцию нужно передавать при каждом `start`/`restart`: `restart` без неё снова забирает пути в root.
+- H17. **`brew uninstall` раньше `services stop`:** формула удалена, процесс работает, после kill launchd — `last exit code = 78: EX_CONFIG`; `uninstall` снимает доверие, и `sudo brew services stop` — «Refusing to load formula … from untrusted tap», `cleanup` — «not managed by `brew services`». Помогает `brew trust --formula …`, затем `stop`.
+- H18. **`post_install_steps`** работает и не трогает существующий `etc` при `reinstall`; `write` устарел — `write_file`. Образец: `unless_path_exists "wgplex", base: :etc do mkdir_p …; write_file …; set_permissions … end`, `mkdir_p "log/wgplex", base: :var`, `mkdir_p "wgplex", base: :var`.
+
 ## Ход работы
 
 - [x] План и решения 1–6 утверждены (2026-10-20)
@@ -211,5 +234,5 @@ docs/design.md           правки по фактам (шаг 5, после с
 - [x] Проверки 1–2 (агент А): факты D1–D12, G1–G7; VM удалена
 - [x] Добавлена проверка 5 — формула со службой от root (по ревью дизайна); маршрутов с флагом `2` на хосте нет
 - [x] Решения по фактам 1–2 (пользователь, 2026-10-20): ключи DNS — через SystemConfiguration (cgo); членство — `mbr_check_membership` (cgo) вместо `dsmemberutil`; лимит 1000 зон и проверка `dnsinfo` после записи; `SupplementalMatchOrders = 1` для своих зон. Внесено в design 5, 8, 16.2, 18, 20, 21 вместе с `NoSearch` (D4), 60 с при мёртвом резолвере (D10), DDR (D12)
-- [ ] Проверка 5 (агент В)
+- [x] Проверка 5 (агент В): факты H1–H18; VM удалена
 - [ ] Проверки 3–4 (агент Б)
