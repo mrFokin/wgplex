@@ -11,9 +11,10 @@ domain socket, served by [`github.com/mrFokin/jrpc/v2`](https://pkg.go.dev/githu
 - No push notifications: clients poll `status.get`.
 
 **Document status.** This is a skeleton — a minimal description of the current
-contract, written down while the M2 milestone is in progress. The full
-contract (complete reply schemas, per-method rights, `api_version`, the rest
-of the planned methods) is scheduled with milestone M3 per design 21.1.
+contract: after M2, with the M3 naming of `tunnel.enable`/`tunnel.disable`
+already applied. The full contract (complete reply schemas, per-method
+rights, `api_version`, the rest of the planned methods) is scheduled with
+milestone M3 per design 21.1.
 Everything below is derived from the working code; nothing is speculative
 except the items explicitly marked *planned*.
 
@@ -40,8 +41,8 @@ start, and a file that answers is an error (a second daemon must not start).
 ## Methods
 
 Lowercase `object.verb` naming, no boolean params. Mutating methods are idempotent;
-the only exception is `tunnel.setEnabled` with `enabled: true` on a tunnel in
-state `error` — it retries bringing the tunnel up.
+the only exception is `tunnel.enable` on a tunnel in state `error` — it retries
+bringing the tunnel up.
 
 | Method | Params | Result | Notes |
 |---|---|---|---|
@@ -49,7 +50,8 @@ state `error` — it retries bringing the tunnel up.
 | `diag.explain` | `{ "query": string }` | `Explanation` | domain or IP |
 | `diag.routes` | — | `Routes` | the last synced route table |
 | `config.reload` | — | `ReloadResult` | the daemon re-reads its own config directory |
-| `tunnel.setEnabled` | `{ "name": string, "enabled": bool }` | `null` | turn one tunnel on or off |
+| `tunnel.enable` | `{ "name": string }` | `null` | turn one tunnel on; on a tunnel in state `error` it retries the start |
+| `tunnel.disable` | `{ "name": string }` | `null` | turn one tunnel off |
 | `tunnel.disableAll` | — | `null` | turn every enabled tunnel off |
 
 ### status.get → `Status`
@@ -168,13 +170,20 @@ If the config fails validation, the reply is a JSON-RPC error `1` with
 `data: { "errors": string[], "warnings": string[] }`; the daemon keeps
 running the previous config.
 
-### tunnel.setEnabled `{ name, enabled }` → `null`
+### tunnel.enable `{ name }` → `null`
 
-`enabled` is the user's switch; it survives daemon restarts through
-`state.json`. Successful on both directions; `enabled: true` on a tunnel in
-state `error` retries starting it. Errors: `2` (no config applied yet), `3`
-(unknown tunnel), `4` (the tunnel failed to start). An empty `name` is the
-standard invalid params error (`-32602`).
+Sets the user's switch on; it survives daemon restarts through `state.json`.
+Enabling an already enabled tunnel succeeds; on a tunnel in state `error` it
+retries starting it. Errors: `2` (no config applied yet), `3` (unknown
+tunnel), `4` (the tunnel failed to start). An empty `name` is the standard
+invalid params error (`-32602`).
+
+### tunnel.disable `{ name }` → `null`
+
+Sets the user's switch off; the record in `state.json` survives daemon
+restarts. Disabling an already disabled tunnel succeeds. Errors: `2` (no
+config applied yet), `3` (unknown tunnel). An empty `name` is the standard
+invalid params error (`-32602`).
 
 ### tunnel.disableAll → `null`
 
@@ -189,8 +198,8 @@ of the library):
 |---|---|---|
 | `1` | the config failed validation (`data`: `errors`, `warnings`) | `config.reload` |
 | `2` | no config has been applied yet | `tunnel.*` |
-| `3` | the tunnel name is not in the config | `tunnel.setEnabled` |
-| `4` | the tunnel failed to start | `tunnel.setEnabled` with `enabled: true` |
+| `3` | the tunnel name is not in the config | `tunnel.enable`, `tunnel.disable` |
+| `4` | the tunnel failed to start | `tunnel.enable` |
 | `5` | *planned (M3):* not permitted to use the method (`data`: `control_group`) | managing methods |
 
 Any error not meant for the client (internal failure) becomes the standard
@@ -211,11 +220,8 @@ with milestone M3:
 - complete, generated reply schemas and a stable `api_version` field in
   `status.get` (along with `version`, `can_control`, `control_group`,
   `paused`, `config_dir`, `log_path`);
-- the `daemon.pause` / `daemon.resume` methods (pause, block snapshot);
-- `tunnel.enable` and `tunnel.disable` as the design names them (today the
-  code pairs the switch into `tunnel.setEnabled`; this is the exact
-  `--` naming difference the M3 full contract resolves), and `down -all`
-  semantics of the CLI;
+- the `daemon.pause` / `daemon.resume` methods (pause, block snapshot), and
+  `down -all` semantics of the CLI;
 - error `5` and per-method rights (the current root-only access and HTTP 403
   on denial are transitional);
 - additional `TunnelStatus`/`RuleStatus` fields (`reason` of a rule on

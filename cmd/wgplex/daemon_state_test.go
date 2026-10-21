@@ -42,7 +42,7 @@ func TestNewDaemonNilToggles(t *testing.T) {
 }
 
 // design 14: tunnel.disableAll without an applied config is error 2, as
-// tunnel.setEnabled is (data: none).
+// tunnel.enable and tunnel.disable are (data: none).
 func TestDisableAllNoConfig(t *testing.T) {
 	d := newTestDaemon(t, "", "", nil)
 	err := d.DisableAll()

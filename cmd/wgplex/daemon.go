@@ -437,7 +437,8 @@ func pruneToggles(toggles map[string]bool, cfg *config.Config) map[string]bool {
 	return out
 }
 
-// SetEnabled is tunnel.setEnabled.
+// SetEnabled is the body of tunnel.enable (enabled true) and tunnel.disable
+// (enabled false).
 func (d *daemon) SetEnabled(name string, enabled bool) error {
 	d.opMu.Lock()
 	defer d.opMu.Unlock()
@@ -498,7 +499,7 @@ func (d *daemon) toggle(name string, enabled bool) (*config.Tunnel, error) {
 
 // DisableAll is tunnel.disableAll: SetEnabled false for every enabled tunnel
 // with one Sync; the DNS capture stays (decision 2). Without an applied
-// config it is error 2, as tunnel.setEnabled (design 14).
+// config it is error 2, as tunnel.enable and tunnel.disable (design 14).
 func (d *daemon) DisableAll() error {
 	d.opMu.Lock()
 	defer d.opMu.Unlock()
