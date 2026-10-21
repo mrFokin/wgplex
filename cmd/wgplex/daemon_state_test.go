@@ -5,10 +5,13 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/mrFokin/jrpc/v2"
 
+	"github.com/mrFokin/wgplex/internal/config"
 	"github.com/mrFokin/wgplex/internal/dns"
 	"github.com/mrFokin/wgplex/internal/rpc"
 )
@@ -46,5 +49,77 @@ func TestDisableAllNoConfig(t *testing.T) {
 	var jerr *jrpc.JRPCError
 	if !errors.As(err, &jerr) || jerr.Code != rpc.CodeNoConfig {
 		t.Fatalf("DisableAll without a config = %v, want error %d", err, rpc.CodeNoConfig)
+	}
+}
+
+// brokenConfigDir returns a config directory with an unparsable wgplex.yaml.
+func brokenConfigDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "wgplex.yaml"), []byte("tunnels: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// design 4.1: a broken config at startup leaves no state of ours — the
+// routes and the DNS key of a previous run are synced with the empty state
+// now, not left until shutdown. As root the empty sync would change the
+// routing table of the host, so the test runs as a user only.
+func TestApplyConfigBrokenSyncsEmptyState(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("as root the empty sync would change the routing table")
+	}
+	var released int
+	d := newTestDaemon(t, brokenConfigDir(t), "", nil)
+	d.release = func(*slog.Logger) error {
+		released++
+		return nil
+	}
+	_, err := d.Reload()
+	var jerr *jrpc.JRPCError
+	if !errors.As(err, &jerr) || jerr.Code != rpc.CodeConfigInvalid {
+		t.Fatalf("Reload with a broken config = %v, want error %d", err, rpc.CodeConfigInvalid)
+	}
+	if released != 1 {
+		t.Errorf("DNS released %d times, want once", released)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.cfg != nil {
+		t.Error("cfg is set after a broken config")
+	}
+	if len(d.cfgErrs) == 0 {
+		t.Error("config errors are not recorded")
+	}
+	if d.table != nil {
+		t.Errorf("table = %v, want empty", d.table)
+	}
+}
+
+// design 10.2: a failed reload keeps the applied config working and removes
+// nothing; the empty-state sync is for the start without a config only.
+func TestApplyConfigBrokenKeepsPrevious(t *testing.T) {
+	var released int
+	d := newTestDaemon(t, brokenConfigDir(t), "", nil)
+	prev := &config.Config{}
+	d.cfg = prev
+	d.release = func(*slog.Logger) error {
+		released++
+		return nil
+	}
+	_, err := d.Reload()
+	var jerr *jrpc.JRPCError
+	if !errors.As(err, &jerr) || jerr.Code != rpc.CodeConfigInvalid {
+		t.Fatalf("Reload with a broken config = %v, want error %d", err, rpc.CodeConfigInvalid)
+	}
+	if released != 0 {
+		t.Errorf("DNS released %d times, want none", released)
+	}
+	if d.cfg != prev {
+		t.Error("the applied config was replaced by a failed reload")
+	}
+	if len(d.cfgErrs) == 0 {
+		t.Error("config errors are not recorded")
 	}
 }
