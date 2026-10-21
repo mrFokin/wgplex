@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,6 +142,60 @@ func TestLogFileRotatesAtLimit(t *testing.T) {
 	if got := readFile(t, logArchive(path, 1)); got != "0123456789" {
 		t.Errorf(".1 = %q after the second write, want the rotated file", got)
 	}
+}
+
+// B1 (review M2): the very first rotation has neither .1 nor .2. A missing
+// archive is not an error — the rotation returns nil — and nothing is
+// reported to stderr through Write, so the log does not accumulate a false
+// "log rotation" error on every first start.
+func TestLogFileFirstRotationNoArchives(t *testing.T) {
+	t.Run("rotateLocked", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "wgplex.log")
+		l := newTestLog(t, path, 5, nil)
+		l.mu.Lock()
+		err := l.rotateLocked()
+		l.mu.Unlock()
+		if err != nil {
+			t.Fatalf("first rotation without archives: %v", err)
+		}
+		if !exists(logArchive(path, 1)) {
+			t.Error("no .1 after the first rotation")
+		}
+		if exists(logArchive(path, 2)) {
+			t.Error(".2 exists after the first rotation")
+		}
+		if got := readFile(t, path); got != "" {
+			t.Errorf("new log = %q, want empty", got)
+		}
+	})
+
+	t.Run("Write", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "wgplex.log")
+		l := newTestLog(t, path, 5, nil)
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		stderr := os.Stderr
+		os.Stderr = w
+		_, werr := l.Write([]byte("12345"))
+		os.Stderr = stderr
+		w.Close()
+		out, rerr := io.ReadAll(r)
+		r.Close()
+		if werr != nil {
+			t.Fatalf("Write: %v", werr)
+		}
+		if rerr != nil {
+			t.Fatalf("read the captured stderr: %v", rerr)
+		}
+		if len(out) != 0 {
+			t.Errorf("Write reported %q to stderr, want nothing", out)
+		}
+		if !exists(logArchive(path, 1)) {
+			t.Error("no .1 after the write reached the limit")
+		}
+	})
 }
 
 // The old .2 is removed: only two archives are kept (design 15).

@@ -169,10 +169,15 @@ func (l *logFile) rotateLocked() error {
 		return err
 	}
 	// The archives keep the mode of the file they were, but a file left by
-	// hand or by an older version may differ: the log files are 0640 too.
+	// hand or by an older version may differ: the log files are 0640 too. A
+	// missing archive is fine: the first rotations have no .1 or .2 yet.
 	for i := 1; i <= logBackups; i++ {
-		if err := setLogAttrs(logArchive(l.path, i)); err != nil {
-			return fmt.Errorf("%s: %w", logArchive(l.path, i), err)
+		p := logArchive(l.path, i)
+		if err := setLogAttrs(p); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("%s: %w", p, err)
 		}
 	}
 	return nil
