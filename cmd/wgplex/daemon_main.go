@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -21,22 +22,34 @@ import (
 
 // daemonMain is "wgplex daemon": the daemon runs as root under launchd and
 // owns the WireGuard tunnels, the routing table and the local DNS resolver
-// (design 4.1). It logs to stderr (-v: debug, including verbose
-// wireguard-go) and returns the exit code.
+// (design 4.1). It writes its log file itself and points stdout and stderr
+// at it (design 15): logPath is -log or <prefix>/var/log/wgplex/wgplex.log.
+// Without -v the level is info, with -v debug (including verbose
+// wireguard-go); names from DNS queries are debug only. The exit code is
+// returned.
 //
 // Not root, it reports to stderr and exits 0: "brew services start" without
 // sudo installs a LaunchAgent of the user, and launchd must not restart it
-// (design 4.1).
+// (design 4.1). The root log is not opened in that case.
 func daemonMain(cmd command) int {
+	if os.Geteuid() != 0 {
+		log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+		log.Error("wgplex daemon must run as root: sudo brew services start --sudo-service-user=root wgplex")
+		return 0
+	}
 	level := slog.LevelInfo
 	if cmd.Verbose {
 		level = slog.LevelDebug
 	}
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
-	if os.Geteuid() != 0 {
-		log.Error("wgplex daemon must run as root: sudo brew services start --sudo-service-user=root wgplex")
-		return 0
+	// The log goes first: everything after it, including panics, is in the
+	// file (design 15). Before it, errors belong to stderr.
+	lf, err := openDaemonLog(cmd.LogPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "wgplex: %v\n", err)
+		return 1
 	}
+	defer lf.Close()
+	log := slog.New(slog.NewTextHandler(lf, &slog.HandlerOptions{Level: level}))
 	return runDaemon(log, cmd.Socket, cmd.ConfigDir, cmd.StatePath)
 }
 

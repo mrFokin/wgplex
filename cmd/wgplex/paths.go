@@ -9,11 +9,12 @@ import (
 
 // paths are the default paths of wgplex, derived from the Homebrew prefix
 // (design 3): the RPC socket, the config directory read by the daemon
-// (design 10.2) and the state file (design 11).
+// (design 10.2), the state file (design 11) and the log file (design 15).
 type paths struct {
 	Socket    string // <prefix>/var/run/wgplex.sock
 	ConfigDir string // <prefix>/etc/wgplex
 	State     string // <prefix>/var/wgplex/state.json
+	Log       string // <prefix>/var/log/wgplex/wgplex.log
 }
 
 // brewPrefix returns HOMEBREW_PREFIX for the executable at exe (symlinks
@@ -44,6 +45,7 @@ func pathsFor(prefix string) paths {
 		Socket:    filepath.Join(prefix, "var", "run", "wgplex.sock"),
 		ConfigDir: filepath.Join(prefix, "etc", "wgplex"),
 		State:     filepath.Join(prefix, "var", "wgplex", "state.json"),
+		Log:       filepath.Join(prefix, "var", "log", "wgplex", "wgplex.log"),
 	}
 }
 
