@@ -136,8 +136,8 @@ func DeleteHost(dst netip.Addr) error {
 // interface index: sockets bound to it (IP_BOUND_IF) reach dst through it
 // whatever the unscoped table says (design 8). An existing scoped route of
 // ours to dst on that interface is replaced (found with ownedTo, which
-// returns scoped routes too). Removed with the interface; DeleteOwned removes
-// leftovers; AddHost and DeleteHost leave it alone.
+// returns scoped routes too). Removed with the interface; AddHost and
+// DeleteHost leave it alone.
 //
 // The gateway is LinkAddr{Index: index} and rtm_index is index. A scoped and
 // an unscoped route to the same prefix are different entries, so an unscoped
@@ -407,31 +407,6 @@ func sameAddr(a route.Addr, dst netip.Addr) bool {
 		return netip.AddrFrom16(a.IP).Unmap() == dst
 	}
 	return false
-}
-
-// DeleteOwned removes every route marked RTF_PROTO2 (start-up cleanup after a
-// crash), each with an RTM_DELETE copied from its dump entry (deleteMsgFrom).
-// ESRCH is not an error here: the route went away after the dump.
-func DeleteOwned() error {
-	var errs []error
-	for _, af := range []int{unix.AF_INET, unix.AF_INET6} {
-		msgs, err := dumpRoutes(af)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		for _, msg := range msgs {
-			m, ok := msg.(*route.RouteMessage)
-			if !ok || m.Flags&unix.RTF_PROTO2 == 0 || len(m.Addrs) <= unix.RTAX_DST || m.Addrs[unix.RTAX_DST] == nil {
-				continue
-			}
-			del := deleteMsgFrom(m, int(seq.Add(1)))
-			if err := write(del); err != nil && !errors.Is(err, unix.ESRCH) {
-				errs = append(errs, fmt.Errorf("delete route %s: %w", addrString(m.Addrs[unix.RTAX_DST]), err))
-			}
-		}
-	}
-	return errors.Join(errs...)
 }
 
 // hostRouteMsg builds a typ (RTM_ADD, RTM_DELETE) message for the host route
