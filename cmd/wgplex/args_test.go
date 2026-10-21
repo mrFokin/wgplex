@@ -7,14 +7,13 @@ import (
 
 // Tests follow design 13 (CLI) and plan m1-port, decisions 11 and 12 and
 // «Открытые места контракта» (commands, flags before or after the command,
-// -socket for all, -config only for reload, -v only for daemon), not the
+// -socket for all, -config only for daemon, -v only for daemon), not the
 // implementation.
 
 var argsDef = paths{Socket: "/def/var/run/wgplex.sock", ConfigDir: "/def/etc/wgplex"}
 
 func TestParseArgs(t *testing.T) {
-	sock := argsDef.Socket
-	cfg := argsDef.ConfigDir
+	sock, cfg := argsDef.Socket, argsDef.ConfigDir
 	tests := []struct {
 		name string
 		args []string
@@ -24,9 +23,10 @@ func TestParseArgs(t *testing.T) {
 		{"status", []string{"status"}, command{Name: "status", Socket: sock}},
 		{"routes", []string{"routes"}, command{Name: "routes", Socket: sock}},
 		{"version", []string{"version"}, command{Name: "version", Socket: sock}},
-		{"daemon", []string{"daemon"}, command{Name: "daemon", Socket: sock}},
-		// decision 11: reload has -config, default def.ConfigDir.
-		{"reload", []string{"reload"}, command{Name: "reload", ConfigDir: cfg, Socket: sock}},
+		{"daemon", []string{"daemon"}, command{Name: "daemon", ConfigDir: cfg, Socket: sock}},
+		// M2 (design 13): the daemon reads the config itself; reload does
+		// not take files any more.
+		{"reload", []string{"reload"}, command{Name: "reload", Socket: sock}},
 
 		// design 13: explain, up, down take exactly one argument.
 		{"explain domain", []string{"explain", "example.com"}, command{Name: "explain", Arg: "example.com", Socket: sock}},
@@ -40,24 +40,24 @@ func TestParseArgs(t *testing.T) {
 		{"status socket equals", []string{"status", "-socket=/x.sock"}, command{Name: "status", Socket: "/x.sock"}},
 		{"routes socket", []string{"routes", "-socket", "/x.sock"}, command{Name: "routes", Socket: "/x.sock"}},
 		{"version socket", []string{"version", "-socket", "/x.sock"}, command{Name: "version", Socket: "/x.sock"}},
-		{"daemon socket", []string{"daemon", "-socket", "/x.sock"}, command{Name: "daemon", Socket: "/x.sock"}},
-		{"reload socket", []string{"reload", "-socket", "/x.sock"}, command{Name: "reload", ConfigDir: cfg, Socket: "/x.sock"}},
+		{"daemon socket", []string{"daemon", "-socket", "/x.sock"}, command{Name: "daemon", ConfigDir: cfg, Socket: "/x.sock"}},
+		{"reload socket", []string{"reload", "-socket", "/x.sock"}, command{Name: "reload", Socket: "/x.sock"}},
 		{"explain socket before command", []string{"-socket", "/x.sock", "explain", "a.com"}, command{Name: "explain", Arg: "a.com", Socket: "/x.sock"}},
 		{"explain socket after arg", []string{"explain", "a.com", "-socket", "/x.sock"}, command{Name: "explain", Arg: "a.com", Socket: "/x.sock"}},
 		{"up socket after arg", []string{"up", "de", "-socket", "/x.sock"}, command{Name: "up", Arg: "de", Socket: "/x.sock"}},
 		{"down socket before", []string{"-socket", "/x.sock", "down", "de"}, command{Name: "down", Arg: "de", Socket: "/x.sock"}},
 
-		// decision 11: -config only for reload, before or after.
-		{"reload config after", []string{"reload", "-config", "/cfg"}, command{Name: "reload", ConfigDir: "/cfg", Socket: sock}},
-		{"reload config before", []string{"-config", "/cfg", "reload"}, command{Name: "reload", ConfigDir: "/cfg", Socket: sock}},
-		{"reload config equals", []string{"reload", "-config=/cfg"}, command{Name: "reload", ConfigDir: "/cfg", Socket: sock}},
-		{"reload config and socket", []string{"-socket", "/x.sock", "reload", "-config", "/cfg"}, command{Name: "reload", ConfigDir: "/cfg", Socket: "/x.sock"}},
+		// design 13, M2: -config only for the daemon, before or after.
+		{"daemon config after", []string{"daemon", "-config", "/cfg"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: sock}},
+		{"daemon config before", []string{"-config", "/cfg", "daemon"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: sock}},
+		{"daemon config equals", []string{"daemon", "-config=/cfg"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: sock}},
+		{"daemon config and socket", []string{"-socket", "/x.sock", "daemon", "-config", "/cfg"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: "/x.sock"}},
 
 		// decision 11: -v only for daemon, before or after.
-		{"daemon v after", []string{"daemon", "-v"}, command{Name: "daemon", Socket: sock, Verbose: true}},
-		{"daemon v before", []string{"-v", "daemon"}, command{Name: "daemon", Socket: sock, Verbose: true}},
-		{"daemon v and socket", []string{"daemon", "-v", "-socket", "/x.sock"}, command{Name: "daemon", Socket: "/x.sock", Verbose: true}},
-		{"daemon socket and v", []string{"-socket", "/x.sock", "daemon", "-v"}, command{Name: "daemon", Socket: "/x.sock", Verbose: true}},
+		{"daemon v after", []string{"daemon", "-v"}, command{Name: "daemon", ConfigDir: cfg, Socket: sock, Verbose: true}},
+		{"daemon v before", []string{"-v", "daemon"}, command{Name: "daemon", ConfigDir: cfg, Socket: sock, Verbose: true}},
+		{"daemon v and socket", []string{"daemon", "-v", "-socket", "/x.sock"}, command{Name: "daemon", ConfigDir: cfg, Socket: "/x.sock", Verbose: true}},
+		{"daemon socket and v", []string{"-socket", "/x.sock", "daemon", "-v"}, command{Name: "daemon", ConfigDir: cfg, Socket: "/x.sock", Verbose: true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -76,12 +76,12 @@ func TestParseArgs(t *testing.T) {
 // constants.
 func TestParseArgsDefaultsFromDef(t *testing.T) {
 	def := paths{Socket: "/Users/u/brew/var/run/wgplex.sock", ConfigDir: "/Users/u/brew/etc/wgplex"}
-	got, err := parseArgs([]string{"reload"}, def)
+	got, err := parseArgs([]string{"daemon"}, def)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Socket != def.Socket || got.ConfigDir != def.ConfigDir {
-		t.Errorf("reload: got %+v, want socket %q and config %q", got, def.Socket, def.ConfigDir)
+		t.Errorf("daemon: got %+v, want socket %q and config %q", got, def.Socket, def.ConfigDir)
 	}
 	got, err = parseArgs([]string{"up", "de"}, def)
 	if err != nil {
@@ -135,13 +135,14 @@ func TestParseArgsUsage(t *testing.T) {
 		{"version arg", []string{"version", "x"}},
 		{"status empty arg", []string{"status", ""}},
 
-		// decision 11: -config only for reload.
+		// M2 (design 13): -config belongs to the daemon now, the client
+		// commands lost it (wgplex check takes it back in M3).
 		{"status config", []string{"status", "-config", "/cfg"}},
 		{"explain config", []string{"explain", "a.com", "-config", "/cfg"}},
 		{"routes config", []string{"routes", "-config", "/cfg"}},
 		{"up config", []string{"up", "de", "-config", "/cfg"}},
 		{"down config before", []string{"-config", "/cfg", "down", "de"}},
-		{"daemon config is M2", []string{"daemon", "-config", "/cfg"}},
+		{"reload config", []string{"reload", "-config", "/cfg"}},
 		{"version config", []string{"version", "-config", "/cfg"}},
 
 		// decision 11: -v only for daemon.
@@ -161,7 +162,7 @@ func TestParseArgsUsage(t *testing.T) {
 
 		// a flag without its value.
 		{"socket without value", []string{"status", "-socket"}},
-		{"config without value", []string{"reload", "-config"}},
+		{"config without value", []string{"daemon", "-config"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -201,15 +201,15 @@ func printRoutes(w io.Writer, r rpc.Routes) {
 	}
 }
 
-// printApply prints the reply of config.apply.
-func printApply(w io.Writer, r rpc.ApplyResult) {
+// printReload prints the reply of config.reload.
+func printReload(w io.Writer, r rpc.ReloadResult) {
 	for _, x := range r.Warnings {
 		fmt.Fprintf(w, "warning: %s\n", x)
 	}
 	for _, t := range r.Tunnels {
 		fmt.Fprintf(w, "tunnel %s: %s\n", t.Name, t.Error)
 	}
-	fmt.Fprintln(w, "config applied")
+	fmt.Fprintln(w, "config reloaded")
 }
 
 // printError prints err: a *jrpc.JRPCError by its code (config errors one per

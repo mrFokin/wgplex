@@ -36,22 +36,24 @@ func daemonMain(cmd command) int {
 		log.Error("wgplex daemon must run as root: sudo brew services start --sudo-service-user=root wgplex")
 		return 0
 	}
-	return runDaemon(log, cmd.Socket)
+	return runDaemon(log, cmd.Socket, cmd.ConfigDir)
 }
 
-// runDaemon starts the daemon (Wirefork M6 plan "Демон") listening on socket and
-// serves until SIGINT/SIGTERM (exit code 0) or a failure of the resolver or
+// runDaemon starts the daemon listening on socket and serves until
+// SIGINT/SIGTERM (exit code 0) or a failure of the resolver or
 // the RPC server (1), then stops: DNS released, routes, tunnels and the
 // socket removed.
 //
-// It starts empty: no tunnels, no routes, the system DNS untouched; the
-// resolver listens on 127.0.0.1:53 and the RPC waits for config.apply.
+// It reads the config directory configDir and applies it itself at startup
+// (design 10.2): with a broken config the daemon works without tunnels, the
+// problems are in the log and in status.get. The resolver listens on
+// 127.0.0.1:53 and the RPC starts when the config is done.
 //
 // The socket goes first: a second daemon fails there and touches nothing
 // of the running one. The socket file is removed only by closing our own
 // listener (net.UnixListener unlinks its path on Close, which Serve or the
 // error path does), never by path: a failed start leaves it alone.
-func runDaemon(log *slog.Logger, socket string) int {
+func runDaemon(log *slog.Logger, socket, configDir string) int {
 	// SIGHUP and SIGUSR1 would kill the process without cleanup (design 4.1).
 	signal.Ignore(syscall.SIGHUP, syscall.SIGUSR1)
 	sigCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -72,10 +74,10 @@ func runDaemon(log *slog.Logger, socket string) int {
 	releaseDNS(log)
 
 	srv := &dns.Server{Log: log}
-	d := newDaemon(ctx, srv, log)
+	d := newDaemon(ctx, srv, log, configDir)
 	d.setSystem() // the upstream of the resolver before any config (Wirefork M6 fact 7)
-	// Watching from before the RPC: a change of the network before the
-	// first config.apply is seen too.
+	// Watching from before the first config: a change of the network before
+	// the first apply is seen too.
 	events := netwatch.Watch(ctx, dns.CaptureKey, log)
 	if err := srv.Start(dnsAddr); err != nil {
 		log.Error("dns server", "err", err)
@@ -83,6 +85,12 @@ func runDaemon(log *slog.Logger, socket string) int {
 		return 1
 	}
 	log.Info("dns server listening", "addr", dnsAddr)
+
+	// The daemon reads the config directory itself at startup (design
+	// 10.2): a broken config is logged with every problem and the daemon
+	// keeps running without tunnels (design 4.1); the error of Reload was
+	// made into the RPC reply it never sends here.
+	_, _ = d.Reload()
 
 	served := make(chan error, 1)
 	go func() {

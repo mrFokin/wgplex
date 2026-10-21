@@ -14,7 +14,7 @@ import (
 // it, tests use a fake. Errors meant for the client are *jrpc.JRPCError with
 // the codes above; any other error becomes Internal error.
 type Daemon interface {
-	Apply(files map[string]string) (ApplyResult, error)
+	Reload() (ReloadResult, error)
 	SetEnabled(name string, enabled bool) error
 	DisableAll() error
 	State() *State
@@ -29,11 +29,11 @@ type peer struct {
 	err error
 }
 
-// Serve serves the Wirefork RPC methods (M1: only root and answer by
-// decisions 4-5 of the plan; the per-method wgplex API, design 14, comes in
-// M3) at Path on ln until ctx is done, then shuts down gracefully. A
-// connection whose peer uid (LOCAL_PEERCRED) fails allow gets HTTP 403
-// (decision 4). Returns nil after ctx is done.
+// Serve serves the wgplex RPC methods (M2: config.reload takes no params —
+// the daemon reads its own config directory, design 10.2; the per-method
+// rights, design 14, come in M3) at Path on ln until ctx is done, then
+// shuts down gracefully. A connection whose peer uid (LOCAL_PEERCRED) fails
+// allow gets HTTP 403 (decision 4). Returns nil after ctx is done.
 //
 // The uid is taken in http.Server.ConnContext (set in BeforeServeFunc) and
 // checked by an Echo middleware on the jrpc Endpoint (Wirefork M6 fact 3).
@@ -60,8 +60,8 @@ func Serve(ctx context.Context, ln net.Listener, d Daemon, allow func(uid uint32
 	}
 
 	j := jrpc.Endpoint(e, Path, check)
-	j.Method("config.apply", func(_ *jrpc.Context, p ApplyParams) (ApplyResult, error) {
-		return d.Apply(p.Files)
+	j.Method("config.reload", func(_ *jrpc.Context, _ struct{}) (ReloadResult, error) {
+		return d.Reload()
 	})
 	j.Method("tunnel.setEnabled", func(_ *jrpc.Context, p SetEnabledParams) (any, error) {
 		if p.Name == "" {

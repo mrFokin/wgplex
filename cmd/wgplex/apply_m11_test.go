@@ -33,7 +33,7 @@ func TestM11PlanApplyRepeatedNewTunnels(t *testing.T) {
 // --- checkWarnings with a check URL (M11) -----------------------------------
 
 // design 9 "HTTP", 10.2: an IP literal in a check URL of a family the tunnel
-// has no Address of is not checked: config.apply warns, one warning per
+// has no Address of is not checked: a config load warns, one warning per
 // tunnel in config order, naming the tunnel and the address. A URL with a
 // host name gives no warning when the tunnel has a DNS server of a family
 // present in its Address (the default 1.1.1.1 serves an IPv4 tunnel); v6name

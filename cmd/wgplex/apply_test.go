@@ -12,7 +12,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/config"
 )
 
-// Tests follow design 7.3, 8, 10.2 (config.apply: autostart on the first
+// Tests follow design 7.3, 8, 10.2 (config reload: autostart on the first
 // apply, toggles kept on a repeated one, restart only on a changed .conf,
 // the warning about a tunnel DNS server under a CIDR of a rule with
 // fallback: block) and the Wirefork M6 plan (decisions 1, 6, 12; planApply and
@@ -296,7 +296,7 @@ rules:
 }
 
 // Decision 6: an enabled tunnel that failed to start (enabled, not running)
-// is started again by config.apply; its changed .conf does not matter.
+// is started again by a config load; its changed .conf does not matter.
 func TestM6PlanApplyRetryFailed(t *testing.T) {
 	cs := m6NewConfs(t)
 	yaml := m6BaseYAML(m6BaseTunnels()...)
@@ -525,7 +525,7 @@ rules:
 // --- checkWarnings (M7) -----------------------------------------------------
 
 // Tests below follow design 9 "Ping" and the Wirefork M7 plan (decision 7): a check
-// of a family the tunnel has no Address of is not pinged; config.apply warns
+// of a family the tunnel has no Address of is not pinged; a config load warns
 // about it, the config stays valid.
 
 func m7CheckWarnings(t *testing.T, cfg *config.Config) (got []string) {

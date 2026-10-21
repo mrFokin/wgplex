@@ -11,20 +11,16 @@ const (
 	Path = "/rpc" // the JSON-RPC endpoint
 
 	// JSON-RPC error codes of the daemon (decision 5).
-	CodeConfigInvalid = 1 // config.apply: config.Load failed; data: ConfigErrorData
-	CodeNoConfig      = 2 // tunnel.setEnabled before the first successful config.apply
+	CodeConfigInvalid = 1 // config.reload: the config directory failed to load; data: ConfigErrorData
+	CodeNoConfig      = 2 // tunnel.setEnabled before the first successful config load
 	CodeUnknownTunnel = 3 // the tunnel name is not in the config
 	CodeTunnelStart   = 4 // tunnel.setEnabled true: the tunnel failed to start
 )
 
-// ApplyParams are the params of config.apply.
-type ApplyParams struct {
-	Files map[string]string `json:"files"` // base name → content (M1: the Wirefork client delivery, plan decision 5; in M2 the daemon reads the directory itself, design 10.2)
-}
-
-// ApplyResult is the result of config.apply.
-type ApplyResult struct {
-	Warnings []string      `json:"warnings"`          // config.Load and blockedDNSWarnings
+// ReloadResult is the result of config.reload (design 14): the config is
+// applied.
+type ReloadResult struct {
+	Warnings []string      `json:"warnings"`          // config load and blockedDNSWarnings
 	Tunnels  []TunnelError `json:"tunnels,omitempty"` // enabled tunnels that failed to start
 }
 
@@ -51,7 +47,7 @@ type SetEnabledParams struct {
 type Status struct {
 	Configured   bool           `json:"configured"`              // a config has been applied
 	Icon         string         `json:"icon"`                    // "off" | "on" | "warn" (decision 4)
-	ConfigErrors []string       `json:"config_errors,omitempty"` // last failed config.apply; cleared by a successful one
+	ConfigErrors []string       `json:"config_errors,omitempty"` // last failed config reload; cleared by the next successful one
 	Warnings     []string       `json:"warnings,omitempty"`      // of the applied config
 	Tunnels      []TunnelStatus `json:"tunnels"`                 // config order
 	Rules        []RuleStatus   `json:"rules"`                   // config order

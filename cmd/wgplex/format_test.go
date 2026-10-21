@@ -510,11 +510,11 @@ func TestM6PrintRoutes(t *testing.T) {
 	}
 }
 
-// --- printApply -----------------------------------------------------------------
+// --- printReload -----------------------------------------------------------------
 
-func TestM6PrintApply(t *testing.T) {
-	out := m6Out(t, "printApply", func(w io.Writer) {
-		printApply(w, rpc.ApplyResult{
+func TestM6PrintReload(t *testing.T) {
+	out := m6Out(t, "printReload", func(w io.Writer) {
+		printReload(w, rpc.ReloadResult{
 			Warnings: []string{`service "tg" is not used by any rule`, "tunnel de: DNS 1.0.0.1 is inside 1.0.0.0/24 of rule #1 with fallback: block"},
 			Tunnels:  []rpc.TunnelError{{Name: "bad", Error: "resolve endpoints: lookup bad.invalid: no such host"}},
 		})
@@ -524,10 +524,10 @@ func TestM6PrintApply(t *testing.T) {
 		`warning: service "tg" is not used by any rule`,
 		"warning: tunnel de: DNS 1.0.0.1 is inside 1.0.0.0/24 of rule #1 with fallback: block",
 		"tunnel bad: resolve endpoints: lookup bad.invalid: no such host",
-		"config applied",
+		"config reloaded",
 	}
 	if len(rows) != len(want) {
-		t.Fatalf("printApply:\n%s\nwant %d lines", out, len(want))
+		t.Fatalf("printReload:\n%s\nwant %d lines", out, len(want))
 	}
 	for i, l := range want {
 		if !slices.Equal(rows[i], m6F(l)) {
@@ -535,9 +535,9 @@ func TestM6PrintApply(t *testing.T) {
 		}
 	}
 
-	out = m6Out(t, "printApply", func(w io.Writer) { printApply(w, rpc.ApplyResult{}) })
-	if rows := m6Rows(out); len(rows) != 1 || !slices.Equal(rows[0], m6F("config applied")) {
-		t.Errorf("clean apply: %q, want only \"config applied\"", out)
+	out = m6Out(t, "printReload", func(w io.Writer) { printReload(w, rpc.ReloadResult{}) })
+	if rows := m6Rows(out); len(rows) != 1 || !slices.Equal(rows[0], m6F("config reloaded")) {
+		t.Errorf("clean reload: %q, want only \"config reloaded\"", out)
 	}
 }
 
@@ -565,7 +565,7 @@ func TestM6PrintErrorConfigInvalid(t *testing.T) {
 		Errors:   []string{`tunnel "x": conf "x.conf" not found`, `wgplex.yaml: unknown key "foo"`},
 		Warnings: []string{`service "tg" is not used by any rule`},
 	})
-	for _, err := range []error{e, fmt.Errorf("config.apply: %w", e)} {
+	for _, err := range []error{e, fmt.Errorf("config.reload: %w", e)} {
 		out := m6Out(t, "printError", func(w io.Writer) { printError(w, err) })
 		hdr := m6IndexOf(out, m6F("config error:"))
 		e1 := m6IndexOf(out, m6F(`tunnel "x": conf "x.conf" not found`))

@@ -36,7 +36,7 @@ const (
 var errStopping = errors.New("wgplex daemon is stopping")
 
 // daemon is the state of the wgplex daemon and the system calls on it (manual check
-// only). opMu orders the mutating calls (Apply, SetEnabled, DisableAll,
+// only). opMu orders the mutating calls (Reload, SetEnabled, DisableAll,
 // expire, the health tick, netwatch events, shutdown); mu guards the state
 // and Sync, which the resolver calls too (Server.Sync). Lock order: opMu → mu → Server.mu. Endpoints are
 // resolved under opMu without mu, so DNS answers do not wait for them. mu is
@@ -56,9 +56,10 @@ type daemon struct {
 	captured bool // under opMu: the DNS capture succeeded and is not released
 	mu       sync.Mutex
 
-	ctx context.Context // done at stop: endpoint resolving gives up
-	srv *dns.Server
-	log *slog.Logger
+	ctx       context.Context // done at stop: endpoint resolving gives up
+	srv       *dns.Server
+	log       *slog.Logger
+	configDir string // the config directory read by applyConfig (design 10.2)
 
 	// Under mu.
 	cfg       *config.Config // nil: no config applied yet
@@ -111,15 +112,17 @@ type hostRoute struct {
 var _ rpc.Daemon = (*daemon)(nil)
 
 // newDaemon returns a daemon with no config; srv is the resolver, its Sync
-// is set here.
-func newDaemon(ctx context.Context, srv *dns.Server, log *slog.Logger) *daemon {
+// is set here. configDir is the config directory (design 10.2), read at
+// startup and by config.reload.
+func newDaemon(ctx context.Context, srv *dns.Server, log *slog.Logger, configDir string) *daemon {
 	d := &daemon{
-		ctx:     ctx,
-		srv:     srv,
-		log:     log,
-		tunnels: map[string]*runTunnel{},
-		hosts:   map[netip.Addr]*hostRoute{},
-		gws:     map[bool]router.Gateway{},
+		ctx:       ctx,
+		srv:       srv,
+		log:       log,
+		configDir: configDir,
+		tunnels:   map[string]*runTunnel{},
+		hosts:     map[netip.Addr]*hostRoute{},
+		gws:       map[bool]router.Gateway{},
 	}
 	// Sync before a DNS answer with new addresses, from the resolver's
 	// goroutines (not under the resolver's lock: syncNow calls Dynamic).
@@ -161,18 +164,26 @@ func (d *daemon) locked(f func()) {
 	f()
 }
 
-// Apply is config.apply (decision 1, Wirefork M6 plan "config.apply").
-func (d *daemon) Apply(files map[string]string) (rpc.ApplyResult, error) {
+// Reload is config.reload (design 14, 10.2): the daemon re-reads its config
+// directory and applies the result. Tunnels keep their toggles, a new one
+// follows autostart (planApply with the current config as cur). A config
+// that failed to load is not applied: the previous one keeps working and
+// the client gets the CodeConfigInvalid error with the problems in data.
+func (d *daemon) Reload() (rpc.ReloadResult, error) {
 	d.opMu.Lock()
 	defer d.opMu.Unlock()
 	if d.closed {
-		return rpc.ApplyResult{}, errStopping
+		return rpc.ReloadResult{}, errStopping
 	}
-	bs := make(map[string][]byte, len(files))
-	for k, v := range files {
-		bs[k] = []byte(v)
-	}
-	next, warnings, err := config.Load(bs)
+	return d.applyConfig()
+}
+
+// applyConfig loads the config directory (config.LoadDir, design 10.2) and
+// applies the result. It is the startup path too (runDaemon): its error
+// travels to that caller to log once; every problem is already logged here.
+// opMu is held.
+func (d *daemon) applyConfig() (rpc.ReloadResult, error) {
+	next, warnings, err := config.LoadDir(d.configDir)
 	if warnings == nil {
 		warnings = []string{}
 	}
@@ -180,9 +191,9 @@ func (d *daemon) Apply(files map[string]string) (rpc.ApplyResult, error) {
 		errs := errorList(err)
 		d.locked(func() { d.cfgErrs = errs })
 		for _, e := range errs {
-			d.log.Error("config apply", "err", e)
+			d.log.Error("config load", "dir", d.configDir, "err", e)
 		}
-		return rpc.ApplyResult{}, jrpc.NewError(rpc.CodeConfigInvalid, "config is invalid",
+		return rpc.ReloadResult{}, jrpc.NewError(rpc.CodeConfigInvalid, "config is invalid",
 			rpc.ConfigErrorData{Errors: errs, Warnings: warnings})
 	}
 	warnings = append(warnings, blockedDNSWarnings(next)...)
@@ -190,7 +201,7 @@ func (d *daemon) Apply(files map[string]string) (rpc.ApplyResult, error) {
 	for _, w := range warnings {
 		d.log.Warn("config", "warning", w)
 	}
-	d.log.Info("config apply", "tunnels", len(next.Tunnels), "rules", len(next.Rules))
+	d.log.Info("config applied", "tunnels", len(next.Tunnels), "rules", len(next.Rules))
 
 	// The network may have changed since the last apply (decision 11).
 	// Reading the new values would hide the change from the Network event
@@ -217,7 +228,7 @@ func (d *daemon) Apply(files map[string]string) (rpc.ApplyResult, error) {
 	if !sameTunnels(planned, start) { // cannot happen: opMu is held
 		endpoints, errs = d.resolve(start)
 	}
-	res := rpc.ApplyResult{Warnings: slices.Clone(warnings)} // d.warnings is shared with State
+	res := rpc.ReloadResult{Warnings: slices.Clone(warnings)} // d.warnings is shared with State
 	started := map[string]bool{}
 	for i, t := range start {
 		started[t.Name] = true

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -34,27 +33,26 @@ import (
 
 type m6Call struct {
 	method  string
-	files   map[string]string
 	name    string
 	enabled bool
 }
 
 // m6FakeDaemon records calls and returns what the test set.
 type m6FakeDaemon struct {
-	mu          sync.Mutex
-	calls       []m6Call
-	applyResult ApplyResult
-	applyErr    error
-	setErr      error
-	disableErr  error
-	state       *State
+	mu           sync.Mutex
+	calls        []m6Call
+	reloadResult ReloadResult
+	reloadErr    error
+	setErr       error
+	disableErr   error
+	state        *State
 }
 
-func (d *m6FakeDaemon) Apply(files map[string]string) (ApplyResult, error) {
+func (d *m6FakeDaemon) Reload() (ReloadResult, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.calls = append(d.calls, m6Call{method: "Apply", files: maps.Clone(files)})
-	return d.applyResult, d.applyErr
+	d.calls = append(d.calls, m6Call{method: "Reload"})
+	return d.reloadResult, d.reloadErr
 }
 
 func (d *m6FakeDaemon) SetEnabled(name string, enabled bool) error {
@@ -275,36 +273,34 @@ func m6Same(t *testing.T, method string, got json.RawMessage, want any) {
 
 // --- methods ------------------------------------------------------------------------
 
-// Plan decision 5, M1: config.apply is the Wirefork delivery by a client;
-// in M2 the daemon reads the directory itself (design 10.2, decision 5),
-// the wgplex API is design 14 in M3.
-func TestM6ServeApply(t *testing.T) {
-	d := &m6FakeDaemon{applyResult: ApplyResult{
+// M2: config.reload takes no params — the daemon reads its own config
+// directory (design 10.2; formerly the client delivered the files). The
+// result follows design 14.
+func TestM6ServeReload(t *testing.T) {
+	d := &m6FakeDaemon{reloadResult: ReloadResult{
 		Warnings: []string{`service "tg" is not used by any rule`},
 		Tunnels:  []TunnelError{{Name: "bad", Error: "resolve endpoints: no such host"}},
 	}}
 	s := m6Serve(t, d, nil)
-	files := map[string]string{"wgplex.yaml": "tunnels: []\n", "de.conf": "[Interface]\n"}
-	r := s.call(t, "config.apply", ApplyParams{Files: files})
-	m6WantResult(t, "config.apply", r)
-	m6Same(t, "config.apply", r.Result, d.applyResult)
+	r := s.call(t, "config.reload", nil)
+	m6WantResult(t, "config.reload", r)
+	m6Same(t, "config.reload", r.Result, d.reloadResult)
 
-	calls := d.mutating()
-	if len(calls) != 1 || calls[0].method != "Apply" || !maps.Equal(calls[0].files, files) {
-		t.Errorf("daemon calls = %+v, want one Apply with the files", calls)
+	if calls := d.mutating(); len(calls) != 1 || calls[0].method != "Reload" {
+		t.Errorf("daemon calls = %+v, want one Reload", calls)
 	}
 }
 
-// Decision 5: CodeConfigInvalid passes as is, with ConfigErrorData in data.
-func TestM6ServeApplyConfigInvalid(t *testing.T) {
+// Design 14: CodeConfigInvalid passes as is, with ConfigErrorData in data.
+func TestM6ServeReloadConfigInvalid(t *testing.T) {
 	data := ConfigErrorData{
 		Errors:   []string{`tunnel "x": conf "x.conf" not found`},
 		Warnings: []string{"w1"},
 	}
-	d := &m6FakeDaemon{applyErr: jrpc.NewError(CodeConfigInvalid, "config is invalid", data)}
+	d := &m6FakeDaemon{reloadErr: jrpc.NewError(CodeConfigInvalid, "config is invalid", data)}
 	s := m6Serve(t, d, nil)
-	r := s.call(t, "config.apply", ApplyParams{Files: map[string]string{"wgplex.yaml": "x"}})
-	m6WantCode(t, "config.apply", r, CodeConfigInvalid)
+	r := s.call(t, "config.reload", nil)
+	m6WantCode(t, "config.reload", r, CodeConfigInvalid)
 	if r.Error.Message != "config is invalid" {
 		t.Errorf("message %q", r.Error.Message)
 	}
