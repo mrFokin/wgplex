@@ -1,6 +1,6 @@
 # M2 — системный режим
 
-> Статус: active
+> Статус: done
 > Владелец: оркестратор · Проверено: «да» пользователя: 2026-10-21
 
 **Цель:** демон работает как системная служба по design 4.1: сам читает каталог конфига, состояние переключателей переживает перезапуск (`state.json`), стартует с битым конфигом, пишет лог с ротацией, стартует без предварительной уборки (маршруты и ключ DNS синхронизируются с новым состоянием, а не снимаются заранее). CLI получает `wgplex check`. `config.apply` заменяется на `config.reload`.
@@ -124,4 +124,7 @@ wgp-check-* клоны сносятся после проверок (см. «У�
   - 6. CLI: `wgplex check` от admin — `config OK`; с `chmod 0666 t1.conf` — `config error: t1.conf: writable by group or other`, rc 1; `reload -config` и `check -json` — usage, rc 2; `status` от admin — `permission denied: run as root` (M1-состояние прав, M3)
   - Проверки не показали: живой TCC (`~/Documents`), реальный port-busy DNS (M4), `dup2`-паники — покрыто unit-тестами/вне M2
 - [x] Уборка (2026-10-21): клоны `wgp-check-m2`, `wgp-check-m2srv` и стенд снесены (`vm.sh down`), `wgp-base` остался; все 7 веток `worktree-agent-m2-*` подтверждены `git branch --merged` и удалены, worktrees сняты. Ветка `m1-port` не трогалась
-- [ ] Шаг 12 — подтверждение пользователя (VM-проверка) и слияние в `master`
+- [x] Шаг 12 — подтверждение пользователя (2026-10-21: «да» на слияние) и слияние в `master`. «Готово, когда»: `make check` и `make build` (universal, `codesign -v`) зелёные; ревью без блокеров; проверка в VM пройдена; VMs и worktrees убраны — выполнено
+- [ ] Push в origin и тег — не выполнялись, ждут отдельного «да» (CLAUDE.md)
+
+**Для сессии `wgplex-app` (A1 — после M3):** движок `0.1.0-dev` (M2), этап меняет контракт API: `config.apply` удалён, вместо него `config.reload` без параметров (демон сам читает каталог `<prefix>/etc/wgplex`); добавлен CLI `wgplex check` (без демона и root). `api_version` пока не отдаётся в `status.get` — появится в M3 вместе с полным `docs/api.md`, правами по методам, ошибкой `5`, `daemon.pause/resume` и полем `reason` у правил. Начинать A1 раньше M3 нельзя: клиент получит неполный контракт. Каркас контракта — `docs/api.md` (M2), актуальные методы: `status.get`, `diag.explain`, `diag.routes`, `config.reload`, `tunnel.setEnabled`, `tunnel.disableAll`
