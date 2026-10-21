@@ -1,6 +1,7 @@
 // Command wgplex runs several WireGuard tunnels at once with rule-based
 // routing on macOS. "wgplex daemon" is the root daemon; the other commands
-// are a client of its JSON-RPC socket, the same API as the app's.
+// are clients of its JSON-RPC socket, the same API as the app's — except
+// "wgplex check", which validates the config directory locally (design 13).
 package main
 
 import (
@@ -25,7 +26,8 @@ commands:
   routes                current routes: from configs and dynamic
   up <tunnel>           enable a tunnel
   down <tunnel>         disable a tunnel
-  reload [-config dir]  re-read the config (default <prefix>/etc/wgplex)
+  reload                the daemon re-reads the config
+  check [-config dir]   validate the config without the daemon
   daemon [-v]           run the daemon (as root)
   version               print the version
 `
@@ -42,6 +44,8 @@ func main() {
 	switch cmd.Name {
 	case "daemon":
 		os.Exit(daemonMain(cmd))
+	case "check":
+		os.Exit(checkMain(os.Stdout, cmd.ConfigDir))
 	case "version":
 		fmt.Println("wgplex", version)
 		return
@@ -80,15 +84,11 @@ func run(cmd command) error {
 		p := rpc.SetEnabledParams{Name: cmd.Arg, Enabled: cmd.Name == "up"}
 		return call(ctx, sock, "tunnel.setEnabled", p, nil)
 	case "reload":
-		files, err := readConfigDir(cmd.ConfigDir)
-		if err != nil {
-			return fmt.Errorf("read config: %w", err)
-		}
-		var r rpc.ApplyResult
-		if err := call(ctx, sock, "config.apply", rpc.ApplyParams{Files: files}, &r); err != nil {
+		var r rpc.ReloadResult
+		if err := call(ctx, sock, "config.reload", nil, &r); err != nil {
 			return err
 		}
-		printApply(os.Stdout, r)
+		printReload(os.Stdout, r)
 	default:
 		return errors.New("unknown command " + cmd.Name) // parseArgs rejects it
 	}

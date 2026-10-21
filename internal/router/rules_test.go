@@ -127,7 +127,7 @@ func TestSelectRulesSingleRule(t *testing.T) {
 		{name: "prev tunnel unknown", via: []string{"nl", "de"},
 			tunnels: map[string]TunnelState{"nl": tDead, "de": tUp}, prev: []RuleState{tOn("ghost")}, want: tOn("de")},
 
-		// Decision 5: after config.apply prev is nil, selection starts over.
+		// Decision 5: after a config load prev is nil, selection starts over.
 		{name: "prev nil: first usable", via: []string{"nl", "de"},
 			tunnels: map[string]TunnelState{"nl": tUp, "de": tUp}, prev: nil, want: tOn("nl")},
 	}

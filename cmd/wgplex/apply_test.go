@@ -12,7 +12,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/config"
 )
 
-// Tests follow design 7.3, 8, 10.2 (config.apply: autostart on the first
+// Tests follow design 7.3, 8, 10.2 (config reload: autostart on the first
 // apply, toggles kept on a repeated one, restart only on a changed .conf,
 // the warning about a tunnel DNS server under a CIDR of a rule with
 // fallback: block) and the Wirefork M6 plan (decisions 1, 6, 12; planApply and
@@ -147,14 +147,14 @@ func m6Trues(m map[string]bool) []string {
 	return out
 }
 
-func m6Plan(t *testing.T, cur, next *config.Config, enabled, running map[string]bool) (nextEnabled map[string]bool, stop, start []string) {
+func m6Plan(t *testing.T, cur, next *config.Config, toggles, enabled, running map[string]bool) (nextEnabled map[string]bool, stop, start []string) {
 	t.Helper()
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("planApply panicked: %v", r)
 		}
 	}()
-	return planApply(cur, next, enabled, running)
+	return planApply(cur, next, toggles, enabled, running)
 }
 
 func m6Eq(a, b []string) bool { return len(a) == 0 && len(b) == 0 || slices.Equal(a, b) }
@@ -163,9 +163,9 @@ type m6PlanWant struct {
 	enabled, stop, start []string // enabled: sorted; stop, start: in order
 }
 
-func m6CheckPlan(t *testing.T, name string, cur, next *config.Config, enabled, running map[string]bool, want m6PlanWant) {
+func m6CheckPlan(t *testing.T, name string, cur, next *config.Config, toggles, enabled, running map[string]bool, want m6PlanWant) {
 	t.Helper()
-	ne, stop, start := m6Plan(t, cur, next, enabled, running)
+	ne, stop, start := m6Plan(t, cur, next, toggles, enabled, running)
 	if got := m6Trues(ne); !m6Eq(got, want.enabled) {
 		t.Errorf("%s: nextEnabled = %v, want %v", name, got, want.enabled)
 	}
@@ -184,11 +184,11 @@ func m6CheckPlan(t *testing.T, name string, cur, next *config.Config, enabled, r
 func TestM6PlanApplyFirst(t *testing.T) {
 	cs := m6NewConfs(t)
 	next := m6Load(t, m6BaseYAML(m6BaseTunnels()...), cs.texts(nil))
-	m6CheckPlan(t, "nil maps", nil, next, nil, nil, m6PlanWant{
+	m6CheckPlan(t, "nil maps", nil, next, nil, nil, nil, m6PlanWant{
 		enabled: []string{"de", "fi", "work"},
 		start:   []string{"work", "de", "fi"},
 	})
-	m6CheckPlan(t, "empty maps", nil, next, map[string]bool{}, map[string]bool{}, m6PlanWant{
+	m6CheckPlan(t, "empty maps", nil, next, nil, map[string]bool{}, map[string]bool{}, m6PlanWant{
 		enabled: []string{"de", "fi", "work"},
 		start:   []string{"work", "de", "fi"},
 	})
@@ -202,13 +202,18 @@ func TestM6PlanApplyKeepsToggles(t *testing.T) {
 	cur := m6Load(t, yaml, cs.texts(nil))
 	next := m6Load(t, yaml, cs.texts(nil))
 	on := m6Set("work", "home", "fi")
-	m6CheckPlan(t, "same config", cur, next, on, m6Set("work", "home", "fi"), m6PlanWant{
+	// M2: home, fi (on) and de (off) were toggled explicitly, work came up
+	// by its autostart (no record).
+	toggles := map[string]bool{"home": true, "de": false, "fi": true}
+	m6CheckPlan(t, "same config", cur, next, toggles, on, m6Set("work", "home", "fi"), m6PlanWant{
 		enabled: []string{"fi", "home", "work"},
 	})
 
-	// Everything turned off by the user (tunnel.disableAll): autostart does
-	// not bring tunnels back (decision 1, plan step 11).
-	m6CheckPlan(t, "all off", cur, next, map[string]bool{}, map[string]bool{}, m6PlanWant{})
+	// Everything turned off by the user (tunnel.disableAll): every tunnel
+	// has its off record (design 12), autostart does not bring tunnels
+	// back (decision 1, plan step 11).
+	alloff := map[string]bool{"work": false, "home": false, "de": false, "fi": false}
+	m6CheckPlan(t, "all off", cur, next, alloff, map[string]bool{}, map[string]bool{}, m6PlanWant{})
 }
 
 // design 10.2: a new tunnel is enabled by its autostart, a removed one is
@@ -226,7 +231,7 @@ func TestM6PlanApplyAddRemove(t *testing.T) {
 	), cs.texts(nil))
 
 	on := m6Set("work", "de", "fi")
-	m6CheckPlan(t, "add and remove", cur, next, on, on, m6PlanWant{
+	m6CheckPlan(t, "add and remove", cur, next, nil, on, on, m6PlanWant{
 		enabled: []string{"fi", "nl", "work"},
 		stop:    []string{"de"},
 		start:   []string{"nl"},
@@ -234,7 +239,7 @@ func TestM6PlanApplyAddRemove(t *testing.T) {
 
 	// A removed tunnel that is enabled but not running (failed to start) is
 	// just gone: nothing to stop.
-	m6CheckPlan(t, "removed with error", cur, next, on, m6Set("work", "fi"), m6PlanWant{
+	m6CheckPlan(t, "removed with error", cur, next, nil, on, m6Set("work", "fi"), m6PlanWant{
 		enabled: []string{"fi", "nl", "work"},
 		start:   []string{"nl"},
 	})
@@ -250,7 +255,7 @@ func TestM6PlanApplyConfChanged(t *testing.T) {
 		"fi": cs["fi"].Text("DNS = 10.9.9.9", "MTU = 1380"),
 	}))
 	on := m6Set("work", "de", "fi")
-	m6CheckPlan(t, "MTU of fi", cur, next, on, on, m6PlanWant{
+	m6CheckPlan(t, "MTU of fi", cur, next, nil, on, on, m6PlanWant{
 		enabled: []string{"de", "fi", "work"},
 		stop:    []string{"fi"},
 		start:   []string{"fi"},
@@ -260,7 +265,7 @@ func TestM6PlanApplyConfChanged(t *testing.T) {
 	changed := cs["work"]
 	changed.allowed = "10.0.0.0/8, 172.20.0.0/16"
 	next2 := m6Load(t, yaml, cs.texts(map[string]string{"work": changed.Text("DNS = 10.9.9.9")}))
-	m6CheckPlan(t, "AllowedIPs of work", cur, next2, on, on, m6PlanWant{
+	m6CheckPlan(t, "AllowedIPs of work", cur, next2, nil, on, on, m6PlanWant{
 		enabled: []string{"de", "fi", "work"},
 		stop:    []string{"work"},
 		start:   []string{"work"},
@@ -290,13 +295,13 @@ rules:
     via: [fi]
 `, cs.texts(nil))
 	on := m6Set("work", "de", "fi")
-	m6CheckPlan(t, "YAML only", cur, next, on, on, m6PlanWant{
+	m6CheckPlan(t, "YAML only", cur, next, nil, on, on, m6PlanWant{
 		enabled: []string{"de", "fi", "work"},
 	})
 }
 
 // Decision 6: an enabled tunnel that failed to start (enabled, not running)
-// is started again by config.apply; its changed .conf does not matter.
+// is started again by a config load; its changed .conf does not matter.
 func TestM6PlanApplyRetryFailed(t *testing.T) {
 	cs := m6NewConfs(t)
 	yaml := m6BaseYAML(m6BaseTunnels()...)
@@ -307,7 +312,7 @@ func TestM6PlanApplyRetryFailed(t *testing.T) {
 	on := m6Set("work", "de", "fi")
 	running := m6Set("work", "fi")
 	for name, n := range map[string]*config.Config{"same": cur, "de changed": next} {
-		m6CheckPlan(t, name, cur, n, on, running, m6PlanWant{
+		m6CheckPlan(t, name, cur, n, nil, on, running, m6PlanWant{
 			enabled: []string{"de", "fi", "work"},
 			start:   []string{"de"},
 		})
@@ -325,7 +330,7 @@ func TestM6PlanApplyDisabledChanged(t *testing.T) {
 		"home": cs["home"].Text("DNS = 10.9.9.9", "MTU = 1380"),
 	}))
 	on := m6Set("work", "fi")
-	m6CheckPlan(t, "disabled, changed", cur, next, on, on, m6PlanWant{
+	m6CheckPlan(t, "disabled, changed", cur, next, nil, on, on, m6PlanWant{
 		enabled: []string{"fi", "work"},
 	})
 }
@@ -350,11 +355,56 @@ func TestM6PlanApplyOrder(t *testing.T) {
 		m6TunnelYAML("home", "config", false),
 	), nextConfs)
 	on := m6Set("work", "de", "fi")
-	m6CheckPlan(t, "order", cur, next, on, on, m6PlanWant{
+	m6CheckPlan(t, "order", cur, next, nil, on, on, m6PlanWant{
 		enabled: []string{"de", "fi", "lab", "nl", "work"},
 		stop:    []string{"work", "de", "fi"},
 		start:   []string{"lab", "fi", "de", "nl", "work"},
 	})
+}
+
+// --- planApply: state.json toggles (M2, design 11) --------------------------
+
+// At startup the toggles of state.json take part in the first apply (no
+// cur): a record wins over the autostart, a tunnel without one goes by its
+// autostart, a record of a tunnel no longer in the config is ignored.
+func TestM6PlanApplySaved(t *testing.T) {
+	cs := m6NewConfs(t)
+	next := m6Load(t, m6BaseYAML(m6BaseTunnels()...), cs.texts(nil))
+	// work (autostart on) down by record, home (no autostart) up by it:
+	// the scenario 4 of the plan (t1: on, autostart: false, comes up).
+	saved := map[string]bool{"work": false, "home": true}
+	m6CheckPlan(t, "records win over autostart", nil, next, saved, nil, nil, m6PlanWant{
+		enabled: []string{"de", "fi", "home"},
+		start:   []string{"home", "de", "fi"},
+	})
+	m6CheckPlan(t, "unknown record", nil, next, map[string]bool{"gone": true}, nil, nil, m6PlanWant{
+		enabled: []string{"de", "fi", "work"},
+		start:   []string{"work", "de", "fi"},
+	})
+
+	// A repeated apply keeps the records as well.
+	cur := m6Load(t, m6BaseYAML(m6BaseTunnels()...), cs.texts(nil))
+	m6CheckPlan(t, "repeated apply", cur, next, saved, m6Set("de", "fi", "home"), m6Set("de", "fi", "home"), m6PlanWant{
+		enabled: []string{"de", "fi", "home"},
+	})
+}
+
+// design 11: every successful apply (replan) removes the toggles of the
+// tunnels no longer in the config, without touching the caller's map.
+func TestM6PruneToggles(t *testing.T) {
+	cs := m6NewConfs(t)
+	cfg := m6Load(t, m6BaseYAML(m6BaseTunnels()...), cs.texts(nil))
+	toggles := map[string]bool{"work": true, "home": false, "gone": true}
+	got := pruneToggles(toggles, cfg)
+	if len(got) != 2 || !got["work"] || got["home"] {
+		t.Errorf("pruneToggles = %v, want work: true, home: false", got)
+	}
+	if _, ok := toggles["gone"]; !ok {
+		t.Error("pruneToggles modified the input map")
+	}
+	if got := pruneToggles(nil, cfg); len(got) != 0 {
+		t.Errorf("pruneToggles(nil) = %v, want empty", got)
+	}
 }
 
 // --- blockedDNSWarnings -----------------------------------------------------
@@ -525,7 +575,7 @@ rules:
 // --- checkWarnings (M7) -----------------------------------------------------
 
 // Tests below follow design 9 "Ping" and the Wirefork M7 plan (decision 7): a check
-// of a family the tunnel has no Address of is not pinged; config.apply warns
+// of a family the tunnel has no Address of is not pinged; a config load warns
 // about it, the config stays valid.
 
 func m7CheckWarnings(t *testing.T, cfg *config.Config) (got []string) {
