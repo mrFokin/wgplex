@@ -14,13 +14,13 @@ func TestBrewPrefix(t *testing.T) {
 		goarch string
 		want   string
 	}{
-		// design 3.1: brew install, standard prefixes.
+		// design 3, rule 1: brew install, standard prefixes.
 		{"cellar arm64 standard", "/opt/homebrew/Cellar/wgplex/0.1.0/bin/wgplex", "arm64", "/opt/homebrew"},
 		{"cellar amd64 standard", "/usr/local/Cellar/wgplex/0.1.0/bin/wgplex", "amd64", "/usr/local"},
-		// design 3.1: the Cellar wins over the architecture.
+		// design 3, rule 1: the Cellar wins over the architecture.
 		{"cellar /usr/local on arm64", "/usr/local/Cellar/wgplex/0.1.0/bin/wgplex", "arm64", "/usr/local"},
 		{"cellar /opt/homebrew on amd64", "/opt/homebrew/Cellar/wgplex/0.1.0/bin/wgplex", "amd64", "/opt/homebrew"},
-		// design 3.1: a non-standard prefix.
+		// design 3, rule 1: a non-standard prefix.
 		{"cellar custom prefix", "/Users/u/brew/Cellar/wgplex/0.1.0/bin/wgplex", "arm64", "/Users/u/brew"},
 		{"cellar custom prefix amd64", "/Users/u/brew/Cellar/wgplex/0.1.0/bin/wgplex", "amd64", "/Users/u/brew"},
 		{"cellar custom prefix unknown arch", "/Users/u/brew/Cellar/wgplex/0.1.0/bin/wgplex", "riscv64", "/Users/u/brew"},
@@ -28,11 +28,11 @@ func TestBrewPrefix(t *testing.T) {
 		// contract: the first "/Cellar/" counts.
 		{"first cellar counts", "/a/Cellar/b/Cellar/wgplex/0.1.0/bin/wgplex", "arm64", "/a"},
 		{"first cellar counts custom", "/Users/u/brew/Cellar/x/Cellar/wgplex/bin/wgplex", "amd64", "/Users/u/brew"},
-		// design 3.1: only the "/Cellar/" component, not a lookalike.
+		// design 3, rule 1: only the "/Cellar/" component, not a lookalike.
 		{"MyCellar is not a cellar", "/Users/u/MyCellar/wgplex/bin/wgplex", "amd64", "/usr/local"},
 		{"Cellarx is not a cellar", "/Users/u/Cellarx/wgplex/bin/wgplex", "amd64", "/usr/local"},
 		{"lowercase cellar is not a cellar", "/Users/u/cellar/wgplex/bin/wgplex", "amd64", "/usr/local"},
-		// design 3.2: a development build outside the Cellar.
+		// design 3, rule 2: a development build outside the Cellar.
 		{"dev build arm64", "/Users/u/src/wgplex/build/wgplex", "arm64", "/opt/homebrew"},
 		{"dev build amd64", "/Users/u/src/wgplex/build/wgplex", "amd64", "/usr/local"},
 		{"go run binary arm64", "/private/var/folders/x/T/go-build1/b001/exe/wgplex", "arm64", "/opt/homebrew"},

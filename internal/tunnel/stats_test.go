@@ -13,7 +13,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/config"
 )
 
-// Tests follow design 10.1, 17.3, 13 and the Wirefork M6 plan (fact 6, the appendix
+// Tests follow design 10.1 (Ключи: keys never leak), 14 (peer fields) and 13 and the Wirefork M6 plan (fact 6, the appendix
 // "образец IpcGet"), not the implementation. The keys are stubs: every key
 // is 32 copies of one byte, never a real key.
 

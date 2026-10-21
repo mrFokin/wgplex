@@ -27,7 +27,7 @@ func m11Observe(h Health, check netip.Addr, url string, results ...PingResult) H
 
 func TestM11HTTPTimeout(t *testing.T) {
 	if HTTPTimeout != 5*time.Second {
-		t.Errorf("HTTPTimeout = %v, want 5s (design 8)", HTTPTimeout)
+		t.Errorf("HTTPTimeout = %v, want 5s (design 9)", HTTPTimeout)
 	}
 }
 

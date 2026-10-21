@@ -7,9 +7,10 @@ import (
 	"testing"
 )
 
-// Tests follow design 10.2 (the client reads every *.yaml and *.conf of the
-// config folder, following symlinks, keyed by the base name), not the
-// implementation.
+// Tests follow the config folder delivery (M1: the client sends every
+// *.yaml and *.conf, following symlinks, keyed by the base name — plan
+// decision 5; in M2 the daemon reads the directory itself, design 10.2),
+// not the implementation.
 
 func m6Write(t *testing.T, path, content string) {
 	t.Helper()
@@ -24,7 +25,7 @@ func TestM6ReadConfigDir(t *testing.T) {
 
 	m6Write(t, filepath.Join(dir, "wgplex.yaml"), "tunnels: []\n")
 	m6Write(t, filepath.Join(dir, "work.conf"), "[Interface]\n# work\n")
-	m6Write(t, filepath.Join(dir, "old.yaml"), "x: 1\n") // the daemon warns about it (design 10.2)
+	m6Write(t, filepath.Join(dir, "old.yaml"), "x: 1\n") // the daemon warns about it (design 10.1)
 	m6Write(t, filepath.Join(dir, "notes.txt"), "skip me\n")
 	m6Write(t, filepath.Join(dir, "work.conf.bak"), "skip me\n")
 	m6Write(t, filepath.Join(dir, "wgplex.yml"), "skip me\n")

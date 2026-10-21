@@ -657,7 +657,7 @@ tunnels:
   - name: lonely
     routes: rules
 `})
-	// design 10.2: conf refers to a base file name; a path never matches a delivered file.
+	// design 10.1: conf refers to a base file name; a path never matches a delivered file.
 	cases = append(cases, tc{name: "conf with a path", want: []string{"sub/nl.conf"}, yaml: `
 tunnels:
   - name: nl
@@ -989,7 +989,7 @@ func TestLoadSingleDocumentWithMarker(t *testing.T) {
 	}
 }
 
-// design ambiguity: design 10.2 names wgplex.yaml the main file but does not say
+// design ambiguity: design 10.1 names wgplex.yaml the main file but does not say
 // what happens without it; assumed an error.
 func TestLoadMissingMainFile(t *testing.T) {
 	mustFail(t, map[string][]byte{"nl.conf": []byte(simpleConf(t))})
@@ -1347,7 +1347,7 @@ rules:
 	}
 }
 
-// design 10.2: other *.yaml files are ignored with a warning — even when they are
+// design 10.1: other *.yaml files are ignored with a warning — even when they are
 // not valid YAML or not a valid config.
 func TestLoadWarnsExtraYAML(t *testing.T) {
 	files := filesOf(baseYAML, baseConfs(t))

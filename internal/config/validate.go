@@ -23,7 +23,7 @@ import (
 // address or an http(s) URL (parseCheckURL), a rule must list at least one service. Errors and warnings are
 // prefixed with their location ("tunnel work: ...", "work.conf: line 3: ...").
 // Service uniqueness is enforced by the YAML decoder (duplicate mapping keys).
-// conf must be a bare file name (design 10.2). A .conf file referenced by several
+// conf must be a bare file name (design 10.1). A .conf file referenced by several
 // tunnels is an error for every tunnel after the first and is parsed only for
 // the first one, so its own errors are not repeated.
 func build(raw *rawConfig, files map[string][]byte) (cfg *Config, warnings []string, errs []error) {

@@ -23,7 +23,8 @@ import (
 	"github.com/mrFokin/wgplex/internal/rpc"
 )
 
-// Tests follow design 17.3, 13 and the Wirefork M6 plan ("Вывод wf", decisions 4, 9,
+// Tests follow design 13 (the CLI: commands and columns) and the Wirefork
+// M6 plan ("Вывод wf", decisions 4, 9,
 // 10), not the implementation. Lines are compared by fields
 // (strings.Fields), never by spacing: columns come from text/tabwriter.
 
@@ -600,7 +601,8 @@ func TestM6PrintErrorCodes(t *testing.T) {
 	}
 }
 
-// design 14, Wirefork M6 plan: HTTP 403 is "permission denied: ...".
+// Decision 4, Wirefork M6 plan: HTTP 403 is "permission denied: ...". In M3
+// the refusal becomes the JSON-RPC error 5 (design 14).
 func TestM6PrintErrorForbidden(t *testing.T) {
 	for _, err := range []error{
 		&httpError{Code: http.StatusForbidden, Body: "forbidden"},
@@ -710,7 +712,8 @@ func TestM6PrintErrorNotSocketENOENT(t *testing.T) {
 
 // --- M7: PING, dead -------------------------------------------------------------
 
-// Tests below follow design 17.3, 13 and the Wirefork M7 plan ("Статус", "cmd/wf",
+// Tests below follow design 13 (the MID PING/CHECK column and the CLI row of
+// a dead tunnel) and the Wirefork M7 plan ("Статус", "cmd/wf",
 // decision 10): the PING (CHECK since M11) column between HANDSHAKE and RX, state "dead" with
 // its reason at the end of the line, as the error of "error".
 

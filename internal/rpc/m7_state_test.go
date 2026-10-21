@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// Tests follow design 9 (a dead tunnel keeps its utun and its routes), 17.3
-// (state "dead", the icon, the ping result) and the Wirefork M7 plan ("Статус",
+// Tests follow design 9 (a dead tunnel keeps its utun and its routes), 14
+// (statuses of tunnels in status.get: "dead", the icon, the ping result) and the Wirefork M7 plan ("Статус",
 // decision 10; TunnelStatus.Reason, Check, CheckStatus), not the
 // implementation. The fixture is m6State of state_test.go: work, de, fi up,
 // bad failed, home off.
@@ -31,7 +31,7 @@ func m7DeadState(f *m6Fixture) *State {
 	return s
 }
 
-// design 17.3, Wirefork M7 plan "Статус": a running tunnel that health calls dead is
+// design 14 (tunnel state "dead"), Wirefork M7 plan "Статус": a running tunnel that health calls dead is
 // "dead" with its reason; it keeps its interface, peers and route count; the
 // check result is passed on for "up" and "dead".
 func TestM7StatusDead(t *testing.T) {
@@ -47,7 +47,7 @@ func TestM7StatusDead(t *testing.T) {
 			de.Enabled, de.State, de.Reason, de.Error, m7DeadReason)
 	}
 	if de.Interface != "utun6" || de.RouteCount != 3 || len(de.Peers) != 2 {
-		t.Errorf("de: iface %q routes %d peers %d; want utun6 3 2 (a dead tunnel keeps its utun, design 8)",
+		t.Errorf("de: iface %q routes %d peers %d; want utun6 3 2 (a dead tunnel keeps its utun, design 9)",
 			de.Interface, de.RouteCount, len(de.Peers))
 	}
 	if de.Check == nil {
@@ -76,7 +76,7 @@ func TestM7StatusDead(t *testing.T) {
 	}
 }
 
-// design 17.3, Wirefork M7 plan "Статус": warn also for an enabled dead tunnel;
+// design 14 (icon by statuses), Wirefork M7 plan "Статус": warn also for an enabled dead tunnel;
 // Unknown and Alive are "up"; "starting" still never gives warn.
 func TestM7StatusIconDead(t *testing.T) {
 	f := m6NewFixture(t)

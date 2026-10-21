@@ -19,7 +19,7 @@ const (
 
 // ApplyParams are the params of config.apply.
 type ApplyParams struct {
-	Files map[string]string `json:"files"` // base name → content (design 10.2)
+	Files map[string]string `json:"files"` // base name → content (M1: the Wirefork client delivery, plan decision 5; in M2 the daemon reads the directory itself, design 10.2)
 }
 
 // ApplyResult is the result of config.apply.
@@ -97,7 +97,7 @@ type RuleStatus struct {
 	Fallback   string   `json:"fallback"`         // configured: "default" | "block"
 	Tunnel     string   `json:"tunnel,omitempty"` // serving tunnel; "": direct or in fallback
 	InFallback bool     `json:"in_fallback"`
-	Degraded   bool     `json:"degraded"` // via non-empty and not on via[0] (design 17.3)
+	Degraded   bool     `json:"degraded"` // via non-empty and not on via[0] (design 14, the rule fields of status.get)
 }
 
 // ExplainParams are the params of diag.explain.

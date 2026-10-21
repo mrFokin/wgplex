@@ -775,7 +775,7 @@ func TestBuildEmpty(t *testing.T) {
 }
 
 // Wirefork plan "Сигнатуры": sorted by Prefix.Addr().Compare, then Bits(); IPv4 before IPv6.
-// work has no IPv6 Address: its IPv6 AllowedIPs are reject (design 7.2, M4
+// work has no IPv6 Address: its IPv6 AllowedIPs are reject (design 7.2, Wirefork M4
 // decision 2); the order is the same.
 func TestBuildSortOrder(t *testing.T) {
 	cfg := &config.Config{

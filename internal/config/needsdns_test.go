@@ -139,7 +139,7 @@ rules:
     via: [de]
 `, want: true},
 		// design 10.1 example: both dns_domains and rule domains.
-		{name: "design 9.1 example", yaml: `
+		{name: "design 10.1 example", yaml: `
 tunnels:
   - name: work
     conf: work.conf

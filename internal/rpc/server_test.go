@@ -21,9 +21,11 @@ import (
 	"github.com/mrFokin/jrpc/v2"
 )
 
-// Tests follow design 14 (JSON-RPC 2.0 over the unix socket, POST /rpc,
-// socket 0666, a stale file removed, a second instance refused, a foreign
-// uid gets HTTP 403, the error codes) and the Wirefork M6 plan ("RPC", decisions 3,
+// Tests follow the Wirefork RPC contract (JSON-RPC 2.0 over the unix
+// socket, POST /rpc, socket 0666, a stale file removed, a second instance
+// refused, a foreign uid gets HTTP 403, the error codes — M1 keeps this,
+// plan decisions 4-5; the per-method wgplex API with error 5, design 14,
+// comes in M3) and the Wirefork M6 plan ("RPC", decisions 3,
 // 5, 8; facts 1–4), not the implementation. The socket lives in
 // os.MkdirTemp("", "wgp"): t.TempDir() is too long for sun_path (fact 4).
 // No root and no network: the client is net/http over the unix socket.
@@ -273,7 +275,9 @@ func m6Same(t *testing.T, method string, got json.RawMessage, want any) {
 
 // --- methods ------------------------------------------------------------------------
 
-// design 14: config.apply passes the files to the daemon and returns its result.
+// Plan decision 5, M1: config.apply is the Wirefork delivery by a client;
+// in M2 the daemon reads the directory itself (design 10.2, decision 5),
+// the wgplex API is design 14 in M3.
 func TestM6ServeApply(t *testing.T) {
 	d := &m6FakeDaemon{applyResult: ApplyResult{
 		Warnings: []string{`service "tg" is not used by any rule`},
@@ -314,7 +318,9 @@ func TestM6ServeApplyConfigInvalid(t *testing.T) {
 	}
 }
 
-// design 14: tunnel.setEnabled passes name and enabled; the result is null.
+// M1, decisions 4-5: tunnel.setEnabled is the Wirefork method and only root
+// calls it; tunnel.enable/disable with per-method rights come in M3
+// (design 14). It passes name and enabled; the result is null.
 func TestM6ServeSetEnabled(t *testing.T) {
 	d := &m6FakeDaemon{}
 	s := m6Serve(t, d, nil)
@@ -369,7 +375,8 @@ func TestM6ServeSetEnabledInvalidParams(t *testing.T) {
 	}
 }
 
-// design 14: tunnel.disableAll takes no params and returns null.
+// M1, decisions 4-5: tunnel.disableAll is the Wirefork method; design 14
+// names the wgplex method the same in M3. It takes no params, returns null.
 func TestM6ServeDisableAll(t *testing.T) {
 	d := &m6FakeDaemon{}
 	s := m6Serve(t, d, nil)
@@ -387,7 +394,8 @@ func TestM6ServeDisableAll(t *testing.T) {
 	m6WantCode(t, "tunnel.disableAll", s2.call(t, "tunnel.disableAll", nil), -32603)
 }
 
-// design 14: status.get, diag.routes, diag.explain answer from a State
+// M1, decisions 4-5: status.get, diag.routes, diag.explain are the Wirefork
+// read methods (the same names in design 14); they answer from a State
 // snapshot through StatusOf, RoutesOf, Explain.
 func TestM6ServeReads(t *testing.T) {
 	f := m6NewFixture(t)
@@ -466,8 +474,9 @@ func TestM6ServeAllowGetsUID(t *testing.T) {
 	}
 }
 
-// design 14, decision 3: a uid that allow refuses gets HTTP 403 with body
-// "forbidden", no JSON-RPC; the daemon is not called.
+// Decision 4: a uid that allow refuses gets HTTP 403 with body
+// "forbidden", no JSON-RPC; the daemon is not called. In M3 the refusal
+// becomes the JSON-RPC error 5 (design 14).
 func TestM6ServeForbidden(t *testing.T) {
 	d := &m6FakeDaemon{}
 	s := m6Serve(t, d, func(uint32) bool { return false })
@@ -495,8 +504,8 @@ func TestM6ServeNotJSON(t *testing.T) {
 	}
 }
 
-// design 14, decision 3: the uid check comes before anything else: a
-// forbidden peer gets 403 even with a body that is not JSON (not 415).
+// Decision 4: the uid check comes before anything else: a forbidden peer
+// gets 403 even with a body that is not JSON (not 415).
 func TestM6ServeForbiddenNotJSON(t *testing.T) {
 	d := &m6FakeDaemon{}
 	s := m6Serve(t, d, func(uint32) bool { return false })

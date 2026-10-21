@@ -323,7 +323,8 @@ func TestM6StatusNoConfig(t *testing.T) {
 	}
 }
 
-// design 17.3, 13: tunnels in config order with their state; addresses, route
+// design 14 (tunnel fields of status.get), 13: tunnels in config order with
+// their state; addresses, route
 // mode, interface; peers in .conf order with their endpoint as written, the
 // resolved address and the stats.
 func TestM6StatusTunnels(t *testing.T) {
@@ -396,8 +397,8 @@ func TestM6StatusTunnels(t *testing.T) {
 	}
 }
 
-// design 7.3, 17.3, decision 10: rules in config order with via, fallback and
-// the decision; Degraded when on a backup tunnel of via.
+// design 7.3, 14 (rules of status.get), Wirefork M7 decision 10: rules in config
+// order with via, fallback and the decision; Degraded when on a backup tunnel of via.
 func TestM6StatusRules(t *testing.T) {
 	f := m6NewFixture(t)
 	// Fixture check: m6State.Rules is what SelectRules gives for these
@@ -793,7 +794,8 @@ func TestM6RoutesOf(t *testing.T) {
 
 // --- decision 14: a tunnel being brought up ---------------------------------------
 
-// Decision 14, design 17.3: a tunnel being brought up (Starting) is enabled in
+// Decision 14, design 14 (states of a tunnel in status.get): a tunnel being
+// brought up (Starting) is enabled in
 // state "starting" without an error, an interface or peers; its AllowedIPs
 // stay in the table (reject in the kernel) and count in RouteCount.
 func TestM6StatusStarting(t *testing.T) {

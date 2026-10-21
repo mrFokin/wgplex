@@ -29,9 +29,11 @@ type peer struct {
 	err error
 }
 
-// Serve serves the six methods (design 14) at Path on ln until ctx is done,
-// then shuts down gracefully. A connection whose peer uid (LOCAL_PEERCRED)
-// fails allow gets HTTP 403. Returns nil after ctx is done.
+// Serve serves the Wirefork RPC methods (M1: only root and answer by
+// decisions 4-5 of the plan; the per-method wgplex API, design 14, comes in
+// M3) at Path on ln until ctx is done, then shuts down gracefully. A
+// connection whose peer uid (LOCAL_PEERCRED) fails allow gets HTTP 403
+// (decision 4). Returns nil after ctx is done.
 //
 // The uid is taken in http.Server.ConnContext (set in BeforeServeFunc) and
 // checked by an Echo middleware on the jrpc Endpoint (Wirefork M6 fact 3).

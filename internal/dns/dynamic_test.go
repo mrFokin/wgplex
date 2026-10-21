@@ -92,15 +92,15 @@ func m5SameDyn(t *testing.T, what string, got, want []router.Dynamic) {
 
 func TestM5DynamicsConsts(t *testing.T) {
 	if dynamicKeep != time.Hour {
-		t.Errorf("dynamicKeep = %v, want 1h (design 7)", dynamicKeep)
+		t.Errorf("dynamicKeep = %v, want 1h (design 8)", dynamicKeep)
 	}
 	if dynamicLimit != 4096 {
-		t.Errorf("dynamicLimit = %d, want 4096 (design 7)", dynamicLimit)
+		t.Errorf("dynamicLimit = %d, want 4096 (design 8)", dynamicLimit)
 	}
 }
 
 // Wirefork M5 "Модель" query step 5: added reports a (name, address) pair that was
-// not there; the name is normalized like in MatchDomain (6.4).
+// not there; the name is normalized like in MatchDomain (7.4).
 func TestM5DynamicsAdd(t *testing.T) {
 	var d Dynamics // the zero value is ready
 	a1, a2 := m5Addrs("192.0.2.1"), m5Addrs("192.0.2.1", "192.0.2.2")

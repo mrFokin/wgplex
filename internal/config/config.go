@@ -11,14 +11,16 @@ import (
 	"strings"
 )
 
-// mainFile is the main config file name (design 10.2).
+// mainFile is the main config file name (design 10.1).
 const mainFile = "wgplex.yaml"
 
 // Load parses and validates the config. files maps a base file name
-// ("wgplex.yaml", "work.conf") to its content, as sent by the client (design 10.2).
+// ("wgplex.yaml", "work.conf") to its content — on M1 sent by the client
+// (solution 5 of the plan, the Wirefork delivery; in M2 the daemon reads
+// the directory itself, design 10.2).
 // On failure err is Errors with every problem found.
 //
-// Other *.yaml files besides wgplex.yaml are ignored with a warning (design 10.2).
+// Other *.yaml files besides wgplex.yaml are ignored with a warning (design 10.1).
 // Normalizations that keep the config usable (non-canonical CIDRs, services unused
 // by any rule, ignored wg-quick fields, non-IP DNS values) are reported in warnings
 // (design 6, 10.1). On error cfg is nil.
@@ -75,7 +77,7 @@ type Config struct {
 	Rules      []Rule // order = tie-break (design 7.4)
 }
 
-// NeedsDNS reports whether the resolver has work for c (design 8, M10
+// NeedsDNS reports whether the resolver has work for c (design 8, Wirefork M10
 // decision 11): a rule names a service with domains, or a tunnel has
 // dns_domains. Without either the system DNS is left alone.
 // A service with domains named by no rule does not count. A nil c needs

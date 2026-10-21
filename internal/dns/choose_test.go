@@ -205,12 +205,12 @@ func TestM5Choose(t *testing.T) {
 		// Decision 6: a rule wins over dns_domains, even inside a longer zone.
 		{"rule wins over dns_domains", "rule.corp.example", Choice{Rule: m5RInZone, Tunnel: "work", DropAAAA: true}},
 		{"rule wins over dns_domains, subdomain", "x.rule.corp.example", Choice{Rule: m5RInZone, Tunnel: "work", DropAAAA: true}},
-		// Zone boundary: label boundary as in 6.4.
+		// Zone boundary: label boundary as in 7.4.
 		{"dns_domains: label boundary", "notcorp.example", sys},
 		// Step 6.
 		{"nothing matches → system", "apple.com", sys},
 		{"PTR name → system", "1.0.0.10.in-addr.arpa", sys},
-		// 6.4: case and trailing dot.
+		// 7.4: case and trailing dot.
 		{"case and trailing dot: rule", "IfConfig.ME.", Choice{Rule: m5RTun, Tunnel: "de", DropAAAA: true}},
 		{"case and trailing dot: block", "WWW.Example.COM.", Choice{Rule: m5RBlock, Block: true}},
 		{"case and trailing dot: fallback default", "WWW.example.ORG.", Choice{Rule: m5RLow, Tunnel: "v6"}},
