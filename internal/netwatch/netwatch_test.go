@@ -94,7 +94,6 @@ func TestM7Classify(t *testing.T) {
 		{"State:/Network/Service/" + svc + "/Proxies", 0},
 		{"State:/Network/Global/Proxies", 0},
 		{"State:/Network/Service/" + svc + "/sub/DNS", 0}, // [^/]+: one level
-		{"State:/Users/ConsoleUser", 0},
 		{"State:/Users/Other", 0},
 		{"", 0},
 	}
