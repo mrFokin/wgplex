@@ -1086,6 +1086,55 @@ func TestM4IdempotentKernelDump(t *testing.T) {
 	}
 }
 
+// design 4.1, 6, 7.2: the routes of a previous run are not removed at startup;
+// the first Sync reads the kernel dump and turns the table into the new state:
+// a marked route the new table lacks is deleted, a missing one added and a
+// route that is still wanted is left alone.
+func TestM2StartupStaleRoutesRemoved(t *testing.T) {
+	const utun5 = 15
+	env := Env{
+		Ifaces: map[string]int{"nl": utun5},
+		GW4:    Gateway{Addr: tA("192.168.20.1"), Index: 4},
+	}
+	tbl := Table{
+		tCIDRVia("10.20.0.0/16", "nl", 0),
+		tRuleRoute("198.51.100.0/24", SourceRuleCIDR, TargetReject, "", 1),
+	}
+	dump := []*route.RouteMessage{
+		// Still in the new table: no op.
+		m4KEntry("10.20.0.0/16", m4KIface, utun5, m4KLink(utun5, "utun5")),
+		// A tunnel dropped from the config: its AllowedIPs route is stale.
+		m4KEntry("10.30.0.0/16", m4KIface, 12, m4KLink(12, "utun12")),
+		// A rule dropped from the config.
+		m4KEntry("203.0.113.0/24", m4KReject, m4Lo0, m4KAddr(tA("127.0.0.1"))),
+		// An endpoint host route of a tunnel of the previous run.
+		m4KEntry("203.0.113.9/32", m4KGateway, 4, m4KAddr(tA("192.168.20.1"))),
+	}
+	var (
+		want []KernelRoute
+		keep map[netip.Prefix]bool
+	)
+	m4NoPanic(t, "wanted", func() { want, keep, _ = wanted(tbl, env) })
+	msgs := m4Dump(t, dump...)
+	var have []KernelRoute
+	m4NoPanic(t, "owned", func() { have = owned(msgs) })
+	var ops []Op
+	m4NoPanic(t, "diff", func() { ops = diff(want, have, keep) })
+	wantOps := []Op{
+		m4Add(m4Rej("198.51.100.0/24")),
+		m4Del(m4Iface("10.30.0.0/16", 12)),
+		m4Del(m4Rej("203.0.113.0/24")),
+		m4Del(m4GW("203.0.113.9/32", "192.168.20.1", 4)),
+	}
+	equal := len(ops) == len(wantOps)
+	for i := 0; equal && i < len(ops); i++ {
+		equal = ops[i].Type == wantOps[i].Type && m4Norm(ops[i].Route) == m4Norm(wantOps[i].Route)
+	}
+	if !equal {
+		t.Errorf("sync of the new table over the dump of a previous run\ngot:\n%swant:\n%s", m4FmtOps(ops), m4FmtOps(wantOps))
+	}
+}
+
 // --- owned: rtm_index, clones, unknown kind ----------------------------------
 
 // Ruling of step 3: the interface of a route to a utun is rtm_index of the
