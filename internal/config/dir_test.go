@@ -77,7 +77,7 @@ func TestCheckDir(t *testing.T) {
 	}
 }
 
-// --- tccError ----------------------------------------------------------------
+// --- tccError, fileError, dirError -------------------------------------------
 
 func TestTCCError(t *testing.T) {
 	err := tccError("work.conf", syscall.EPERM)
@@ -87,9 +87,35 @@ func TestTCCError(t *testing.T) {
 	if !strings.HasPrefix(err.Error(), "work.conf:") {
 		t.Errorf("EPERM text %q: want the file name", err)
 	}
-	plain := errors.New("work.conf: no such file")
-	if got := tccError("work.conf", plain); got != plain {
-		t.Errorf("non-EPERM: %v, want the error as it is", got)
+	// Every config error starts with the file name (design 10.1).
+	plain := errors.New("no such file")
+	if got := tccError("work.conf", plain); got.Error() != "work.conf: no such file" {
+		t.Errorf("non-EPERM text %q, want the file name and the error", got)
+	}
+}
+
+// A read error is prefixed with the file name, not with its absolute path
+// (review M2: "Errors are prefixed with the file name").
+func TestFileError(t *testing.T) {
+	got := fileError("work.conf", &fs.PathError{Op: "open", Path: "/Users/u/etc/wgplex/work.conf", Err: syscall.EACCES})
+	if got.Error() != "work.conf: permission denied" {
+		t.Errorf("fileError = %q, want the name and the reason", got)
+	}
+	tcc := fileError("work.conf", &fs.PathError{Op: "open", Path: "/Users/u/Documents/work.conf", Err: syscall.EPERM})
+	if !strings.HasPrefix(tcc.Error(), "work.conf:") || !strings.Contains(tcc.Error(), "TCC") {
+		t.Errorf("EPERM fileError = %q, want the file name and TCC", tcc)
+	}
+}
+
+// The directory itself gets the TCC hint on EPERM too (design 5, 18).
+func TestDirError(t *testing.T) {
+	got := dirError("/Users/u/Documents/wgplex", &fs.PathError{Op: "readdirent", Path: "/Users/u/Documents/wgplex", Err: syscall.EPERM})
+	if !strings.Contains(got.Error(), "TCC") || !strings.Contains(got.Error(), "config directory") {
+		t.Errorf("EPERM dirError = %q, want TCC and the config directory", got)
+	}
+	plain := dirError("/etc/wgplex", syscall.ENOTDIR)
+	if plain.Error() != "config directory /etc/wgplex: not a directory" {
+		t.Errorf("dirError = %q, want the directory and the reason", plain)
 	}
 }
 
@@ -226,6 +252,9 @@ func TestLoadDirUnreadableConf(t *testing.T) {
 	}
 	if !strings.Contains(have, "nl.conf: permission denied") {
 		t.Errorf("errors %q, want the read error of nl.conf", have)
+	}
+	if strings.Contains(have, filepath.Join(dir, "nl.conf")) {
+		t.Errorf("errors %q, want the file name without the absolute path", have)
 	}
 }
 
