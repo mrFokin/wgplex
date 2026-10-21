@@ -11,7 +11,8 @@ domain socket, served by [`github.com/mrFokin/jrpc/v2`](https://pkg.go.dev/githu
 - No push notifications: clients poll `status.get`.
 
 **Document status.** This is a skeleton — a minimal description of the current
-contract after M2. The full contract (complete reply schemas, per-method
+contract: after M2, with the M3 naming of `tunnel.enable`/`tunnel.disable`
+already applied. The full contract (complete reply schemas, per-method
 rights, `api_version`, the rest of the planned methods) is scheduled with
 milestone M3 per design 21.1.
 Everything below is derived from the working code; nothing is speculative
