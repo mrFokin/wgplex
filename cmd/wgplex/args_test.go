@@ -7,8 +7,8 @@ import (
 
 // Tests follow design 13 (CLI) and plan m1-port, decisions 11 and 12 and
 // «Открытые места контракта» (commands, flags before or after the command,
-// -socket for all, -config and -state only for daemon, -v only for daemon),
-// not the implementation.
+// -socket for the clients of the daemon, -config for the daemon and check,
+// -state and -v only for daemon), not the implementation.
 
 var argsDef = paths{Socket: "/def/var/run/wgplex.sock", ConfigDir: "/def/etc/wgplex", State: "/def/var/wgplex/state.json", Log: "/def/var/log/wgplex/wgplex.log"}
 
@@ -37,7 +37,7 @@ func TestParseArgs(t *testing.T) {
 		{"up", []string{"up", "de"}, command{Name: "up", Arg: "de", Socket: sock}},
 		{"down", []string{"down", "de"}, command{Name: "down", Arg: "de", Socket: sock}},
 
-		// decision 11: -socket for every command, before or after.
+		// decision 11: -socket for every client of the daemon, before or after.
 		{"status socket before", []string{"-socket", "/x.sock", "status"}, command{Name: "status", Socket: "/x.sock"}},
 		{"status socket after", []string{"status", "-socket", "/x.sock"}, command{Name: "status", Socket: "/x.sock"}},
 		{"status socket equals", []string{"status", "-socket=/x.sock"}, command{Name: "status", Socket: "/x.sock"}},
@@ -45,7 +45,6 @@ func TestParseArgs(t *testing.T) {
 		{"version socket", []string{"version", "-socket", "/x.sock"}, command{Name: "version", Socket: "/x.sock"}},
 		{"daemon socket", []string{"daemon", "-socket", "/x.sock"}, command{Name: "daemon", ConfigDir: cfg, Socket: "/x.sock", StatePath: st, LogPath: log}},
 		{"reload socket", []string{"reload", "-socket", "/x.sock"}, command{Name: "reload", Socket: "/x.sock"}},
-		{"check socket", []string{"check", "-socket", "/x.sock"}, command{Name: "check", ConfigDir: cfg, Socket: "/x.sock"}},
 		{"explain socket before command", []string{"-socket", "/x.sock", "explain", "a.com"}, command{Name: "explain", Arg: "a.com", Socket: "/x.sock"}},
 		{"explain socket after arg", []string{"explain", "a.com", "-socket", "/x.sock"}, command{Name: "explain", Arg: "a.com", Socket: "/x.sock"}},
 		{"up socket after arg", []string{"up", "de", "-socket", "/x.sock"}, command{Name: "up", Arg: "de", Socket: "/x.sock"}},
@@ -59,7 +58,6 @@ func TestParseArgs(t *testing.T) {
 		{"check config after", []string{"check", "-config", "/cfg"}, command{Name: "check", ConfigDir: "/cfg", Socket: sock}},
 		{"check config before", []string{"-config", "/cfg", "check"}, command{Name: "check", ConfigDir: "/cfg", Socket: sock}},
 		{"check config equals", []string{"check", "-config=/cfg"}, command{Name: "check", ConfigDir: "/cfg", Socket: sock}},
-		{"check config and socket", []string{"-socket", "/x.sock", "check", "-config", "/cfg"}, command{Name: "check", ConfigDir: "/cfg", Socket: "/x.sock"}},
 
 		// M2 (design 13): -state only for the daemon, before or after.
 		{"daemon state after", []string{"daemon", "-state", "/s.json"}, command{Name: "daemon", ConfigDir: cfg, Socket: sock, StatePath: "/s.json", LogPath: log}},
@@ -115,13 +113,14 @@ func TestParseArgsDefaultsFromDef(t *testing.T) {
 	if got.Socket != def.Socket || got.ConfigDir != "" || got.LogPath != "" {
 		t.Errorf("up: got %+v, want socket %q and no config or log", got, def.Socket)
 	}
-	// design 13, M2: check reads the same default directory as the daemon.
+	// design 13, M2: check reads the same default directory as the daemon
+	// and is no client of it (no -socket).
 	got, err = parseArgs([]string{"check"}, def)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.ConfigDir != def.ConfigDir || got.Socket != def.Socket || got.StatePath != "" || got.LogPath != "" {
-		t.Errorf("check: got %+v, want socket %q, config %q and no state or log", got, def.Socket, def.ConfigDir)
+	if got.ConfigDir != def.ConfigDir || got.StatePath != "" || got.LogPath != "" {
+		t.Errorf("check: got %+v, want config %q and no state or log", got, def.ConfigDir)
 	}
 }
 
@@ -183,6 +182,11 @@ func TestParseArgsUsage(t *testing.T) {
 		{"check state", []string{"check", "-state", "/s.json"}},
 		{"check log", []string{"check", "-log", "/l.log"}},
 		{"check v", []string{"check", "-v"}},
+		// M2 (design 13): check is not a client of the daemon, so -socket is
+		// a usage error; the flag is not silently ignored.
+		{"check socket", []string{"check", "-socket", "/x.sock"}},
+		{"check socket before", []string{"-socket", "/x.sock", "check"}},
+		{"check config and socket", []string{"-socket", "/x.sock", "check", "-config", "/cfg"}},
 
 		// decision 11: -v only for daemon.
 		{"status v", []string{"status", "-v"}},

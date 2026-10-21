@@ -63,6 +63,10 @@ type daemon struct {
 	configDir string // the config directory read by applyConfig (design 10.2)
 	statePath string // state.json, written by saveState (design 11)
 
+	// release removes the DNS capture key (releaseDNS): a field so that the
+	// empty-state sync of a test does not touch the system DNS.
+	release func(*slog.Logger) error
+
 	// Under mu.
 	cfg       *config.Config  // nil: no config applied yet
 	warnings  []string        // of cfg
@@ -120,13 +124,20 @@ var _ rpc.Daemon = (*daemon)(nil)
 // is what Load of it gave (nil or empty: tunnels by autostart), SetEnabled
 // and DisableAll add records.
 func newDaemon(ctx context.Context, srv *dns.Server, log *slog.Logger, configDir, statePath string, toggles map[string]bool) *daemon {
+	// A missing state.json gives nil toggles: SetEnabled and DisableAll
+	// record into the map, so it is never nil here.
+	toggles = maps.Clone(toggles)
+	if toggles == nil {
+		toggles = map[string]bool{}
+	}
 	d := &daemon{
 		ctx:       ctx,
 		srv:       srv,
 		log:       log,
 		configDir: configDir,
 		statePath: statePath,
-		toggles:   maps.Clone(toggles),
+		release:   releaseDNS,
+		toggles:   toggles,
 		tunnels:   map[string]*runTunnel{},
 		hosts:     map[netip.Addr]*hostRoute{},
 		gws:       map[bool]router.Gateway{},
@@ -196,9 +207,20 @@ func (d *daemon) applyConfig() (rpc.ReloadResult, error) {
 	}
 	if err != nil {
 		errs := errorList(err)
-		d.locked(func() { d.cfgErrs = errs })
+		// Without a config applied yet there is no state of ours to keep:
+		// the routes and the DNS key of a previous run are synced with the
+		// empty state right away, not left until shutdown (design 4.1). A
+		// failed reload keeps the previous config and changes nothing (10.2).
+		var unconfigured bool
+		d.locked(func() {
+			d.cfgErrs = errs
+			unconfigured = d.cfg == nil
+		})
 		for _, e := range errs {
 			d.log.Error("config load", "dir", d.configDir, "err", e)
+		}
+		if unconfigured {
+			d.syncEmpty()
 		}
 		return rpc.ReloadResult{}, jrpc.NewError(rpc.CodeConfigInvalid, "config is invalid",
 			rpc.ConfigErrorData{Errors: errs, Warnings: warnings})
@@ -297,6 +319,27 @@ func (d *daemon) applyConfig() (rpc.ReloadResult, error) {
 	// state.json so that a restart brings up the same tunnels.
 	d.saveState()
 	return res, nil
+}
+
+// syncEmpty syncs the routing table and the DNS capture key with the empty
+// state: no config has ever been applied (a broken config at startup), so the
+// routes and the key left by a previous run go at once instead of living
+// until shutdown (design 4.1, 9.1). The key is released even if this daemon
+// never captured it — a leftover of a crash. A failed release is a warning of
+// status.get and is retried by the next apply. opMu is held.
+func (d *daemon) syncEmpty() {
+	d.mu.Lock()
+	// The table of no config: Sync removes every route of ours from the
+	// kernel dump, the endpoint routes included (no tunnel is running).
+	d.table = nil
+	d.syncErr = d.syncTable(router.Table{}, router.Env{})
+	d.mu.Unlock()
+	if err := d.release(d.log); err != nil {
+		w := "DNS release failed: " + err.Error()
+		d.locked(func() { d.warnings = append(slices.Clone(d.warnings), w) })
+		return
+	}
+	d.captured = false
 }
 
 // saveState writes the toggles to state.json (design 11); an error is only
@@ -454,15 +497,18 @@ func (d *daemon) toggle(name string, enabled bool) (*config.Tunnel, error) {
 }
 
 // DisableAll is tunnel.disableAll: SetEnabled false for every enabled tunnel
-// with one Sync; the DNS capture stays (decision 2).
+// with one Sync; the DNS capture stays (decision 2). Without an applied
+// config it is error 2, as tunnel.setEnabled (design 14).
 func (d *daemon) DisableAll() error {
 	d.opMu.Lock()
 	defer d.opMu.Unlock()
 	if d.closed {
 		return errStopping
 	}
+	var noConfig error
 	d.locked(func() {
 		if d.cfg == nil {
+			noConfig = jrpc.NewError(rpc.CodeNoConfig, "no config applied", nil)
 			return
 		}
 		var stopped []*runTunnel
@@ -480,6 +526,9 @@ func (d *daemon) DisableAll() error {
 		d.closeTunnels(stopped)
 		d.sync() // the table without their endpoint routes; no ops
 	})
+	if noConfig != nil {
+		return noConfig
+	}
 	d.saveState()
 	return nil
 }

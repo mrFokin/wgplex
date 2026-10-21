@@ -75,6 +75,8 @@ func daemonMain(cmd command) int {
 // Routes and the DNS capture key left by a previous run are not removed
 // beforehand (design 4.1): the first apply syncs the routing table and the
 // key with the new state, and so keeps fallback: block from a crash (9.1).
+// A broken config at startup applies the empty state instead: the leftovers
+// go at once, not at shutdown.
 func runDaemon(log *slog.Logger, socket, configDir, statePath string) int {
 	// SIGHUP and SIGUSR1 would kill the process without cleanup (design 4.1).
 	signal.Ignore(syscall.SIGHUP, syscall.SIGUSR1)

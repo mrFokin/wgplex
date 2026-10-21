@@ -73,14 +73,35 @@ func checkDir(mode fs.FileMode) error {
 	return nil
 }
 
-// tccError passes err as it is, unless it is EPERM of a read (design 5, 18):
-// then the text names TCC and advises moving the file into the config
-// directory. No path of the file in the hint: the TCC places are listed.
+// tccError is the error of reading the config file name (design 5, 18):
+// prefixed with the file name, and a read denied with EPERM names TCC and
+// advises moving the file into the config directory. No path of the file in
+// the hint: the TCC places are listed.
 func tccError(name string, err error) error {
 	if !errors.Is(err, syscall.EPERM) {
-		return err
+		return fmt.Errorf("%s: %w", name, err)
 	}
 	return fmt.Errorf("%s: permission denied; a daemon without Full Disk Access cannot read files in ~/Documents, ~/Desktop, ~/Downloads, iCloud Drive or on removable volumes (macOS TCC), move it into the config directory", name)
+}
+
+// fileError is the error of a stat or a read of the config file name: the
+// absolute path of the directory adds nothing to a config error, so it is
+// dropped, and EPERM gets the TCC hint (tccError).
+func fileError(name string, err error) error {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		err = pe.Err
+	}
+	return tccError(name, err)
+}
+
+// dirError is the error of a stat or a read of the config directory itself
+// (design 5, 18): a denial with EPERM names TCC too, as the one of a file.
+func dirError(dir string, err error) error {
+	if errors.Is(err, syscall.EPERM) {
+		return fmt.Errorf("config directory %s: permission denied; a daemon without Full Disk Access cannot read it (macOS TCC), move the config directory out of ~/Documents, ~/Desktop, ~/Downloads, iCloud Drive or a removable volume", dir)
+	}
+	return fmt.Errorf("config directory %s: %w", dir, err)
 }
 
 // statOwner is the uid of the owner of fi (syscall.Stat_t): 0 when not
@@ -108,7 +129,7 @@ func readFile(path, name string, dirUID uint32, conf bool) ([]byte, string, erro
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, "", nil
 		}
-		return nil, "", tccError(name, err)
+		return nil, "", fileError(name, err)
 	}
 	warn, cerr, read := checkFile(FileStat{Name: name, DirUID: dirUID, UID: statOwner(fi), Mode: fi.Mode(), Size: fi.Size(), Conf: conf})
 	if !read {
@@ -119,7 +140,7 @@ func readFile(path, name string, dirUID uint32, conf bool) ([]byte, string, erro
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, "", nil
 		}
-		return nil, "", tccError(name, err)
+		return nil, "", fileError(name, err)
 	}
 	if cerr != nil {
 		return data, "", cerr
@@ -132,10 +153,11 @@ func readFile(path, name string, dirUID uint32, conf bool) ([]byte, string, erro
 // Only the main file and the .conf files the tunnels reference are read
 // (design 5; LoadDir follows symlinks); other *.yaml in the directory are
 // ignored with a warning (design 10.1). The rights of the directory and of
-// every file read are checked (design 5): a problem there is a config
-// error — with any error in err the config is nil and must not be applied
-// (10.2); a .conf readable by group or other is a warning only. Every
-// problem is collected, not only the first one.
+// every file read are checked (design 5): a problem there is a config error —
+// with any error in err the config is nil and must not be applied (10.2); a
+// .conf readable by group or other is a warning only. Every problem is
+// collected, not only the first one. The parsing and validation themselves
+// are Load's: LoadDir only gathers the files.
 //
 // A directory that does not exist is a config error of its own («no
 // directory», design 10.2). A missing or unreadable main file, or a YAML
@@ -146,23 +168,22 @@ func LoadDir(dir string) (cfg *Config, warnings []string, err error) {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, warnings, Errors{fmt.Errorf("config directory %s does not exist", dir)}
 		}
-		return nil, warnings, Errors{fmt.Errorf("config directory %s: %v", dir, err)}
+		return nil, warnings, Errors{dirError(dir, err)}
 	}
 	dirUID := statOwner(fi)
 	var errs []error
 	if err := checkDir(fi.Mode()); err != nil {
 		errs = append(errs, err)
 	}
+	// The directory is read to check that it is readable and to warn about
+	// other *.yaml files (design 5, 10.1); the .conf names come from the
+	// main file.
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, warnings, Errors{fmt.Errorf("config directory %s: %v", dir, err)}
-	}
-	for _, e := range entries {
-		if name := e.Name(); name != mainFile && filepath.Ext(name) == ".yaml" {
-			warnings = append(warnings, fmt.Sprintf("%s: ignored, the main file is %s", name, mainFile))
-		}
+		return nil, warnings, Errors{dirError(dir, err)}
 	}
 
+	files := map[string][]byte{}
 	data, _, err := readFile(filepath.Join(dir, mainFile), mainFile, dirUID, false)
 	if err != nil {
 		errs = append(errs, err)
@@ -173,6 +194,7 @@ func LoadDir(dir string) (cfg *Config, warnings []string, err error) {
 	if data == nil {
 		return nil, warnings, Errors{errors.New(mainFile + " not found")}
 	}
+	files[mainFile] = data
 	raw, err := parseYAML(data)
 	if err != nil {
 		return nil, warnings, Errors{fmt.Errorf("%s: %w", mainFile, err)}
@@ -182,8 +204,17 @@ func LoadDir(dir string) (cfg *Config, warnings []string, err error) {
 	// is build's own "conf file not found". One present but unreadable is
 	// nil: its read error above, not a second "not found" of build. A
 	// rights problem on a read file does not stop parsing (warnings).
-	files := map[string][]byte{}
-	for _, name := range confNames(raw) {
+	names := confNames(raw)
+	referenced := make(map[string]bool, len(names))
+	for _, name := range names {
+		referenced[name] = true
+	}
+	for _, e := range entries {
+		if name := e.Name(); name != mainFile && !referenced[name] && filepath.Ext(name) == ".yaml" {
+			files[name] = nil // Load warns that it is ignored (design 10.1)
+		}
+	}
+	for _, name := range names {
 		data, warn, err := readFile(filepath.Join(dir, name), name, dirUID, true)
 		if warn != "" {
 			warnings = append(warnings, warn)
@@ -191,19 +222,20 @@ func LoadDir(dir string) (cfg *Config, warnings []string, err error) {
 		switch {
 		case err != nil:
 			errs = append(errs, err)
-			if data != nil {
-				files[name] = data
-			} else {
-				files[name] = nil
-			}
+			files[name] = data
 		case data == nil:
 		default:
 			files[name] = data
 		}
 	}
-	cfg, ws, bes := build(raw, files)
+	cfg, ws, lerr := Load(files)
 	warnings = append(warnings, ws...)
-	errs = append(errs, bes...)
+	var lerrs Errors
+	if errors.As(lerr, &lerrs) {
+		errs = append(errs, lerrs...)
+	} else if lerr != nil {
+		errs = append(errs, lerr)
+	}
 	if len(errs) > 0 {
 		return nil, warnings, Errors(errs)
 	}

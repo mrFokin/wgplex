@@ -39,10 +39,6 @@ func (c *logCounter) add(n int64) { c.written += n }
 // reached reports whether the file has reached the rotation threshold.
 func (c *logCounter) reached() bool { return c.written >= c.limit }
 
-// set starts the counter at written bytes: the size of a file left by a
-// previous run.
-func (c *logCounter) set(written int64) { c.written = written }
-
 // logArchive is the name of the i-th archive of path: wgplex.log.1, .2.
 func logArchive(path string, i int) string {
 	return path + "." + strconv.Itoa(i)
@@ -169,10 +165,15 @@ func (l *logFile) rotateLocked() error {
 		return err
 	}
 	// The archives keep the mode of the file they were, but a file left by
-	// hand or by an older version may differ: the log files are 0640 too.
+	// hand or by an older version may differ: the log files are 0640 too. A
+	// missing archive is fine: the first rotations have no .1 or .2 yet.
 	for i := 1; i <= logBackups; i++ {
-		if err := setLogAttrs(logArchive(l.path, i)); err != nil {
-			return fmt.Errorf("%s: %w", logArchive(l.path, i), err)
+		p := logArchive(l.path, i)
+		if err := setLogAttrs(p); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("%s: %w", p, err)
 		}
 	}
 	return nil

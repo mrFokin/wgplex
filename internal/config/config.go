@@ -17,11 +17,13 @@ const mainFile = "wgplex.yaml"
 // Load parses and validates the config. files maps a base file name
 // ("wgplex.yaml", "work.conf") to its content; a nil []byte marks a file
 // present but unreadable (LoadDir, design 5): its read error is reported
-// there already, build skips the file silently.
+// there already, build skips the file silently. LoadDir passes the other
+// *.yaml files with nil too: they are only warned about, never read.
 // On failure err is Errors with every problem found.
 //
-// The daemon reads the directory itself (design 10.2): LoadDir wraps this
-// loader for it. Load keeps the pure parsing alone.
+// The daemon reads the directory itself (design 10.2): LoadDir reads the
+// files of the directory and calls Load, which keeps the pure parsing and
+// validation alone.
 //
 // Other *.yaml files besides wgplex.yaml are ignored with a warning (design 10.1).
 // Normalizations that keep the config usable (non-canonical CIDRs, services unused

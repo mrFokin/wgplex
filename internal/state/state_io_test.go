@@ -50,9 +50,10 @@ func TestLoadRoundTrip(t *testing.T) {
 	}
 }
 
-// design 11: the M3 fields (paused, block) are additive; their save by a
-// later stage must not lose the M2 records, the M2 code reads and keeps
-// tunnels.
+// design 11: the fields of later stages (paused, the block snapshot of M3)
+// are additive — Load of a file that already has them does not fail and keeps
+// the M2 records. This stage knows nothing of them: Save writes them out, so
+// M2 drops what it does not store (M3 adds them to State).
 func TestLoadIgnoresLaterFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	text := `{"tunnels": {"work": true}, "paused": true, "block": {"cidrs": ["10.0.0.0/8"]}}
@@ -67,7 +68,6 @@ func TestLoadIgnoresLaterFields(t *testing.T) {
 	if len(st.Tunnels) != 1 || !st.Tunnels["work"] {
 		t.Errorf("Tunnels = %v, want work: true", st.Tunnels)
 	}
-	// The M3 record survives an M2 rewrite: the field is only unknown here.
 	if err := Save(path, st); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -77,6 +77,12 @@ func TestLoadIgnoresLaterFields(t *testing.T) {
 	}
 	if !strings.Contains(string(b), `"tunnels"`) {
 		t.Errorf("file = %q, want the tunnels field", b)
+	}
+	// M2 keeps only the toggles; the M3 fields are not written back yet.
+	for _, field := range []string{`"paused"`, `"block"`} {
+		if strings.Contains(string(b), field) {
+			t.Errorf("file = %q, want no %s: M2 does not store it", b, field)
+		}
 	}
 }
 
@@ -134,8 +140,9 @@ func TestSaveNoTempLeft(t *testing.T) {
 	}
 }
 
-// design 11: Save replace with a rename, not with a rewrite in place: the
-// mode comes from Save (0644), not from the previous file.
+// design 11, 5: Save replaces with a rename, not with a rewrite in place —
+// the mode comes from Save (0640, no read for group and other), not from the
+// previous file.
 func TestSaveMode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
@@ -148,8 +155,8 @@ func TestSaveMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := st.Mode().Perm(); got != 0o644 {
-		t.Errorf("mode = %v, want 0644", got)
+	if got := st.Mode().Perm(); got != 0o640 {
+		t.Errorf("mode = %v, want 0640", got)
 	}
 }
 

@@ -44,10 +44,11 @@ func Load(path string) (State, error) {
 }
 
 // Save writes State at path atomically (design 11): a temporary file in the
-// same directory and rename, the file mode 0644. The directory (and no
-// missing parent of it) is not created (design 4.1): its absence is the
-// returned error, the caller logs it and the daemon goes on without the
-// file.
+// same directory and rename, the file mode 0640. It is not world-readable:
+// M3 adds the block snapshot to it (design 5, 11). The daemon runs as root,
+// so the file belongs to root. The directory (and no missing parent of it) is
+// not created (design 4.1): its absence is the returned error, the caller
+// logs it and the daemon goes on without the file.
 func Save(path string, s State) error {
 	if s.Tunnels == nil {
 		s.Tunnels = map[string]bool{}
@@ -63,7 +64,7 @@ func Save(path string, s State) error {
 	}
 	tmp := f.Name()
 	if _, err := f.Write(b); err == nil {
-		err = f.Chmod(0o644)
+		err = f.Chmod(0o640)
 	}
 	if err == nil {
 		err = f.Close()
