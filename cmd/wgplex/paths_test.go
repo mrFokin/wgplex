@@ -57,14 +57,27 @@ func TestBrewPrefix(t *testing.T) {
 }
 
 func TestPathsFor(t *testing.T) {
-	// design 3: socket <prefix>/var/run/wgplex.sock, config <prefix>/etc/wgplex.
+	// design 3: socket <prefix>/var/run/wgplex.sock, config
+	// <prefix>/etc/wgplex, state <prefix>/var/wgplex/state.json (design 11).
 	tests := []struct {
 		prefix string
 		want   paths
 	}{
-		{"/opt/homebrew", paths{Socket: "/opt/homebrew/var/run/wgplex.sock", ConfigDir: "/opt/homebrew/etc/wgplex"}},
-		{"/usr/local", paths{Socket: "/usr/local/var/run/wgplex.sock", ConfigDir: "/usr/local/etc/wgplex"}},
-		{"/Users/u/brew", paths{Socket: "/Users/u/brew/var/run/wgplex.sock", ConfigDir: "/Users/u/brew/etc/wgplex"}},
+		{"/opt/homebrew", paths{
+			Socket:    "/opt/homebrew/var/run/wgplex.sock",
+			ConfigDir: "/opt/homebrew/etc/wgplex",
+			State:     "/opt/homebrew/var/wgplex/state.json",
+		}},
+		{"/usr/local", paths{
+			Socket:    "/usr/local/var/run/wgplex.sock",
+			ConfigDir: "/usr/local/etc/wgplex",
+			State:     "/usr/local/var/wgplex/state.json",
+		}},
+		{"/Users/u/brew", paths{
+			Socket:    "/Users/u/brew/var/run/wgplex.sock",
+			ConfigDir: "/Users/u/brew/etc/wgplex",
+			State:     "/Users/u/brew/var/wgplex/state.json",
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.prefix, func(t *testing.T) {
@@ -78,7 +91,11 @@ func TestPathsFor(t *testing.T) {
 // design 3: brewPrefix and pathsFor together give the default paths.
 func TestPathsForBrewPrefix(t *testing.T) {
 	got := pathsFor(brewPrefix("/Users/u/brew/Cellar/wgplex/0.1.0/bin/wgplex", "arm64"))
-	want := paths{Socket: "/Users/u/brew/var/run/wgplex.sock", ConfigDir: "/Users/u/brew/etc/wgplex"}
+	want := paths{
+		Socket:    "/Users/u/brew/var/run/wgplex.sock",
+		ConfigDir: "/Users/u/brew/etc/wgplex",
+		State:     "/Users/u/brew/var/wgplex/state.json",
+	}
 	if got != want {
 		t.Errorf("got %+v, want %+v", got, want)
 	}

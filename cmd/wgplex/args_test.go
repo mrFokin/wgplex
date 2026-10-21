@@ -7,13 +7,13 @@ import (
 
 // Tests follow design 13 (CLI) and plan m1-port, decisions 11 and 12 and
 // «Открытые места контракта» (commands, flags before or after the command,
-// -socket for all, -config only for daemon, -v only for daemon), not the
-// implementation.
+// -socket for all, -config and -state only for daemon, -v only for daemon),
+// not the implementation.
 
-var argsDef = paths{Socket: "/def/var/run/wgplex.sock", ConfigDir: "/def/etc/wgplex"}
+var argsDef = paths{Socket: "/def/var/run/wgplex.sock", ConfigDir: "/def/etc/wgplex", State: "/def/var/wgplex/state.json"}
 
 func TestParseArgs(t *testing.T) {
-	sock, cfg := argsDef.Socket, argsDef.ConfigDir
+	sock, cfg, st := argsDef.Socket, argsDef.ConfigDir, argsDef.State
 	tests := []struct {
 		name string
 		args []string
@@ -23,7 +23,7 @@ func TestParseArgs(t *testing.T) {
 		{"status", []string{"status"}, command{Name: "status", Socket: sock}},
 		{"routes", []string{"routes"}, command{Name: "routes", Socket: sock}},
 		{"version", []string{"version"}, command{Name: "version", Socket: sock}},
-		{"daemon", []string{"daemon"}, command{Name: "daemon", ConfigDir: cfg, Socket: sock}},
+		{"daemon", []string{"daemon"}, command{Name: "daemon", ConfigDir: cfg, Socket: sock, StatePath: st}},
 		// M2 (design 13): the daemon reads the config itself; reload does
 		// not take files any more.
 		{"reload", []string{"reload"}, command{Name: "reload", Socket: sock}},
@@ -40,7 +40,7 @@ func TestParseArgs(t *testing.T) {
 		{"status socket equals", []string{"status", "-socket=/x.sock"}, command{Name: "status", Socket: "/x.sock"}},
 		{"routes socket", []string{"routes", "-socket", "/x.sock"}, command{Name: "routes", Socket: "/x.sock"}},
 		{"version socket", []string{"version", "-socket", "/x.sock"}, command{Name: "version", Socket: "/x.sock"}},
-		{"daemon socket", []string{"daemon", "-socket", "/x.sock"}, command{Name: "daemon", ConfigDir: cfg, Socket: "/x.sock"}},
+		{"daemon socket", []string{"daemon", "-socket", "/x.sock"}, command{Name: "daemon", ConfigDir: cfg, Socket: "/x.sock", StatePath: st}},
 		{"reload socket", []string{"reload", "-socket", "/x.sock"}, command{Name: "reload", Socket: "/x.sock"}},
 		{"explain socket before command", []string{"-socket", "/x.sock", "explain", "a.com"}, command{Name: "explain", Arg: "a.com", Socket: "/x.sock"}},
 		{"explain socket after arg", []string{"explain", "a.com", "-socket", "/x.sock"}, command{Name: "explain", Arg: "a.com", Socket: "/x.sock"}},
@@ -48,16 +48,22 @@ func TestParseArgs(t *testing.T) {
 		{"down socket before", []string{"-socket", "/x.sock", "down", "de"}, command{Name: "down", Arg: "de", Socket: "/x.sock"}},
 
 		// design 13, M2: -config only for the daemon, before or after.
-		{"daemon config after", []string{"daemon", "-config", "/cfg"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: sock}},
-		{"daemon config before", []string{"-config", "/cfg", "daemon"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: sock}},
-		{"daemon config equals", []string{"daemon", "-config=/cfg"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: sock}},
-		{"daemon config and socket", []string{"-socket", "/x.sock", "daemon", "-config", "/cfg"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: "/x.sock"}},
+		{"daemon config after", []string{"daemon", "-config", "/cfg"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: sock, StatePath: st}},
+		{"daemon config before", []string{"-config", "/cfg", "daemon"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: sock, StatePath: st}},
+		{"daemon config equals", []string{"daemon", "-config=/cfg"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: sock, StatePath: st}},
+		{"daemon config and socket", []string{"-socket", "/x.sock", "daemon", "-config", "/cfg"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: "/x.sock", StatePath: st}},
+
+		// M2 (design 13): -state only for the daemon, before or after.
+		{"daemon state after", []string{"daemon", "-state", "/s.json"}, command{Name: "daemon", ConfigDir: cfg, Socket: sock, StatePath: "/s.json"}},
+		{"daemon state before", []string{"-state", "/s.json", "daemon"}, command{Name: "daemon", ConfigDir: cfg, Socket: sock, StatePath: "/s.json"}},
+		{"daemon state equals", []string{"daemon", "-state=/s.json"}, command{Name: "daemon", ConfigDir: cfg, Socket: sock, StatePath: "/s.json"}},
+		{"daemon state and config", []string{"daemon", "-config", "/cfg", "-state", "/s.json"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: sock, StatePath: "/s.json"}},
 
 		// decision 11: -v only for daemon, before or after.
-		{"daemon v after", []string{"daemon", "-v"}, command{Name: "daemon", ConfigDir: cfg, Socket: sock, Verbose: true}},
-		{"daemon v before", []string{"-v", "daemon"}, command{Name: "daemon", ConfigDir: cfg, Socket: sock, Verbose: true}},
-		{"daemon v and socket", []string{"daemon", "-v", "-socket", "/x.sock"}, command{Name: "daemon", ConfigDir: cfg, Socket: "/x.sock", Verbose: true}},
-		{"daemon socket and v", []string{"-socket", "/x.sock", "daemon", "-v"}, command{Name: "daemon", ConfigDir: cfg, Socket: "/x.sock", Verbose: true}},
+		{"daemon v after", []string{"daemon", "-v"}, command{Name: "daemon", ConfigDir: cfg, Socket: sock, StatePath: st, Verbose: true}},
+		{"daemon v before", []string{"-v", "daemon"}, command{Name: "daemon", ConfigDir: cfg, Socket: sock, StatePath: st, Verbose: true}},
+		{"daemon v and socket", []string{"daemon", "-v", "-socket", "/x.sock"}, command{Name: "daemon", ConfigDir: cfg, Socket: "/x.sock", StatePath: st, Verbose: true}},
+		{"daemon socket and v", []string{"-socket", "/x.sock", "daemon", "-v"}, command{Name: "daemon", ConfigDir: cfg, Socket: "/x.sock", StatePath: st, Verbose: true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -75,13 +81,17 @@ func TestParseArgs(t *testing.T) {
 // design 3: the defaults come from def (derived from the prefix), not from
 // constants.
 func TestParseArgsDefaultsFromDef(t *testing.T) {
-	def := paths{Socket: "/Users/u/brew/var/run/wgplex.sock", ConfigDir: "/Users/u/brew/etc/wgplex"}
+	def := paths{
+		Socket:    "/Users/u/brew/var/run/wgplex.sock",
+		ConfigDir: "/Users/u/brew/etc/wgplex",
+		State:     "/Users/u/brew/var/wgplex/state.json",
+	}
 	got, err := parseArgs([]string{"daemon"}, def)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Socket != def.Socket || got.ConfigDir != def.ConfigDir {
-		t.Errorf("daemon: got %+v, want socket %q and config %q", got, def.Socket, def.ConfigDir)
+	if got.Socket != def.Socket || got.ConfigDir != def.ConfigDir || got.StatePath != def.State {
+		t.Errorf("daemon: got %+v, want socket %q, config %q and state %q", got, def.Socket, def.ConfigDir, def.State)
 	}
 	got, err = parseArgs([]string{"up", "de"}, def)
 	if err != nil {
@@ -157,8 +167,13 @@ func TestParseArgsUsage(t *testing.T) {
 		{"json not in M1", []string{"status", "-json"}},
 		// design 13: -all is a flag of down, not a tunnel name; not in M1.
 		{"down all not in M1", []string{"down", "-all"}},
-		{"daemon state is M2", []string{"daemon", "-state", "/s.json"}},
 		{"daemon log is M2", []string{"daemon", "-log", "/l.log"}},
+		// M2: -state belongs to the daemon (design 13); other commands do
+		// not take it.
+		{"status state", []string{"status", "-state", "/s.json"}},
+		{"reload state", []string{"reload", "-state", "/s.json"}},
+		{"up state", []string{"up", "de", "-state", "/s.json"}},
+		{"version state", []string{"version", "-state", "/s.json"}},
 
 		// a flag without its value.
 		{"socket without value", []string{"status", "-socket"}},

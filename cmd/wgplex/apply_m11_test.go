@@ -9,22 +9,23 @@ import (
 // "Сигнатуры → cmd/wgplex"), not the implementation. Fixtures reuse the
 // m6 helpers of apply_test.go (generated keys).
 
-// design 10.2: a repeated apply keeps the current toggles; a new tunnel gets
-// its autostart (tunnel toggles live in memory, M1 plan decision 3).
+// design 10.2: a repeated apply keeps the current toggles (without a record
+// in state.json the tunnels cur kept keep being enabled); a new tunnel gets
+// its autostart.
 func TestM11PlanApplyRepeatedNewTunnels(t *testing.T) {
 	cs := m6NewConfs(t)
 	yaml := m6BaseYAML(m6BaseTunnels()...)
 	cur := m6Load(t, yaml, cs.texts(nil))
 	next := m6Load(t, yaml, cs.texts(nil))
 	on := m6Set("work", "home", "fi")
-	m6CheckPlan(t, "same config", cur, next, on, on, m6PlanWant{
+	m6CheckPlan(t, "same config", cur, next, nil, on, on, m6PlanWant{
 		enabled: []string{"fi", "home", "work"},
 	})
 
 	next2 := m6Load(t, m6BaseYAML(append(m6BaseTunnels(),
 		m6TunnelYAML("nl", "rules", true),
 		m6TunnelYAML("lab", "config", false))...), cs.texts(nil))
-	m6CheckPlan(t, "new tunnels", cur, next2, on, on, m6PlanWant{
+	m6CheckPlan(t, "new tunnels", cur, next2, nil, on, on, m6PlanWant{
 		enabled: []string{"fi", "home", "nl", "work"},
 		start:   []string{"nl"},
 	})

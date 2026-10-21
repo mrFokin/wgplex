@@ -16,6 +16,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/netwatch"
 	"github.com/mrFokin/wgplex/internal/router"
 	"github.com/mrFokin/wgplex/internal/rpc"
+	"github.com/mrFokin/wgplex/internal/state"
 )
 
 // daemonMain is "wgplex daemon": the daemon runs as root under launchd and
@@ -36,7 +37,7 @@ func daemonMain(cmd command) int {
 		log.Error("wgplex daemon must run as root: sudo brew services start --sudo-service-user=root wgplex")
 		return 0
 	}
-	return runDaemon(log, cmd.Socket, cmd.ConfigDir)
+	return runDaemon(log, cmd.Socket, cmd.ConfigDir, cmd.StatePath)
 }
 
 // runDaemon starts the daemon listening on socket and serves until
@@ -49,11 +50,16 @@ func daemonMain(cmd command) int {
 // problems are in the log and in status.get. The resolver listens on
 // 127.0.0.1:53 and the RPC starts when the config is done.
 //
+// The toggles come from state.json statePath (design 11): loaded before the
+// first apply, and rewritten after each of the following ones. A file that
+// is missing is not a problem; an unreadable or broken one is a warning and
+// the tunnels follow their autostart.
+//
 // The socket goes first: a second daemon fails there and touches nothing
 // of the running one. The socket file is removed only by closing our own
 // listener (net.UnixListener unlinks its path on Close, which Serve or the
 // error path does), never by path: a failed start leaves it alone.
-func runDaemon(log *slog.Logger, socket, configDir string) int {
+func runDaemon(log *slog.Logger, socket, configDir, statePath string) int {
 	// SIGHUP and SIGUSR1 would kill the process without cleanup (design 4.1).
 	signal.Ignore(syscall.SIGHUP, syscall.SIGUSR1)
 	sigCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -67,6 +73,17 @@ func runDaemon(log *slog.Logger, socket, configDir string) int {
 		return 1
 	}
 
+	// The toggles of state.json, before the first apply reads them (design
+	// 11): a tunnel with a record comes up as the record says, without one
+	// by its autostart. A broken file is a warning: without records, by
+	// autostart. No directory is created (design 4.1); the first save
+	// reports it to the log.
+	toggles, serr := state.Load(statePath)
+	if serr != nil {
+		log.Warn("state file: ignoring, tunnels follow their autostart", "path", statePath, "err", serr)
+		toggles = state.State{}
+	}
+
 	// Leftovers of a crash.
 	if err := router.DeleteOwned(); err != nil {
 		log.Warn("delete stale routes", "err", err)
@@ -74,7 +91,7 @@ func runDaemon(log *slog.Logger, socket, configDir string) int {
 	releaseDNS(log)
 
 	srv := &dns.Server{Log: log}
-	d := newDaemon(ctx, srv, log, configDir)
+	d := newDaemon(ctx, srv, log, configDir, statePath, toggles.Tunnels)
 	d.setSystem() // the upstream of the resolver before any config (Wirefork M6 fact 7)
 	// Watching from before the first config: a change of the network before
 	// the first apply is seen too.
