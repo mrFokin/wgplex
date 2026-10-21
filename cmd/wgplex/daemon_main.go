@@ -15,7 +15,6 @@ import (
 	"github.com/mrFokin/wgplex/internal/dns"
 	"github.com/mrFokin/wgplex/internal/health"
 	"github.com/mrFokin/wgplex/internal/netwatch"
-	"github.com/mrFokin/wgplex/internal/router"
 	"github.com/mrFokin/wgplex/internal/rpc"
 	"github.com/mrFokin/wgplex/internal/state"
 )
@@ -72,6 +71,10 @@ func daemonMain(cmd command) int {
 // of the running one. The socket file is removed only by closing our own
 // listener (net.UnixListener unlinks its path on Close, which Serve or the
 // error path does), never by path: a failed start leaves it alone.
+//
+// Routes and the DNS capture key left by a previous run are not removed
+// beforehand (design 4.1): the first apply syncs the routing table and the
+// key with the new state, and so keeps fallback: block from a crash (9.1).
 func runDaemon(log *slog.Logger, socket, configDir, statePath string) int {
 	// SIGHUP and SIGUSR1 would kill the process without cleanup (design 4.1).
 	signal.Ignore(syscall.SIGHUP, syscall.SIGUSR1)
@@ -97,11 +100,9 @@ func runDaemon(log *slog.Logger, socket, configDir, statePath string) int {
 		toggles = state.State{}
 	}
 
-	// Leftovers of a crash.
-	if err := router.DeleteOwned(); err != nil {
-		log.Warn("delete stale routes", "err", err)
-	}
-	releaseDNS(log)
+	// Leftovers of a crash stay until the first apply: the routes go with the
+	// synchronization of the table, the DNS key with the one of the config
+	// (design 4.1) — nothing is released here beforehand.
 
 	srv := &dns.Server{Log: log}
 	d := newDaemon(ctx, srv, log, configDir, statePath, toggles.Tunnels)

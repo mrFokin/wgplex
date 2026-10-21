@@ -78,7 +78,6 @@ type daemon struct {
 	table     router.Table // the last synced table
 	skips     []router.Skip
 	syncErr   error
-	synced    bool // Sync has run: there may be routes of ours to remove
 	healthOff bool // the last health tick found no network (offline)
 }
 
@@ -264,21 +263,20 @@ func (d *daemon) applyConfig() (rpc.ReloadResult, error) {
 	})
 
 	// The system DNS is captured only when the config has domains (M10
-	// decision 11); a capture left from a previous config is released.
+	// decision 11). The key is synced with the config, not only with what
+	// this daemon captured: a key left by a previous run must go too
+	// (design 4.1, no cleanup at startup), so Release runs here even with
+	// captured false. Without the key it changes nothing; after a failed
+	// release the next apply runs it again.
 	switch {
 	case !next.NeedsDNS():
-		if d.captured {
-			d.log.Info("dns released: no domains in config")
-			if err := releaseDNS(d.log); err != nil {
-				// captured stays: the next apply without domains retries.
-				w := "DNS release failed: " + err.Error()
-				res.Warnings = append(res.Warnings, w)
-				d.locked(func() { d.warnings = append(slices.Clone(d.warnings), w) })
-			} else {
-				d.captured = false
-			}
+		if err := releaseDNS(d.log); err != nil {
+			w := "DNS release failed: " + err.Error()
+			res.Warnings = append(res.Warnings, w)
+			d.locked(func() { d.warnings = append(slices.Clone(d.warnings), w) })
 		} else {
-			d.log.Debug("dns not captured: no domains in config")
+			d.captured = false
+			d.log.Debug("dns released: no domains in config")
 		}
 	case !hasSystem:
 		d.log.Warn("no system DNS servers: DNS not captured")
@@ -567,11 +565,11 @@ func (d *daemon) shutdown() {
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	// All our routes but the endpoint ones: those go with DeleteHost.
-	// Before the first Sync there are none.
-	if d.synced {
-		d.syncTable(endpointRoutes(d.table), router.Env{})
-	}
+	// All our routes but the endpoint ones: those go with DeleteHost. Sync
+	// reads the kernel dump, so this removes the routes of a previous run
+	// too, even when this daemon never synced (a broken config at startup):
+	// the startup cleanup is gone (design 4.1), stop still removes them (9.1).
+	d.syncTable(endpointRoutes(d.table), router.Env{})
 	var all []*runTunnel
 	if d.cfg != nil {
 		for _, t := range d.cfg.Tunnels {
@@ -879,7 +877,7 @@ func (d *daemon) syncNow() error {
 	}
 	t := withEndpoints(router.Build(d.cfg, d.states(), d.rules, d.srv.Dynamic()), d.hosts)
 	err := d.syncTable(t, d.env)
-	d.table, d.syncErr, d.synced = t, err, true
+	d.table, d.syncErr = t, err
 	return err
 }
 
