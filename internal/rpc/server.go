@@ -63,11 +63,19 @@ func Serve(ctx context.Context, ln net.Listener, d Daemon, allow func(uid uint32
 	j.Method("config.reload", func(_ *jrpc.Context, _ struct{}) (ReloadResult, error) {
 		return d.Reload()
 	})
-	j.Method("tunnel.setEnabled", func(_ *jrpc.Context, p SetEnabledParams) (any, error) {
+	// toggle is the body of tunnel.enable and tunnel.disable (design 14:
+	// a verb per direction, no boolean params).
+	toggle := func(p TunnelParams, enabled bool) (any, error) {
 		if p.Name == "" {
 			return nil, jrpc.NewErrorInvalidParams(nil)
 		}
-		return nil, d.SetEnabled(p.Name, p.Enabled)
+		return nil, d.SetEnabled(p.Name, enabled)
+	}
+	j.Method("tunnel.enable", func(_ *jrpc.Context, p TunnelParams) (any, error) {
+		return toggle(p, true)
+	})
+	j.Method("tunnel.disable", func(_ *jrpc.Context, p TunnelParams) (any, error) {
+		return toggle(p, false)
 	})
 	j.Method("tunnel.disableAll", func(_ *jrpc.Context, _ struct{}) (any, error) {
 		return nil, d.DisableAll()

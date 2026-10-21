@@ -15,9 +15,9 @@ import (
 
 // State is the content of state.json (design 11).
 type State struct {
-	// Tunnels maps the tunnel names toggled explicitly (tunnel.setEnabled,
-	// tunnel.disableAll, design 11) to their state (design 11). A tunnel
-	// without a record follows its autostart (design 10.2).
+	// Tunnels maps the tunnel names toggled explicitly (tunnel.enable,
+	// tunnel.disable, tunnel.disableAll, design 11) to their state (design
+	// 11). A tunnel without a record follows its autostart (design 10.2).
 	Tunnels map[string]bool `json:"tunnels"`
 }
 

@@ -12,9 +12,9 @@ const (
 
 	// JSON-RPC error codes of the daemon (decision 5).
 	CodeConfigInvalid = 1 // config.reload: the config directory failed to load; data: ConfigErrorData
-	CodeNoConfig      = 2 // tunnel.setEnabled before the first successful config load
+	CodeNoConfig      = 2 // tunnel.enable/tunnel.disable before the first successful config load
 	CodeUnknownTunnel = 3 // the tunnel name is not in the config
-	CodeTunnelStart   = 4 // tunnel.setEnabled true: the tunnel failed to start
+	CodeTunnelStart   = 4 // tunnel.enable: the tunnel failed to start
 )
 
 // ReloadResult is the result of config.reload (design 14): the config is
@@ -36,11 +36,10 @@ type ConfigErrorData struct {
 	Warnings []string `json:"warnings"`
 }
 
-// SetEnabledParams are the params of tunnel.setEnabled; tunnel.disableAll
-// takes no params; both return null.
-type SetEnabledParams struct {
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
+// TunnelParams are the params of tunnel.enable and tunnel.disable. Like every
+// mutating method, they return null; tunnel.disableAll takes no params.
+type TunnelParams struct {
+	Name string `json:"name"`
 }
 
 // Status is the result of status.get (no params).

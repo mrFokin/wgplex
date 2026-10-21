@@ -81,8 +81,11 @@ func run(cmd command) error {
 		}
 		printRoutes(os.Stdout, r)
 	case "up", "down":
-		p := rpc.SetEnabledParams{Name: cmd.Arg, Enabled: cmd.Name == "up"}
-		return call(ctx, sock, "tunnel.setEnabled", p, nil)
+		method := "tunnel.enable"
+		if cmd.Name == "down" {
+			method = "tunnel.disable"
+		}
+		return call(ctx, sock, method, rpc.TunnelParams{Name: cmd.Arg}, nil)
 	case "reload":
 		var r rpc.ReloadResult
 		if err := call(ctx, sock, "config.reload", nil, &r); err != nil {

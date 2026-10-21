@@ -314,17 +314,23 @@ func TestM6ServeReloadConfigInvalid(t *testing.T) {
 	}
 }
 
-// M1, decisions 4-5: tunnel.setEnabled is the Wirefork method and only root
-// calls it; tunnel.enable/disable with per-method rights come in M3
-// (design 14). It passes name and enabled; the result is null.
-func TestM6ServeSetEnabled(t *testing.T) {
+// design 14: tunnel.enable and tunnel.disable are the two directions of the
+// switch (object.verb, no boolean params); only root calls them until the
+// per-method rights of M3. The result is null.
+func TestM6ServeEnableDisable(t *testing.T) {
 	d := &m6FakeDaemon{}
 	s := m6Serve(t, d, nil)
-	for _, on := range []bool{true, false} {
-		r := s.call(t, "tunnel.setEnabled", SetEnabledParams{Name: "de", Enabled: on})
-		m6WantResult(t, "tunnel.setEnabled", r)
+	for _, m := range []struct {
+		method  string
+		enabled bool
+	}{
+		{"tunnel.enable", true},
+		{"tunnel.disable", false},
+	} {
+		r := s.call(t, m.method, TunnelParams{Name: "de"})
+		m6WantResult(t, m.method, r)
 		if string(r.Result) != "null" {
-			t.Errorf("tunnel.setEnabled: result %s, want null", r.Result)
+			t.Errorf("%s: result %s, want null", m.method, r.Result)
 		}
 	}
 	calls := d.mutating()
@@ -336,7 +342,7 @@ func TestM6ServeSetEnabled(t *testing.T) {
 }
 
 // Decision 5: the daemon codes pass as is; any other error is Internal error.
-func TestM6ServeSetEnabledErrors(t *testing.T) {
+func TestM6ServeEnableErrors(t *testing.T) {
 	cases := []struct {
 		err  error
 		code int
@@ -349,8 +355,8 @@ func TestM6ServeSetEnabledErrors(t *testing.T) {
 	for _, c := range cases {
 		d := &m6FakeDaemon{setErr: c.err}
 		s := m6Serve(t, d, nil)
-		r := s.call(t, "tunnel.setEnabled", SetEnabledParams{Name: "nosuch", Enabled: true})
-		m6WantCode(t, "tunnel.setEnabled", r, c.code)
+		r := s.call(t, "tunnel.enable", TunnelParams{Name: "nosuch"})
+		m6WantCode(t, "tunnel.enable", r, c.code)
 		var je *jrpc.JRPCError
 		if errors.As(c.err, &je) && r.Error != nil && r.Error.Message != je.Message {
 			t.Errorf("message %q, want %q", r.Error.Message, je.Message)
@@ -359,20 +365,21 @@ func TestM6ServeSetEnabledErrors(t *testing.T) {
 }
 
 // Wirefork M6 plan: an empty tunnel name and params that do not bind are Invalid params.
-func TestM6ServeSetEnabledInvalidParams(t *testing.T) {
+func TestM6ServeEnableInvalidParams(t *testing.T) {
 	d := &m6FakeDaemon{}
 	s := m6Serve(t, d, nil)
-	r := s.call(t, "tunnel.setEnabled", SetEnabledParams{Name: "", Enabled: true})
-	m6WantCode(t, "empty name", r, -32602)
-	r = s.call(t, "tunnel.setEnabled", map[string]any{"name": 5, "enabled": "yes"})
-	m6WantCode(t, "bad types", r, -32602)
+	for _, method := range []string{"tunnel.enable", "tunnel.disable"} {
+		r := s.call(t, method, TunnelParams{Name: ""})
+		m6WantCode(t, method+" empty name", r, -32602)
+		r = s.call(t, method, map[string]any{"name": 5})
+		m6WantCode(t, method+" bad types", r, -32602)
+	}
 	if calls := d.mutating(); len(calls) != 0 {
 		t.Errorf("daemon called with invalid params: %+v", calls)
 	}
 }
 
-// M1, decisions 4-5: tunnel.disableAll is the Wirefork method; design 14
-// names the wgplex method the same in M3. It takes no params, returns null.
+// design 14: tunnel.disableAll takes no params and returns null.
 func TestM6ServeDisableAll(t *testing.T) {
 	d := &m6FakeDaemon{}
 	s := m6Serve(t, d, nil)
