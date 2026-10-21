@@ -1,6 +1,7 @@
 // Command wgplex runs several WireGuard tunnels at once with rule-based
 // routing on macOS. "wgplex daemon" is the root daemon; the other commands
-// are a client of its JSON-RPC socket, the same API as the app's.
+// are clients of its JSON-RPC socket, the same API as the app's — except
+// "wgplex check", which validates the config directory locally (design 13).
 package main
 
 import (
@@ -26,6 +27,7 @@ commands:
   up <tunnel>           enable a tunnel
   down <tunnel>         disable a tunnel
   reload                the daemon re-reads the config
+  check [-config dir]   validate the config without the daemon
   daemon [-v]           run the daemon (as root)
   version               print the version
 `
@@ -42,6 +44,8 @@ func main() {
 	switch cmd.Name {
 	case "daemon":
 		os.Exit(daemonMain(cmd))
+	case "check":
+		os.Exit(checkMain(os.Stdout, cmd.ConfigDir))
 	case "version":
 		fmt.Println("wgplex", version)
 		return

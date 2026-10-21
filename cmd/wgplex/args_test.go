@@ -27,6 +27,9 @@ func TestParseArgs(t *testing.T) {
 		// M2 (design 13): the daemon reads the config itself; reload does
 		// not take files any more.
 		{"reload", []string{"reload"}, command{Name: "reload", Socket: sock}},
+		// M2 (design 13): check validates the config directory locally,
+		// without the daemon; -config defaults to the same directory.
+		{"check", []string{"check"}, command{Name: "check", ConfigDir: cfg, Socket: sock}},
 
 		// design 13: explain, up, down take exactly one argument.
 		{"explain domain", []string{"explain", "example.com"}, command{Name: "explain", Arg: "example.com", Socket: sock}},
@@ -42,16 +45,21 @@ func TestParseArgs(t *testing.T) {
 		{"version socket", []string{"version", "-socket", "/x.sock"}, command{Name: "version", Socket: "/x.sock"}},
 		{"daemon socket", []string{"daemon", "-socket", "/x.sock"}, command{Name: "daemon", ConfigDir: cfg, Socket: "/x.sock", StatePath: st, LogPath: log}},
 		{"reload socket", []string{"reload", "-socket", "/x.sock"}, command{Name: "reload", Socket: "/x.sock"}},
+		{"check socket", []string{"check", "-socket", "/x.sock"}, command{Name: "check", ConfigDir: cfg, Socket: "/x.sock"}},
 		{"explain socket before command", []string{"-socket", "/x.sock", "explain", "a.com"}, command{Name: "explain", Arg: "a.com", Socket: "/x.sock"}},
 		{"explain socket after arg", []string{"explain", "a.com", "-socket", "/x.sock"}, command{Name: "explain", Arg: "a.com", Socket: "/x.sock"}},
 		{"up socket after arg", []string{"up", "de", "-socket", "/x.sock"}, command{Name: "up", Arg: "de", Socket: "/x.sock"}},
 		{"down socket before", []string{"-socket", "/x.sock", "down", "de"}, command{Name: "down", Arg: "de", Socket: "/x.sock"}},
 
-		// design 13, M2: -config only for the daemon, before or after.
+		// design 13, M2: -config for the daemon and check, before or after.
 		{"daemon config after", []string{"daemon", "-config", "/cfg"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: sock, StatePath: st, LogPath: log}},
 		{"daemon config before", []string{"-config", "/cfg", "daemon"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: sock, StatePath: st, LogPath: log}},
 		{"daemon config equals", []string{"daemon", "-config=/cfg"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: sock, StatePath: st, LogPath: log}},
 		{"daemon config and socket", []string{"-socket", "/x.sock", "daemon", "-config", "/cfg"}, command{Name: "daemon", ConfigDir: "/cfg", Socket: "/x.sock", StatePath: st, LogPath: log}},
+		{"check config after", []string{"check", "-config", "/cfg"}, command{Name: "check", ConfigDir: "/cfg", Socket: sock}},
+		{"check config before", []string{"-config", "/cfg", "check"}, command{Name: "check", ConfigDir: "/cfg", Socket: sock}},
+		{"check config equals", []string{"check", "-config=/cfg"}, command{Name: "check", ConfigDir: "/cfg", Socket: sock}},
+		{"check config and socket", []string{"-socket", "/x.sock", "check", "-config", "/cfg"}, command{Name: "check", ConfigDir: "/cfg", Socket: "/x.sock"}},
 
 		// M2 (design 13): -state only for the daemon, before or after.
 		{"daemon state after", []string{"daemon", "-state", "/s.json"}, command{Name: "daemon", ConfigDir: cfg, Socket: sock, StatePath: "/s.json", LogPath: log}},
@@ -107,6 +115,14 @@ func TestParseArgsDefaultsFromDef(t *testing.T) {
 	if got.Socket != def.Socket || got.ConfigDir != "" || got.LogPath != "" {
 		t.Errorf("up: got %+v, want socket %q and no config or log", got, def.Socket)
 	}
+	// design 13, M2: check reads the same default directory as the daemon.
+	got, err = parseArgs([]string{"check"}, def)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ConfigDir != def.ConfigDir || got.Socket != def.Socket || got.StatePath != "" || got.LogPath != "" {
+		t.Errorf("check: got %+v, want socket %q, config %q and no state or log", got, def.Socket, def.ConfigDir)
+	}
 }
 
 func TestParseArgsUsage(t *testing.T) {
@@ -121,10 +137,9 @@ func TestParseArgsUsage(t *testing.T) {
 		{"empty command", []string{""}},
 		{"unknown", []string{"start"}},
 		{"unknown case", []string{"Status"}},
-		// design 13 commands that are not in M1 (decision 11).
+		// design 13 commands that are not in M2 (M3).
 		{"pause", []string{"pause"}},
 		{"resume", []string{"resume"}},
-		{"check", []string{"check"}},
 
 		// contract: explain, up, down need exactly one non-empty argument.
 		{"explain no arg", []string{"explain"}},
@@ -148,12 +163,15 @@ func TestParseArgsUsage(t *testing.T) {
 		{"status arg", []string{"status", "de"}},
 		{"routes arg", []string{"routes", "de"}},
 		{"reload arg", []string{"reload", "/cfg"}},
+		{"check arg", []string{"check", "/cfg"}},
+		{"check two args", []string{"check", "/cfg", "/cfg2"}},
+		{"check arg around flag", []string{"check", "-config", "/cfg", "x"}},
 		{"daemon arg", []string{"daemon", "x"}},
 		{"version arg", []string{"version", "x"}},
 		{"status empty arg", []string{"status", ""}},
 
-		// M2 (design 13): -config belongs to the daemon now, the client
-		// commands lost it (wgplex check takes it back in M3).
+		// M2 (design 13): -config belongs to the daemon and check now, the
+		// other client commands lost it.
 		{"status config", []string{"status", "-config", "/cfg"}},
 		{"explain config", []string{"explain", "a.com", "-config", "/cfg"}},
 		{"routes config", []string{"routes", "-config", "/cfg"}},
@@ -161,6 +179,10 @@ func TestParseArgsUsage(t *testing.T) {
 		{"down config before", []string{"-config", "/cfg", "down", "de"}},
 		{"reload config", []string{"reload", "-config", "/cfg"}},
 		{"version config", []string{"version", "-config", "/cfg"}},
+		// M2: check takes -config, not the daemon's other flags.
+		{"check state", []string{"check", "-state", "/s.json"}},
+		{"check log", []string{"check", "-log", "/l.log"}},
+		{"check v", []string{"check", "-v"}},
 
 		// decision 11: -v only for daemon.
 		{"status v", []string{"status", "-v"}},
@@ -190,6 +212,7 @@ func TestParseArgsUsage(t *testing.T) {
 		// a flag without its value.
 		{"socket without value", []string{"status", "-socket"}},
 		{"config without value", []string{"daemon", "-config"}},
+		{"check config without value", []string{"check", "-config"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
