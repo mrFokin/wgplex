@@ -62,6 +62,28 @@ func brokenConfigDir(t *testing.T) string {
 	return dir
 }
 
+// design 11: after a successful apply the toggles are in state.json — the
+// file appears with the records in the format of internal/state.
+func TestSaveStateWritesFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	d := newTestDaemon(t, "", path, map[string]bool{"work": true, "home": false})
+	d.saveState()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("state.json: %v", err)
+	}
+	want := `{
+  "tunnels": {
+    "home": false,
+    "work": true
+  }
+}
+`
+	if string(b) != want {
+		t.Errorf("state.json = %q, want %q", b, want)
+	}
+}
+
 // design 4.1: a broken config at startup leaves no state of ours — the
 // routes and the DNS key of a previous run are synced with the empty state
 // now, not left until shutdown. As root the empty sync would change the
