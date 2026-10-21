@@ -454,15 +454,18 @@ func (d *daemon) toggle(name string, enabled bool) (*config.Tunnel, error) {
 }
 
 // DisableAll is tunnel.disableAll: SetEnabled false for every enabled tunnel
-// with one Sync; the DNS capture stays (decision 2).
+// with one Sync; the DNS capture stays (decision 2). Without an applied
+// config it is error 2, as tunnel.setEnabled (design 14).
 func (d *daemon) DisableAll() error {
 	d.opMu.Lock()
 	defer d.opMu.Unlock()
 	if d.closed {
 		return errStopping
 	}
+	var noConfig error
 	d.locked(func() {
 		if d.cfg == nil {
+			noConfig = jrpc.NewError(rpc.CodeNoConfig, "no config applied", nil)
 			return
 		}
 		var stopped []*runTunnel
@@ -480,6 +483,9 @@ func (d *daemon) DisableAll() error {
 		d.closeTunnels(stopped)
 		d.sync() // the table without their endpoint routes; no ops
 	})
+	if noConfig != nil {
+		return noConfig
+	}
 	d.saveState()
 	return nil
 }
