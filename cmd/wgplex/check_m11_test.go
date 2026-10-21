@@ -12,7 +12,7 @@ import (
 // and the Wirefork M11 plan (decision 6, refined in bbc553e): an HTTP check by host
 // name is resolved through the tunnel DNS; without a DNS server reachable
 // through the tunnel — of a family present in Address — the check is not
-// made and config.apply warns. The server family and the query type are
+// made and a config load warns. The server family and the query type are
 // independent: a dual-stack tunnel with only an IPv6 DNS server is checked.
 // Fixtures reuse the m6 helpers (generated keys).
 

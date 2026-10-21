@@ -8,7 +8,8 @@ import (
 )
 
 // paths are the default paths of wgplex, derived from the Homebrew prefix
-// (design 3). On M1 only these two are used.
+// (design 3): the RPC socket and the config directory (read by the daemon,
+// design 10.2).
 type paths struct {
 	Socket    string // <prefix>/var/run/wgplex.sock
 	ConfigDir string // <prefix>/etc/wgplex

@@ -16,7 +16,7 @@ import (
 type State struct {
 	Cfg          *config.Config           // nil: no config applied yet
 	Warnings     []string                 // of the applied config
-	ConfigErrors []string                 // of the last failed config.apply
+	ConfigErrors []string                 // of the last failed config reload
 	Tunnels      map[string]TunnelRuntime // enabled tunnels by name
 	Rules        []router.RuleState
 	Table        router.Table // the last synced table

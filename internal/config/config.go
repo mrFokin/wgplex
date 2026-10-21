@@ -15,10 +15,13 @@ import (
 const mainFile = "wgplex.yaml"
 
 // Load parses and validates the config. files maps a base file name
-// ("wgplex.yaml", "work.conf") to its content — on M1 sent by the client
-// (solution 5 of the plan, the Wirefork delivery; in M2 the daemon reads
-// the directory itself, design 10.2).
+// ("wgplex.yaml", "work.conf") to its content; a nil []byte marks a file
+// present but unreadable (LoadDir, design 5): its read error is reported
+// there already, build skips the file silently.
 // On failure err is Errors with every problem found.
+//
+// The daemon reads the directory itself (design 10.2): LoadDir wraps this
+// loader for it. Load keeps the pure parsing alone.
 //
 // Other *.yaml files besides wgplex.yaml are ignored with a warning (design 10.1).
 // Normalizations that keep the config usable (non-canonical CIDRs, services unused

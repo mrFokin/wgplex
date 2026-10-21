@@ -306,7 +306,7 @@ func m6WantRules() []RuleStatus {
 
 // --- StatusOf ------------------------------------------------------------------
 
-// design 4.1, decision 4: before any config.apply the daemon is empty: not
+// design 4.1, decision 4: before any config load the daemon is empty: not
 // configured, icon off, no tunnels or rules.
 func TestM6StatusNoConfig(t *testing.T) {
 	got := m6StatusOf(t, &State{})
@@ -314,7 +314,7 @@ func TestM6StatusNoConfig(t *testing.T) {
 		t.Errorf("empty state: %+v, want not configured, icon off, nothing else", got)
 	}
 
-	// The first config.apply failed: still not configured, the errors are
+	// The first config load failed: still not configured, the errors are
 	// shown and the icon is warn (decision 4).
 	errs := []string{`tunnel "x": conf "x.conf" not found`}
 	got = m6StatusOf(t, &State{ConfigErrors: errs})
