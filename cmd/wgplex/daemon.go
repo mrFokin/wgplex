@@ -19,6 +19,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/health"
 	"github.com/mrFokin/wgplex/internal/router"
 	"github.com/mrFokin/wgplex/internal/rpc"
+	"github.com/mrFokin/wgplex/internal/state"
 	"github.com/mrFokin/wgplex/internal/tunnel"
 )
 
@@ -60,11 +61,13 @@ type daemon struct {
 	srv       *dns.Server
 	log       *slog.Logger
 	configDir string // the config directory read by applyConfig (design 10.2)
+	statePath string // state.json, written by saveState (design 11)
 
 	// Under mu.
-	cfg       *config.Config // nil: no config applied yet
-	warnings  []string       // of cfg
-	cfgErrs   []string       // of the last failed Apply; nil after a successful one
+	cfg       *config.Config  // nil: no config applied yet
+	warnings  []string        // of cfg
+	cfgErrs   []string        // of the last failed Apply; nil after a successful one
+	toggles   map[string]bool // explicitly toggled tunnels (state.json, design 11)
 	tunnels   map[string]*runTunnel
 	hosts     map[netip.Addr]*hostRoute
 	gws       map[bool]router.Gateway // by ipv6, cached once looked up without error
@@ -113,13 +116,18 @@ var _ rpc.Daemon = (*daemon)(nil)
 
 // newDaemon returns a daemon with no config; srv is the resolver, its Sync
 // is set here. configDir is the config directory (design 10.2), read at
-// startup and by config.reload.
-func newDaemon(ctx context.Context, srv *dns.Server, log *slog.Logger, configDir string) *daemon {
+// startup and by config.reload. statePath is state.json (design 11),
+// applied at startup and rewritten after every successful apply; toggles
+// is what Load of it gave (nil or empty: tunnels by autostart), SetEnabled
+// and DisableAll add records.
+func newDaemon(ctx context.Context, srv *dns.Server, log *slog.Logger, configDir, statePath string, toggles map[string]bool) *daemon {
 	d := &daemon{
 		ctx:       ctx,
 		srv:       srv,
 		log:       log,
 		configDir: configDir,
+		statePath: statePath,
+		toggles:   maps.Clone(toggles),
 		tunnels:   map[string]*runTunnel{},
 		hosts:     map[netip.Addr]*hostRoute{},
 		gws:       map[bool]router.Gateway{},
@@ -287,7 +295,27 @@ func (d *daemon) applyConfig() (rpc.ReloadResult, error) {
 			d.captured = true
 		}
 	}
+	// The apply succeeded: the toggles (pruned by replan, design 11) go to
+	// state.json so that a restart brings up the same tunnels.
+	d.saveState()
 	return res, nil
+}
+
+// saveState writes the toggles to state.json (design 11); an error is only
+// logged: the daemon keeps working without the file (tunnels then follow
+// autostart at startup). opMu is held — saveState runs from the mutating
+// calls it serializes — while the write happens without mu, cloning the
+// toggles under it.
+func (d *daemon) saveState() {
+	if d.statePath == "" {
+		return
+	}
+	d.mu.Lock()
+	toggles := maps.Clone(d.toggles)
+	d.mu.Unlock()
+	if err := state.Save(d.statePath, state.State{Tunnels: toggles}); err != nil {
+		d.log.Error("state save", "path", d.statePath, "err", err)
+	}
 }
 
 // toStart returns the tunnels replan would start for next now (planApply
@@ -296,7 +324,7 @@ func (d *daemon) toStart(next *config.Config) []*config.Tunnel {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	enabled, running := d.enabledRunning()
-	_, _, start := planApply(d.cfg, next, enabled, running)
+	_, _, start := planApply(d.cfg, next, d.toggles, enabled, running)
 	var ts []*config.Tunnel
 	for _, name := range start {
 		ts = append(ts, findTunnel(next, name))
@@ -330,7 +358,7 @@ func (d *daemon) replan(next *config.Config, warnings []string) []*config.Tunnel
 	clear(d.gws)
 	d.rehost()
 	enabled, running := d.enabledRunning()
-	nextEnabled, stop, start := planApply(d.cfg, next, enabled, running)
+	nextEnabled, stop, start := planApply(d.cfg, next, d.toggles, enabled, running)
 	var stopped []*runTunnel
 	for _, name := range stop {
 		stopped = append(stopped, d.tunnels[name])
@@ -347,9 +375,25 @@ func (d *daemon) replan(next *config.Config, warnings []string) []*config.Tunnel
 		ts = append(ts, findTunnel(next, name))
 	}
 	d.cfg, d.warnings, d.cfgErrs = next, warnings, nil
+	// Every successful apply prunes the toggles of the tunnels gone from
+	// the config (design 11); saveState persists them after the apply.
+	d.toggles = pruneToggles(d.toggles, next)
 	d.reselect(nil)
 	d.closeTunnels(stopped)
 	return ts
+}
+
+// pruneToggles keeps only the records of cfg's tunnels (design 11: a
+// successful apply removes the toggles of the tunnels no longer in the
+// config), in a fresh map with the records in cfg's tunnel order.
+func pruneToggles(toggles map[string]bool, cfg *config.Config) map[string]bool {
+	out := make(map[string]bool, len(cfg.Tunnels))
+	for _, t := range cfg.Tunnels {
+		if v, ok := toggles[t.Name]; ok {
+			out[t.Name] = v
+		}
+	}
+	return out
 }
 
 // SetEnabled is tunnel.setEnabled.
@@ -363,6 +407,9 @@ func (d *daemon) SetEnabled(name string, enabled bool) error {
 	if err != nil {
 		return err
 	}
+	// The explicit toggle is recorded (design 11) even when coming up
+	// fails: the tunnel stays enabled, so does the record.
+	d.saveState()
 	// t stays enabled even when it fails to come up (design 11).
 	if t == nil {
 		return nil
@@ -375,8 +422,8 @@ func (d *daemon) SetEnabled(name string, enabled bool) error {
 }
 
 // toggle is the part of SetEnabled under mu: it checks the config and the
-// name, then disables the tunnel, or marks it as starting and returns it to
-// be brought up (nil: nothing more to do).
+// name, records the toggle (design 11) and disables the tunnel, or marks it
+// as starting and returns it to be brought up (nil: nothing more to do).
 func (d *daemon) toggle(name string, enabled bool) (*config.Tunnel, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -387,6 +434,7 @@ func (d *daemon) toggle(name string, enabled bool) (*config.Tunnel, error) {
 	if t == nil {
 		return nil, jrpc.NewError(rpc.CodeUnknownTunnel, fmt.Sprintf("unknown tunnel %q", name), nil)
 	}
+	d.toggles[name] = enabled
 	rt := d.tunnels[name]
 	if !enabled {
 		if rt != nil {
@@ -416,7 +464,7 @@ func (d *daemon) DisableAll() error {
 		return errStopping
 	}
 	d.locked(func() {
-		if d.cfg == nil || len(d.tunnels) == 0 {
+		if d.cfg == nil {
 			return
 		}
 		var stopped []*runTunnel
@@ -424,6 +472,9 @@ func (d *daemon) DisableAll() error {
 			if rt := d.tunnels[t.Name]; rt != nil {
 				stopped = append(stopped, rt)
 			}
+			// design 12: every tunnel of the config becomes off; a later
+			// reload does not bring them back, a new one follows autostart.
+			d.toggles[t.Name] = false
 		}
 		clear(d.tunnels)
 		d.log.Info("all tunnels disabled")
@@ -431,6 +482,7 @@ func (d *daemon) DisableAll() error {
 		d.closeTunnels(stopped)
 		d.sync() // the table without their endpoint routes; no ops
 	})
+	d.saveState()
 	return nil
 }
 

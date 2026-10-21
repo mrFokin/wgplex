@@ -16,6 +16,7 @@ type command struct {
 	Arg       string // explain: query; up, down: tunnel
 	ConfigDir string // daemon: -config or the default (design 3)
 	Socket    string // -socket or the default (design 3)
+	StatePath string // daemon: -state or the default (design 3, 11)
 	Verbose   bool   // daemon: -v
 }
 
@@ -32,19 +33,22 @@ var nargs = map[string]int{
 }
 
 // parseArgs parses os.Args[1:]: [flags] <command> [arg] [flags]. The flags
-// are -socket path (every command), -config dir (daemon only, design 13:
-// the daemon reads the config directory itself) and -v (daemon only); they
-// may go before the command or after it and its argument. A usage error is
-// errUsage-wrapped (exit 2): no or an unknown command, a wrong number of
-// arguments, an empty argument, a flag the command does not take.
+// are -socket path (every command), -config dir and -state path (daemon
+// only, design 13: the daemon reads its config directory and its state file
+// itself) and -v (daemon only); they may go before the command or after it
+// and its argument. A usage error is errUsage-wrapped (exit 2): no or an
+// unknown command, a wrong number of arguments, an empty argument, a flag
+// the command does not take.
 //
 // def gives the defaults (pathsFor(defaultPrefix()) in main), so parseArgs
-// itself looks at nothing outside args. ConfigDir is set for daemon only.
+// itself looks at nothing outside args. ConfigDir and StatePath are set for
+// daemon only.
 func parseArgs(args []string, def paths) (command, error) {
 	fs := flag.NewFlagSet("wgplex", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	socket := fs.String("socket", def.Socket, "RPC socket `path`")
 	dir := fs.String("config", def.ConfigDir, "config `dir` (daemon)")
+	statePath := fs.String("state", def.State, "state `file` (daemon)")
 	verbose := fs.Bool("v", false, "debug logging (daemon)")
 	if err := fs.Parse(args); err != nil {
 		return command{}, fmt.Errorf("%w: %v", errUsage, err)
@@ -82,7 +86,7 @@ func parseArgs(args []string, def paths) (command, error) {
 	}
 	var bad error
 	fs.Visit(func(f *flag.Flag) {
-		if bad == nil && (f.Name == "config" && cmd.Name != "daemon" || f.Name == "v" && cmd.Name != "daemon") {
+		if bad == nil && ((f.Name == "config" || f.Name == "state") && cmd.Name != "daemon" || f.Name == "v" && cmd.Name != "daemon") {
 			bad = fmt.Errorf("%w: %s does not take -%s", errUsage, cmd.Name, f.Name)
 		}
 	})
@@ -91,7 +95,7 @@ func parseArgs(args []string, def paths) (command, error) {
 	}
 	cmd.Socket, cmd.Verbose = *socket, *verbose
 	if cmd.Name == "daemon" {
-		cmd.ConfigDir = *dir
+		cmd.ConfigDir, cmd.StatePath = *dir, *statePath
 	}
 	return cmd, nil
 }
