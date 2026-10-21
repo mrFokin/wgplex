@@ -134,8 +134,9 @@ func TestSaveNoTempLeft(t *testing.T) {
 	}
 }
 
-// design 11: Save replace with a rename, not with a rewrite in place: the
-// mode comes from Save (0644), not from the previous file.
+// design 11, 5: Save replaces with a rename, not with a rewrite in place —
+// the mode comes from Save (0640, no read for group and other), not from the
+// previous file.
 func TestSaveMode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
@@ -148,8 +149,8 @@ func TestSaveMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := st.Mode().Perm(); got != 0o644 {
-		t.Errorf("mode = %v, want 0644", got)
+	if got := st.Mode().Perm(); got != 0o640 {
+		t.Errorf("mode = %v, want 0640", got)
 	}
 }
 
