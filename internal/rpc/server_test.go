@@ -320,46 +320,67 @@ func TestM6ServeReloadConfigInvalid(t *testing.T) {
 func TestM6ServeEnableDisable(t *testing.T) {
 	d := &m6FakeDaemon{}
 	s := m6Serve(t, d, nil)
-	for _, m := range []struct {
+	cases := []struct {
 		method  string
 		enabled bool
 	}{
 		{"tunnel.enable", true},
 		{"tunnel.disable", false},
-	} {
-		r := s.call(t, m.method, TunnelParams{Name: "de"})
-		m6WantResult(t, m.method, r)
+	}
+	for _, c := range cases {
+		r := s.call(t, c.method, TunnelParams{Name: "de"})
+		m6WantResult(t, c.method, r)
 		if string(r.Result) != "null" {
-			t.Errorf("%s: result %s, want null", m.method, r.Result)
+			t.Errorf("%s: result %s, want null", c.method, r.Result)
 		}
 	}
 	calls := d.mutating()
-	if len(calls) != 2 ||
-		calls[0].method != "SetEnabled" || calls[0].name != "de" || !calls[0].enabled ||
-		calls[1].method != "SetEnabled" || calls[1].name != "de" || calls[1].enabled {
-		t.Errorf("daemon calls = %+v", calls)
+	if len(calls) != len(cases) {
+		t.Fatalf("daemon calls = %+v, want %d", calls, len(cases))
+	}
+	for i, c := range cases {
+		if calls[i].method != "SetEnabled" || calls[i].name != "de" || calls[i].enabled != c.enabled {
+			t.Errorf("call %d = %+v, want SetEnabled de %v", i, calls[i], c.enabled)
+		}
 	}
 }
 
-// Decision 5: the daemon codes pass as is; any other error is Internal error.
+// The rename is not an alias: tunnel.setEnabled is gone (-32601) and the
+// daemon is not called.
+func TestM6ServeSetEnabledRemoved(t *testing.T) {
+	d := &m6FakeDaemon{}
+	s := m6Serve(t, d, nil)
+	r := s.call(t, "tunnel.setEnabled", map[string]any{"name": "de", "enabled": true})
+	m6WantCode(t, "tunnel.setEnabled removed", r, -32601)
+	if calls := d.mutating(); len(calls) != 0 {
+		t.Errorf("daemon called for the removed method: %+v", calls)
+	}
+}
+
+// Decision 5, design 14: the daemon codes pass as is; any other error is
+// Internal error. Only tunnel.enable reports a failed start (4).
 func TestM6ServeEnableErrors(t *testing.T) {
 	cases := []struct {
-		err  error
-		code int
+		method string
+		err    error
+		code   int
 	}{
-		{jrpc.NewError(CodeNoConfig, "no config applied", nil), CodeNoConfig},
-		{jrpc.NewError(CodeUnknownTunnel, `unknown tunnel "nosuch"`, nil), CodeUnknownTunnel},
-		{jrpc.NewError(CodeTunnelStart, "resolve endpoints: no such host", nil), CodeTunnelStart},
-		{errors.New("boom"), -32603},
+		{"tunnel.enable", jrpc.NewError(CodeNoConfig, "no config applied", nil), CodeNoConfig},
+		{"tunnel.disable", jrpc.NewError(CodeNoConfig, "no config applied", nil), CodeNoConfig},
+		{"tunnel.enable", jrpc.NewError(CodeUnknownTunnel, `unknown tunnel "nosuch"`, nil), CodeUnknownTunnel},
+		{"tunnel.disable", jrpc.NewError(CodeUnknownTunnel, `unknown tunnel "nosuch"`, nil), CodeUnknownTunnel},
+		{"tunnel.enable", jrpc.NewError(CodeTunnelStart, "resolve endpoints: no such host", nil), CodeTunnelStart},
+		{"tunnel.enable", errors.New("boom"), -32603},
+		{"tunnel.disable", errors.New("boom"), -32603},
 	}
 	for _, c := range cases {
 		d := &m6FakeDaemon{setErr: c.err}
 		s := m6Serve(t, d, nil)
-		r := s.call(t, "tunnel.enable", TunnelParams{Name: "nosuch"})
-		m6WantCode(t, "tunnel.enable", r, c.code)
+		r := s.call(t, c.method, TunnelParams{Name: "nosuch"})
+		m6WantCode(t, c.method, r, c.code)
 		var je *jrpc.JRPCError
 		if errors.As(c.err, &je) && r.Error != nil && r.Error.Message != je.Message {
-			t.Errorf("message %q, want %q", r.Error.Message, je.Message)
+			t.Errorf("%s: message %q, want %q", c.method, r.Error.Message, je.Message)
 		}
 	}
 }
