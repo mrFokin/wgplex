@@ -54,7 +54,10 @@ state `error` — it retries bringing the tunnel up.
 
 ### status.get → `Status`
 
-Tunnels and rules are in config order.
+Tunnels and rules are in config order. An optional field is absent from the
+JSON rather than `null`: a timestamp marked *(omitted when zero)* has no value
+yet (no handshake, no successful check), and a client should read an absent
+field as its zero value.
 
 | Field | Type | Description |
 |---|---|---|
@@ -74,7 +77,7 @@ Tunnels and rules are in config order.
 | `state` | string | `"off" \| "starting" \| "up" \| "dead" \| "error"` — `"dead"`: running but considered unhealthy; `"error"`: failed to start |
 | `error` | string *(state `"error"`)* | |
 | `interface` | string *(state `"up"`/`"dead"`)* | `utunN` |
-| `addresses` | string[] | addresses of the `.conf` |
+| `addresses` | string[] *(optional)* | addresses of the `.conf`; absent when it has none |
 | `routes` | string | `"config" \| "rules"` |
 | `route_count` | int | routes of the table targeting this tunnel |
 | `peers` | `PeerStatus[]` *(running tunnel)* | `.conf` order |
@@ -86,8 +89,8 @@ Tunnels and rules are in config order.
 | Field | Type | Description |
 |---|---|---|
 | `endpoint` | string | as written in the `.conf` (`""` if none) |
-| `resolved` | string | `addr:port` currently in use |
-| `last_handshake` | time | zero value: never |
+| `resolved` | string *(optional)* | `addr:port` currently in use; absent until the endpoint is resolved |
+| `last_handshake` | time *(omitted when zero)* | time of the last handshake; the field is absent until the first one |
 | `rx_bytes`, `tx_bytes` | int | |
 
 `CheckStatus`:
@@ -95,7 +98,7 @@ Tunnels and rules are in config order.
 | Field | Type | Description |
 |---|---|---|
 | `addr` | string | the check address or URL |
-| `last_ok` | time | zero value: never succeeded |
+| `last_ok` | time *(omitted when zero)* | time of the last successful check; the field is absent until the first one |
 | `rtt_ms` | number *(present after a success)* | of the last successful check |
 | `fails` | int | consecutive failures |
 
@@ -107,7 +110,7 @@ Tunnels and rules are in config order.
 | `services` | string[] | |
 | `via` | string[] | tunnel names |
 | `fallback` | string | as configured: `"default" \| "block"` |
-| `tunnel` | string *(present when a rule has a decision)* | the serving tunnel; `""` — direct or in fallback |
+| `tunnel` | string *(optional)* | the serving tunnel; absent when the rule is direct or in fallback |
 | `in_fallback` | bool | the rule is on a fallback tunnel |
 | `degraded` | bool | `via` is non-empty and the serving tunnel is not `via[0]` |
 
