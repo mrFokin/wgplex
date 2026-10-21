@@ -67,16 +67,19 @@ func TestPathsFor(t *testing.T) {
 			Socket:    "/opt/homebrew/var/run/wgplex.sock",
 			ConfigDir: "/opt/homebrew/etc/wgplex",
 			State:     "/opt/homebrew/var/wgplex/state.json",
+			Log:       "/opt/homebrew/var/log/wgplex/wgplex.log",
 		}},
 		{"/usr/local", paths{
 			Socket:    "/usr/local/var/run/wgplex.sock",
 			ConfigDir: "/usr/local/etc/wgplex",
 			State:     "/usr/local/var/wgplex/state.json",
+			Log:       "/usr/local/var/log/wgplex/wgplex.log",
 		}},
 		{"/Users/u/brew", paths{
 			Socket:    "/Users/u/brew/var/run/wgplex.sock",
 			ConfigDir: "/Users/u/brew/etc/wgplex",
 			State:     "/Users/u/brew/var/wgplex/state.json",
+			Log:       "/Users/u/brew/var/log/wgplex/wgplex.log",
 		}},
 	}
 	for _, tt := range tests {
@@ -95,6 +98,7 @@ func TestPathsForBrewPrefix(t *testing.T) {
 		Socket:    "/Users/u/brew/var/run/wgplex.sock",
 		ConfigDir: "/Users/u/brew/etc/wgplex",
 		State:     "/Users/u/brew/var/wgplex/state.json",
+		Log:       "/Users/u/brew/var/log/wgplex/wgplex.log",
 	}
 	if got != want {
 		t.Errorf("got %+v, want %+v", got, want)
