@@ -25,7 +25,8 @@ import (
 // Service uniqueness is enforced by the YAML decoder (duplicate mapping keys).
 // conf must be a bare file name (design 10.1). A .conf file referenced by several
 // tunnels is an error for every tunnel after the first and is parsed only for
-// the first one, so its own errors are not repeated.
+// the first one, so its own errors are not repeated. A file present with nil
+// content (unreadable, LoadDir) is skipped without an error of its own.
 func build(raw *rawConfig, files map[string][]byte) (cfg *Config, warnings []string, errs []error) {
 	errf := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 
@@ -96,6 +97,9 @@ func build(raw *rawConfig, files map[string][]byte) (cfg *Config, warnings []str
 			errf("%s: conf file %q is already used by %s", where, rt.Conf, confOwner[rt.Conf])
 		case !ok:
 			errf("%s: conf file %q not found", where, rt.Conf)
+		case data == nil:
+			// present but unreadable (LoadDir, design 5): the read error is
+			// reported there already, nothing can be parsed
 		default:
 			confOwner[rt.Conf] = where
 			wg, ws, es := parseWGConf(data)
