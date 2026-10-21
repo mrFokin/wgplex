@@ -39,10 +39,6 @@ func (c *logCounter) add(n int64) { c.written += n }
 // reached reports whether the file has reached the rotation threshold.
 func (c *logCounter) reached() bool { return c.written >= c.limit }
 
-// set starts the counter at written bytes: the size of a file left by a
-// previous run.
-func (c *logCounter) set(written int64) { c.written = written }
-
 // logArchive is the name of the i-th archive of path: wgplex.log.1, .2.
 func logArchive(path string, i int) string {
 	return path + "." + strconv.Itoa(i)

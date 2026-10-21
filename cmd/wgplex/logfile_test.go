@@ -38,22 +38,6 @@ func TestLogCounterThreshold(t *testing.T) {
 	}
 }
 
-func TestLogCounterSetAndAdd(t *testing.T) {
-	c := logCounter{limit: 5}
-	c.set(4)
-	if c.reached() {
-		t.Fatal("reached() after set(4) of 5")
-	}
-	c.add(1)
-	if !c.reached() {
-		t.Fatal("reached() after set(4) and add(1) of 5")
-	}
-	c.set(0)
-	if c.reached() {
-		t.Fatal("reached() after set(0)")
-	}
-}
-
 func TestLogArchiveNames(t *testing.T) {
 	if got := logArchive("/p/wgplex.log", 1); got != "/p/wgplex.log.1" {
 		t.Errorf("logArchive 1 = %q", got)

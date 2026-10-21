@@ -489,17 +489,6 @@ func gatewayFrom(m *route.RouteMessage, ifname string) Gateway {
 	return Gateway{Addr: a, Index: m.Index}
 }
 
-// addrString formats a route address for error messages.
-func addrString(a route.Addr) string {
-	switch a := a.(type) {
-	case *route.Inet4Addr:
-		return netip.AddrFrom4(a.IP).String()
-	case *route.Inet6Addr:
-		return netip.AddrFrom16(a.IP).String()
-	}
-	return "?"
-}
-
 // write sends m to a routing socket; the kernel reports the result of
 // RTM_ADD/RTM_DELETE as the error of write(2).
 func write(m *route.RouteMessage) error {
