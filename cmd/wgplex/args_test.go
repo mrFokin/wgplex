@@ -120,6 +120,12 @@ func TestParseArgsUsage(t *testing.T) {
 		{"up two args", []string{"up", "de", "nl"}},
 		{"down two args", []string{"down", "de", "nl"}},
 		{"up two args around flag", []string{"up", "de", "-socket", "/x.sock", "nl"}},
+		// flags of later stages land in the argument position (M3: down -all,
+		// -json; design 13): not a tunnel name, domain or IP.
+		{"down all not in M1", []string{"down", "-all"}},
+		{"up socket without value", []string{"up", "-socket"}},
+		{"explain json", []string{"explain", "-json"}},
+		{"down dashdash", []string{"down", "--"}},
 
 		// contract: other commands take no arguments.
 		{"status arg", []string{"status", "de"}},

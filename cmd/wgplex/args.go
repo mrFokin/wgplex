@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // errUsage wraps usage errors of parseArgs (exit 2).
@@ -64,6 +65,12 @@ func parseArgs(args []string, def paths) (command, error) {
 		cmd.Arg = rest[1]
 		if cmd.Arg == "" {
 			return command{}, fmt.Errorf("%w: %s: empty argument", errUsage, cmd.Name)
+		}
+		// A flag of a later stage (down -all, -json) or a flag without its
+		// value lands in the argument position: no tunnel name, domain or IP
+		// starts with "-" (design 13).
+		if strings.HasPrefix(cmd.Arg, "-") {
+			return command{}, fmt.Errorf("%w: %s: unexpected flag %q", errUsage, cmd.Name, cmd.Arg)
 		}
 	}
 	// Flags after the command and its argument.
