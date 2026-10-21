@@ -26,6 +26,18 @@ func newTestDaemon(t *testing.T, configDir, statePath string, toggles map[string
 	return newDaemon(context.Background(), &dns.Server{}, log, configDir, statePath, toggles)
 }
 
+// design 11: the toggles map is usable from the start — SetEnabled and
+// DisableAll record into it even when state.json had no records (nil).
+func TestNewDaemonNilToggles(t *testing.T) {
+	d := newTestDaemon(t, "", "", nil)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.toggles == nil {
+		t.Fatal("toggles is nil, want an empty map")
+	}
+	d.toggles["work"] = true // must not panic
+}
+
 // design 14: tunnel.disableAll without an applied config is error 2, as
 // tunnel.setEnabled is (data: none).
 func TestDisableAllNoConfig(t *testing.T) {

@@ -120,13 +120,19 @@ var _ rpc.Daemon = (*daemon)(nil)
 // is what Load of it gave (nil or empty: tunnels by autostart), SetEnabled
 // and DisableAll add records.
 func newDaemon(ctx context.Context, srv *dns.Server, log *slog.Logger, configDir, statePath string, toggles map[string]bool) *daemon {
+	// A missing state.json gives nil toggles: SetEnabled and DisableAll
+	// record into the map, so it is never nil here.
+	toggles = maps.Clone(toggles)
+	if toggles == nil {
+		toggles = map[string]bool{}
+	}
 	d := &daemon{
 		ctx:       ctx,
 		srv:       srv,
 		log:       log,
 		configDir: configDir,
 		statePath: statePath,
-		toggles:   maps.Clone(toggles),
+		toggles:   toggles,
 		tunnels:   map[string]*runTunnel{},
 		hosts:     map[netip.Addr]*hostRoute{},
 		gws:       map[bool]router.Gateway{},
