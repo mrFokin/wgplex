@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-// Tests follow design 8 "HTTP", 9.2 and the M11 review (step 4, items 5, 6):
+// Tests follow design 9 "HTTP", 10.1 and the Wirefork M11 review (step 4, items 5, 6):
 // a check URL with userinfo is a config error whose text does not reveal the
 // password, also when the rest of the URL does not parse; a host with an
 // IPv6 zone is a config error.
 
-// design 9.2, review item 5: the password of a check URL never appears in
+// design 10.1, review item 5: the password of a check URL never appears in
 // the error text.
 func TestM11CheckURLPasswordHidden(t *testing.T) {
 	const secret = "s3cr3tPassw0rd"
@@ -40,7 +40,7 @@ func TestM11CheckURLPasswordHidden(t *testing.T) {
 	}
 }
 
-// design 8 "HTTP", review item 6: a zone in the IPv6 literal host of a check
+// design 9 "HTTP", review item 6: a zone in the IPv6 literal host of a check
 // URL is a config error (the check goes through the utun, not a link).
 func TestM11CheckURLIPv6Zone(t *testing.T) {
 	cases := []struct {
@@ -60,7 +60,7 @@ func TestM11CheckURLIPv6Zone(t *testing.T) {
 	}
 }
 
-// design 9.2, review item 5 (plan step 6 (b)): a password containing '/',
+// design 10.1, review item 5 (plan step 6 (b)): a password containing '/',
 // '?' or '#' makes the URL split inside the userinfo; neither the whole
 // password nor its distinctive leading part appears in the error text.
 func TestM11CheckURLPasswordWithDelimiters(t *testing.T) {

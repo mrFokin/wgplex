@@ -19,8 +19,8 @@ import (
 	"github.com/mrFokin/wgplex/internal/router"
 )
 
-// Tests follow design 6.3 (NODATA for block), 7 (upstreams, the /32 before
-// the answer, SERVFAIL, the IPv6 filter, 2 s per server) and the M5 plan
+// Tests follow design 7.3 (NODATA for block), 8 (upstreams, the /32 before
+// the answer, SERVFAIL, the IPv6 filter, 2 s per server) and the Wirefork M5 plan
 // ("Модель" query steps 1–6, decisions 5, 8, 10), not the implementation.
 //
 // No root and no network: the Server listens on 127.0.0.1:0; the upstream is
@@ -281,7 +281,7 @@ func m5AnswerAddrs(m *dns.Msg) []string {
 
 // --- tests -------------------------------------------------------------------
 
-// Start, Addr: one port for UDP and TCP on 127.0.0.1 (design 7: loopback only).
+// Start, Addr: one port for UDP and TCP on 127.0.0.1 (design 8: loopback only).
 func TestM5ServerAddr(t *testing.T) {
 	m5StartUpstream(t, m5AddrAnswer("192.0.2.1", "2001:db8::1"))
 	s, _ := m5StartServer(t)
@@ -291,7 +291,7 @@ func TestM5ServerAddr(t *testing.T) {
 	}
 }
 
-// Start: a bind error (EADDRINUSE) is returned at once (M5 fact 13).
+// Start: a bind error (EADDRINUSE) is returned at once (Wirefork M5 fact 13).
 func TestM5ServerAddrInUse(t *testing.T) {
 	m5StartUpstream(t, m5AddrAnswer("192.0.2.1", "2001:db8::1"))
 	s, _ := m5StartServer(t)
@@ -308,7 +308,7 @@ func TestM5ServerAddrInUse(t *testing.T) {
 	}
 }
 
-// design 7 steps 5, 6: UDP and TCP queries for a name without a rule go to
+// design 8 steps 5, 6: UDP and TCP queries for a name without a rule go to
 // an upstream and come back; no dynamic addresses, no Sync. The same for a
 // dns_domains name (split DNS, no dynamic routes).
 func TestM5ServerUDPAndTCP(t *testing.T) {
@@ -336,7 +336,7 @@ func TestM5ServerUDPAndTCP(t *testing.T) {
 	}
 }
 
-// M5 "Модель" query step 3: TC from the upstream over UDP → the same query
+// Wirefork M5 "Модель" query step 3: TC from the upstream over UDP → the same query
 // again over TCP.
 func TestM5ServerUpstreamTCRetry(t *testing.T) {
 	u := m5StartUpstream(t, func(r *dns.Msg, tcp bool) *dns.Msg {
@@ -363,7 +363,7 @@ func TestM5ServerUpstreamTCRetry(t *testing.T) {
 	}
 }
 
-// M5 "Модель" query step 6: the reply is truncated to the client's UDP size
+// Wirefork M5 "Модель" query step 6: the reply is truncated to the client's UDP size
 // (512 without EDNS0, the OPT size with it); TCP gets everything.
 func TestM5ServerTruncateToClient(t *testing.T) {
 	const n = 25
@@ -403,7 +403,7 @@ func TestM5ServerTruncateToClient(t *testing.T) {
 	})
 }
 
-// design 6.3, 7 step 2, decision 8: a rule in fallback: block → NODATA for
+// design 7.3, 8 step 2, decision 8: a rule in fallback: block → NODATA for
 // any type, the upstream is not asked, no Sync, no dynamic addresses.
 func TestM5ServerBlock(t *testing.T) {
 	u := m5StartUpstream(t, m5AddrAnswer("192.0.2.1", "2001:db8::1"))
@@ -445,7 +445,7 @@ func TestM5ServerBlock(t *testing.T) {
 	}
 }
 
-// design 7 "IPv6", M5 "Модель" query step 4: AAAA dropped for a rule domain
+// design 8 "IPv6", Wirefork M5 "Модель" query step 4: AAAA dropped for a rule domain
 // whose tunnel has no IPv6; kept for a direct rule and a name without a rule.
 func TestM5ServerDropAAAA(t *testing.T) {
 	m5StartUpstream(t, m5AddrAnswer("192.0.2.1", "2001:db8::1"))
@@ -474,7 +474,7 @@ func TestM5ServerDropAAAA(t *testing.T) {
 	}
 }
 
-// design 7 "Домены из правил", M5 "Модель" query step 5: for a rule domain
+// design 8 "Домены из правил", Wirefork M5 "Модель" query step 5: for a rule domain
 // (on a tunnel or direct) Sync is called before the answer only when a new
 // (name, address) pair appears, with the new address already in Dynamic.
 func TestM5ServerSync(t *testing.T) {
@@ -552,7 +552,7 @@ func TestM5ServerSync(t *testing.T) {
 	}
 }
 
-// design 7, decision 5: an error of Sync → SERVFAIL (an answer without the
+// design 8, decision 5: an error of Sync → SERVFAIL (an answer without the
 // route would send the connection directly).
 func TestM5ServerSyncError(t *testing.T) {
 	m5StartUpstream(t, m5AddrAnswer("192.0.2.1", "2001:db8::1"))
@@ -575,7 +575,7 @@ func TestM5ServerSyncError(t *testing.T) {
 	m5Rcode(t, resp, dns.RcodeSuccess)
 }
 
-// design 7, decision 10: no answer from any server (2 s each) → SERVFAIL.
+// design 8, decision 10: no answer from any server (2 s each) → SERVFAIL.
 func TestM5ServerUpstreamSilent(t *testing.T) {
 	u := m5StartUpstream(t, func(*dns.Msg, bool) *dns.Msg { return nil })
 	s, y := m5StartServer(t)

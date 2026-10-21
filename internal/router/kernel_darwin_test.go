@@ -10,9 +10,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Tests follow design 5 (host route to every endpoint via the physical
+// Tests follow design 6 (host route to every endpoint via the physical
 // gateway, blackhole without one, RTF_PROTO2 marks our routes) and the
-// doc comments of hostRouteMsg and gatewayFrom from the M3 plan.
+// doc comments of hostRouteMsg and gatewayFrom from the Wirefork M3 plan.
 
 // roundTrip marshals m and parses it back the way a routing socket reader would.
 func roundTrip(t *testing.T, m *route.RouteMessage) *route.RouteMessage {
@@ -136,7 +136,7 @@ func TestHostRouteMsg(t *testing.T) {
 // The gateway's address family follows dst's; IPv4 dst never gets an
 // IPv6-shaped message and vice versa. Without a gateway the message still
 // carries RTAX_GATEWAY: the loopback address of dst's family (doc of
-// hostRouteMsg; go-dev decision 1 of M3 step 2).
+// hostRouteMsg; go-dev decision 1 of Wirefork M3 step 2).
 func TestHostRouteMsgFamily(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -178,7 +178,7 @@ func TestHostRouteMsgFamily(t *testing.T) {
 // A link-local IPv6 gateway is scoped to its interface: after a round trip
 // through the routing socket format the gateway's zone is gw.Index, and the
 // message is bound to that interface (doc of hostRouteMsg; go-dev decision 2
-// of M3 step 2).
+// of Wirefork M3 step 2).
 func TestHostRouteMsgLinkLocalScope(t *testing.T) {
 	gw := Gateway{Addr: tA("fe80::1"), Index: 6}
 	for _, typ := range []int{unix.RTM_ADD, unix.RTM_DELETE} {
@@ -344,7 +344,7 @@ func TestGatewayFromToHostRoute(t *testing.T) {
 	}
 }
 
-// Tests below follow design 5 and decisions 10–11 of the M3 plan: a foreign
+// Tests below follow design 6 and decisions 10–11 of the Wirefork M3 plan: a foreign
 // host route to the endpoint is an error, an on-link endpoint gets no route,
 // only routes marked RTF_PROTO2 are ours (doc of classifyHost).
 
@@ -415,11 +415,11 @@ func TestClassifyHost(t *testing.T) {
 		ifname string
 		want   hostState
 	}{
-		// design 5: no route at all.
+		// design 6: no route at all.
 		{"nil: no route", nil, "203.0.113.5", "", hostNone},
 		{"nil with physical ifname", nil, "203.0.113.5", "en0", hostNone},
 
-		// design 5 / decision 10: our host route (RTF_PROTO2) is replaced.
+		// design 6 / decision 10: our host route (RTF_PROTO2) is replaced.
 		{
 			"own IPv4 host route via gateway",
 			tkGet(host|gwf|static|proto2, tkV4("203.0.113.5"), tkV4("192.168.1.1"), nil),
@@ -441,7 +441,7 @@ func TestClassifyHost(t *testing.T) {
 			"2001:db8::5", "lo0", hostOwned,
 		},
 
-		// design 5 / decision 10: a foreign host route to dst is an error.
+		// design 6 / decision 10: a foreign host route to dst is an error.
 		{
 			"foreign static IPv4 host route via gateway",
 			tkGet(host|gwf|static, tkV4("203.0.113.5"), tkV4("192.168.1.1"), nil),
@@ -597,7 +597,7 @@ func TestClassifyHost(t *testing.T) {
 			"192.168.1.20", "", hostNone,
 		},
 
-		// design 5 / decision 14: the default route and its halves 0/1, 128/1
+		// design 6 / decision 14: the default route and its halves 0/1, 128/1
 		// are not the local network even without RTF_GATEWAY on en0.
 		{
 			"default IPv4 route without gateway on en0",
@@ -690,7 +690,7 @@ func TestClassifyHost(t *testing.T) {
 			"fd00::5", "ipsec0", hostNone,
 		},
 
-		// design 5 / decision 14: ppp* and ipsec* are tunnels, so their
+		// design 6 / decision 14: ppp* and ipsec* are tunnels, so their
 		// host entries and direct subnets are not the local network.
 		{
 			"host entry (LLINFO|WASCLONED) on ppp0: not physical",
@@ -787,7 +787,7 @@ func TestClassifyHost(t *testing.T) {
 	}
 }
 
-// design 5 / decision 14: utun*, ipsec* (IKEv2), ppp* (L2TP, PPPoE) are
+// design 6 / decision 14: utun*, ipsec* (IKEv2), ppp* (L2TP, PPPoE) are
 // tunnels and lo* is loopback; none of them is physical. Empty is not either.
 func TestPhysical(t *testing.T) {
 	tests := []struct {

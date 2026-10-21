@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	dynamicKeep  = time.Hour // kept past the TTL: open connections (M5 decision 4)
+	dynamicKeep  = time.Hour // kept past the TTL: open connections (Wirefork M5 decision 4)
 	dynamicLimit = 4096      // (name, addr) pairs; the earliest deadline is evicted
 )
 

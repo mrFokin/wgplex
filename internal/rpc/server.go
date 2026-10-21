@@ -29,12 +29,12 @@ type peer struct {
 	err error
 }
 
-// Serve serves the six methods (design 13) at Path on ln until ctx is done,
+// Serve serves the six methods (design 14) at Path on ln until ctx is done,
 // then shuts down gracefully. A connection whose peer uid (LOCAL_PEERCRED)
 // fails allow gets HTTP 403. Returns nil after ctx is done.
 //
 // The uid is taken in http.Server.ConnContext (set in BeforeServeFunc) and
-// checked by an Echo middleware on the jrpc Endpoint (M6 fact 3).
+// checked by an Echo middleware on the jrpc Endpoint (Wirefork M6 fact 3).
 func Serve(ctx context.Context, ln net.Listener, d Daemon, allow func(uid uint32) bool, log *slog.Logger) error {
 	e := echo.New()
 	e.Logger = log

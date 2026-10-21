@@ -39,7 +39,7 @@ func jsonLogger(buf *bytes.Buffer, level slog.Level) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: level}))
 }
 
-// plan M3: Verbosef → Debug, Errorf → Warn, attribute tunnel=name; the
+// Wirefork plan M3: Verbosef → Debug, Errorf → Warn, attribute tunnel=name; the
 // message is the formatted text.
 func TestNewLoggerLevels(t *testing.T) {
 	var buf bytes.Buffer
@@ -74,7 +74,7 @@ func TestNewLoggerInfoLevelDropsVerbose(t *testing.T) {
 	}
 }
 
-// design 9.4: keys never get into logs; plan M3: any hex or base64 form of
+// design 10.1: keys never get into logs; Wirefork plan M3: any hex or base64 form of
 // the given keys in a message is replaced with "(redacted)".
 func TestNewLoggerRedactsKeys(t *testing.T) {
 	priv, psk := testKey(t), testKey(t)
@@ -134,7 +134,7 @@ func formKey(t *testing.T) config.Key {
 	return k
 }
 
-// design 9.4, go-dev decision 5 of M3 step 2: every textual form of the
+// design 10.1, go-dev decision 5 of Wirefork M3 step 2: every textual form of the
 // private key and the PSK is redacted — hex in both cases, standard and URL
 // base64, with and without padding.
 func TestNewLoggerRedactsKeyForms(t *testing.T) {

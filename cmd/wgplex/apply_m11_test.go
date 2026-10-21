@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-// Tests follow design 9.3, 10 and the M11 plan ("Модель → Переключатели",
+// Tests follow design 10.2, 11 and the Wirefork M11 plan ("Модель → Переключатели",
 // "Сигнатуры → cmd/wgplex"), not the implementation. Fixtures reuse the
 // m6 helpers of apply_test.go (generated keys).
 
-// design 9.3: a repeated apply keeps the current toggles; a new tunnel gets
+// design 10.2: a repeated apply keeps the current toggles; a new tunnel gets
 // its autostart (tunnel toggles live in memory, M1 plan decision 3).
 func TestM11PlanApplyRepeatedNewTunnels(t *testing.T) {
 	cs := m6NewConfs(t)
@@ -32,12 +32,12 @@ func TestM11PlanApplyRepeatedNewTunnels(t *testing.T) {
 
 // --- checkWarnings with a check URL (M11) -----------------------------------
 
-// design 8 "HTTP", 9.3: an IP literal in a check URL of a family the tunnel
+// design 9 "HTTP", 10.2: an IP literal in a check URL of a family the tunnel
 // has no Address of is not checked: config.apply warns, one warning per
 // tunnel in config order, naming the tunnel and the address. A URL with a
 // host name gives no warning when the tunnel has a DNS server of a family
 // present in its Address (the default 1.1.1.1 serves an IPv4 tunnel); v6name
-// — IPv6 only, no DNS in .conf — is not checked and warned about (design 8
+// — IPv6 only, no DNS in .conf — is not checked and warned about (design 9
 // "HTTP", decision 6). dualname — dual stack, default IPv4 DNS — is checked.
 func TestM11CheckWarningsURL(t *testing.T) {
 	confs := map[string]m6Conf{

@@ -12,10 +12,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Tests follow design 5 and 6.2 (sync of the computed table with the kernel:
+// Tests follow design 6 and 7.2 (sync of the computed table with the kernel:
 // only the difference, RTF_PROTO2 marks our routes, RTM_CHANGE for another
 // utun or gateway, delete + add for another kind, foreign routes and endpoint
-// host routes left alone) and the M4 plan ("Факты spike", "Модель",
+// host routes left alone) and the Wirefork M4 plan ("Факты spike", "Модель",
 // "Решения" 1, 3, 6, 7, 10, 11) with the doc comments of wanted, owned, diff and
 // routeMsg — not the implementation.
 
@@ -180,7 +180,7 @@ func m4Env() Env {
 	}
 }
 
-// design 6.2, plan "Модель" 1, decisions 1, 3, 6: tunnel → route on the
+// design 7.2, Wirefork plan "Модель" 1, decisions 1, 3, 6: tunnel → route on the
 // tunnel's utun; direct → via the physical gateway of its family; reject →
 // RTF_REJECT; endpoint host routes go to keep; a direct route without a
 // gateway of its family is skipped; a tunnel without a utun is reject
@@ -266,7 +266,7 @@ func TestM4Wanted(t *testing.T) {
 			},
 			want: []KernelRoute{m4Iface("192.0.2.10/32", 7), m4Rej("192.0.2.20/32")},
 			skip: []skip{{direct4, noGW}, {direct6, noGW}}},
-		// design 6.2, decision 10: a tunnel without an entry in Ifaces (on,
+		// design 7.2, decision 10: a tunnel without an entry in Ifaces (on,
 		// but its utun is being recreated) gets reject, not a skip: the
 		// traffic must not leave directly.
 		{name: "tunnel without utun: reject", env: m4Env(),
@@ -282,7 +282,7 @@ func TestM4Wanted(t *testing.T) {
 				m4Rej("198.18.0.0/15"),
 				m4Rej("fd00:30::/48"),
 			}},
-		// design 6.2, decision 10, boundary: an entry with a non-positive
+		// design 7.2, decision 10, boundary: an entry with a non-positive
 		// index means no utun, the same as a missing entry.
 		{name: "tunnel with index 0: reject",
 			env: Env{Ifaces: map[string]int{"nl": 7, "de": 0}, GW4: Gateway{Addr: tA("192.168.20.1"), Index: 4}},
@@ -389,7 +389,7 @@ func m4HostEntry(dst string, gw Gateway) *route.RouteMessage {
 	return m
 }
 
-// design 5, 6.2, plan "Модель" 2: owned reads our routes (RTF_PROTO2) back
+// design 6, 7.2, Wirefork plan "Модель" 2: owned reads our routes (RTF_PROTO2) back
 // from a dump — every kind, host and network, IPv4 and IPv6 — and leaves out
 // foreign routes, entries without RTAX_DST and messages of other types.
 func TestM4Owned(t *testing.T) {
@@ -480,7 +480,7 @@ func TestM4OwnedEach(t *testing.T) {
 	}
 }
 
-// design 6.2, fact 1: in a dump a reject or blackhole route carries lo0's
+// design 7.2, fact 1: in a dump a reject or blackhole route carries lo0's
 // index; owned still reports its kind (only Prefix and Kind are compared).
 func TestM4OwnedLo0(t *testing.T) {
 	for _, r := range []KernelRoute{
@@ -550,7 +550,7 @@ func TestM4OwnedNothing(t *testing.T) {
 
 // --- diff --------------------------------------------------------------------
 
-// design 6.2, plan "Модель" 3, decisions 6, 7: the ops that turn have into
+// design 7.2, Wirefork plan "Модель" 3, decisions 6, 7: the ops that turn have into
 // want — RTM_CHANGE for another utun or gateway of the same kind, delete +
 // add for another kind, adds before deletes, keep left alone.
 func TestM4Diff(t *testing.T) {
@@ -606,7 +606,7 @@ func TestM4Diff(t *testing.T) {
 			want: []KernelRoute{m4GW("9.9.0.0/16", "192.168.20.1", 5)},
 			have: []KernelRoute{m4GW("9.9.0.0/16", "192.168.20.1", 4)},
 			ops:  []Op{m4Change(m4GW("9.9.0.0/16", "192.168.20.1", 5))}},
-		// design 6.2, decision 11: a host route (/32, /128) never gets an
+		// design 7.2, decision 11: a host route (/32, /128) never gets an
 		// RTM_CHANGE — another gateway, interface or utun is delete + add.
 		{name: "host: change gateway address → delete + add",
 			want: []KernelRoute{m4GW("9.9.9.9/32", "10.0.1.1", 4)},
@@ -751,7 +751,7 @@ func TestM4Diff(t *testing.T) {
 				m4Add(m4Iface("fd00:20::/48", 9)),
 				m4Del(m4GW("2001:db8:9::/48", "fe80::1", 4)),
 			}},
-		// plan "Модель" 3: kind changes, changes, adds, deletes; prefix order
+		// Wirefork plan "Модель" 3: kind changes, changes, adds, deletes; prefix order
 		// within each group. Prefixes are chosen so that the group order
 		// differs from the overall prefix order; have is not sorted.
 		{name: "group order and prefix order",
@@ -790,7 +790,7 @@ func TestM4Diff(t *testing.T) {
 				m4Del(m4Iface("fd00:1::/48", 7)),
 			}},
 		// Replacing a /16 by /24s: the adds come before the delete, so the
-		// traffic never leaves the tunnel (plan "Модель" 3).
+		// traffic never leaves the tunnel (Wirefork plan "Модель" 3).
 		{name: "split a prefix: adds before delete",
 			want: []KernelRoute{m4Iface("10.20.1.0/24", 9), m4Iface("10.20.2.0/24", 9)},
 			have: []KernelRoute{m4Iface("10.20.0.0/16", 9)},
@@ -1023,7 +1023,7 @@ func m4KScoped(a string, index int) route.Addr {
 	return &route.Inet6Addr{IP: ip}
 }
 
-// design 6.2 "only the difference", plan "Модель", decisions 1, 6, 10, 11 and
+// design 7.2 "only the difference", Wirefork plan "Модель", decisions 1, 6, 10, 11 and
 // the ruling of step 3: a table applied once and read back from a dump as the
 // kernel reports it gives no ops on the next Sync. The dump entries are made
 // by hand with what the kernel adds (RTF_PRCLONING, LinkAddr with a name,
@@ -1181,7 +1181,7 @@ func TestM4RouteMsgIndex(t *testing.T) {
 // --- M5: scoped host routes to the DNS servers of tunnels --------------------
 
 // m5Scoped is a scoped host route of ours to a DNS server of a tunnel
-// (AddScoped, M5 plan "Модель"): RTF_HOST|RTF_IFSCOPE|RTF_PROTO2, gateway
+// (AddScoped, Wirefork M5 plan "Модель"): RTF_HOST|RTF_IFSCOPE|RTF_PROTO2, gateway
 // LinkAddr{Index} and rtm_index of the utun, as a dump gives it.
 func m5Scoped(dst string, index int, name string) *route.RouteMessage {
 	a := tA(dst)
@@ -1189,7 +1189,7 @@ func m5Scoped(dst string, index int, name string) *route.RouteMessage {
 		unix.RTF_UP|unix.RTF_STATIC|unix.RTF_IFSCOPE|unix.RTF_PROTO2, index, m4KLink(index, name))
 }
 
-// design 6.2 (scoped routes are left alone by sync), 7, M5 fact 4, decision 3:
+// design 7.2 (scoped routes are left alone by sync), 8, Wirefork M5 fact 4, decision 3:
 // owned skips entries with RTF_IFSCOPE, so Sync does not see our scoped host
 // routes; the unscoped routes of ours in the same dump are still read.
 func TestM5OwnedSkipsScoped(t *testing.T) {
@@ -1251,7 +1251,7 @@ func TestM5OwnedSkipsScoped(t *testing.T) {
 	})
 }
 
-// design 6.2, 7, M5 facts 3, 4: a dump with our scoped host routes gives no
+// design 7.2, 8, Wirefork M5 facts 3, 4: a dump with our scoped host routes gives no
 // op that deletes or changes them; a dynamic /32 to the same address
 // (another tunnel, the same utun or direct) is an unscoped route of its own
 // and is added.

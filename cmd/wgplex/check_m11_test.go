@@ -8,8 +8,8 @@ import (
 	"github.com/mrFokin/wgplex/internal/config"
 )
 
-// Tests follow design 7 (tunnel DNS: DNS of .conf, else 1.1.1.1), 8 "HTTP"
-// and the M11 plan (decision 6, refined in bbc553e): an HTTP check by host
+// Tests follow design 8 (tunnel DNS: DNS of .conf, else 1.1.1.1), 9 "HTTP"
+// and the Wirefork M11 plan (decision 6, refined in bbc553e): an HTTP check by host
 // name is resolved through the tunnel DNS; without a DNS server reachable
 // through the tunnel — of a family present in Address — the check is not
 // made and config.apply warns. The server family and the query type are
@@ -50,7 +50,7 @@ func m11LoadChecks(t *testing.T, tunnels []m11Tunnel) (*config.Config, []m6Conf)
 	return m6Load(t, m6BaseYAML(ys...), texts), confs
 }
 
-// design 8 "HTTP", 7, M11 decision 6: a check URL with a host name warns
+// design 9 "HTTP", 8, Wirefork M11 decision 6: a check URL with a host name warns
 // exactly when the tunnel has no DNS server of a family present in Address.
 func TestM11CheckWarningsHostNoDNS(t *testing.T) {
 	cases := []struct {
@@ -58,12 +58,12 @@ func TestM11CheckWarningsHostNoDNS(t *testing.T) {
 		tn   m11Tunnel
 		warn bool
 	}{
-		// design 8: IPv6 only, no DNS in .conf — the default 1.1.1.1 is IPv4.
+		// design 9: IPv6 only, no DNS in .conf — the default 1.1.1.1 is IPv4.
 		{"v6 only, no DNS", m11Tunnel{"v6nodns", "fd00::2/128", "", `"https://example.com/health"`}, true},
 		{"v6 only, IPv4 DNS only", m11Tunnel{"v6dns4", "fd00::3/128", "10.9.9.9", `"https://example.com/"`}, true},
 		{"v6 only, IPv6 DNS", m11Tunnel{"v6dns6", "fd00::4/128", "fd00::53", `"https://example.com/"`}, false},
 		{"v6 only, both DNS", m11Tunnel{"v6both", "fd00::5/128", "10.9.9.9, fd00::53", `"http://example.com:8080/x"`}, false},
-		// design 7: an IPv4 tunnel without DNS uses 1.1.1.1 — IPv4, fine.
+		// design 8: an IPv4 tunnel without DNS uses 1.1.1.1 — IPv4, fine.
 		{"v4 only, no DNS", m11Tunnel{"v4nodns", "10.1.0.2/32", "", `"https://example.com/"`}, false},
 		{"v4 only, IPv4 DNS", m11Tunnel{"v4dns4", "10.2.0.2/32", "10.9.9.9", `"https://example.com/"`}, false},
 		// IPv4 only Address: an IPv6 DNS server is not reachable through the tunnel.
@@ -106,7 +106,7 @@ func TestM11CheckWarningsHostNoDNS(t *testing.T) {
 	}
 }
 
-// design 8: one warning per tunnel in config order, the DNS case mixed with
+// design 9: one warning per tunnel in config order, the DNS case mixed with
 // the IP literal family case.
 func TestM11CheckWarningsHostNoDNSOrder(t *testing.T) {
 	cfg, _ := m11LoadChecks(t, []m11Tunnel{
@@ -144,7 +144,7 @@ func m11ActiveCheck(t *testing.T, tn *config.Tunnel) (got string) {
 	return activeCheck(tn)
 }
 
-// design 8, M7 decision 7, M11 decision 6: the check that is made is the
+// design 9, Wirefork M7 decision 7, Wirefork M11 decision 6: the check that is made is the
 // check address or the check URL; none without a check, for an address (IP
 // literal host) of a family the tunnel has no Address of, and for a host
 // name without a tunnel DNS server of a family present in Address.

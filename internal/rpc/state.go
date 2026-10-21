@@ -34,7 +34,7 @@ type TunnelRuntime struct {
 	Starting  bool               // being brought up: Up, not Alive, no utun yet (decision 14)
 	Endpoints []netip.AddrPort   // index = peer index
 	Peers     []tunnel.PeerStats // index = peer index; nil when not running
-	Dead      bool               // running, but health says Dead (design 8)
+	Dead      bool               // running, but health says Dead (design 9)
 	Reason    string             // Dead: why
 	Check     *CheckStatus       // check set and running; nil otherwise
 }
@@ -53,7 +53,7 @@ const (
 // (no Error), "error" when its Err is set, "dead" (with Reason) when running
 // but Dead, "up" otherwise; Check comes with "up" and "dead". RouteCount
 // counts the TargetTunnel routes of s.Table via the tunnel, whatever its
-// state. Icon (decisions 4, 14; M7 decision 10): "warn" when there are
+// state. Icon (decisions 4, 14; Wirefork M7 decision 10): "warn" when there are
 // config errors or an enabled tunnel is in "error" or "dead" ("starting" is
 // not); else "on" when some tunnel is up; else "off".
 func StatusOf(s *State) Status {
@@ -161,7 +161,7 @@ func ruleStatus(cfg *config.Config, rules []router.RuleState, i int) RuleStatus 
 }
 
 // Explain explains q (a domain or an IP); an invalid q is a jrpc Invalid params error.
-// A domain goes through dns.Choose with s.Rules and s.Ifaces (design 6.4, 7),
+// A domain goes through dns.Choose with s.Rules and s.Ifaces (design 7.4, 8),
 // its Addrs come from s.Pairs. An IP gets the longest-prefix route of s.Table,
 // with Skipped from s.Skips and, for a dynamic route, Names from s.Pairs; a
 // tunnel route without a utun is shown as "reject", as in RoutesOf.
@@ -195,7 +195,7 @@ func explainDomain(s *State, name string) Explanation {
 		e.Rule = &rs
 	}
 	// The best match by domain alone, passed over by Choose because it is
-	// in fallback: default (M5 decision 1).
+	// in fallback: default (Wirefork M5 decision 1).
 	if i, ok := cfg.MatchDomain(name); ok && i != c.Rule && i < len(s.Rules) &&
 		s.Rules[i].Fallback && cfg.Rules[i].Fallback == config.FallbackDefault {
 		rs := ruleStatus(cfg, s.Rules, i)

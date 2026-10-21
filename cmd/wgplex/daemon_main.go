@@ -39,7 +39,7 @@ func daemonMain(cmd command) int {
 	return runDaemon(log, cmd.Socket)
 }
 
-// runDaemon starts the daemon (M6 plan "Демон") listening on socket and
+// runDaemon starts the daemon (Wirefork M6 plan "Демон") listening on socket and
 // serves until SIGINT/SIGTERM (exit code 0) or a failure of the resolver or
 // the RPC server (1), then stops: DNS released, routes, tunnels and the
 // socket removed.
@@ -73,7 +73,7 @@ func runDaemon(log *slog.Logger, socket string) int {
 
 	srv := &dns.Server{Log: log}
 	d := newDaemon(ctx, srv, log)
-	d.setSystem() // the upstream of the resolver before any config (M6 fact 7)
+	d.setSystem() // the upstream of the resolver before any config (Wirefork M6 fact 7)
 	// Watching from before the RPC: a change of the network before the
 	// first config.apply is seen too.
 	events := netwatch.Watch(ctx, dns.CaptureKey, log)

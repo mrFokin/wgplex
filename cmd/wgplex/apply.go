@@ -54,7 +54,7 @@ func planApply(cur, next *config.Config, enabled, running map[string]bool) (next
 
 // blockedDNSWarnings warns about DNS servers of tunnels (dns.Servers) inside
 // a CIDR of a service of a rule with fallback: block: in fallback the reject
-// route cuts DNS through that tunnel too (M5 fact 3).
+// route cuts DNS through that tunnel too (Wirefork M5 fact 3).
 //
 // One warning per (rule, tunnel, server), with the first such CIDR; rules
 // in config order, then tunnels in config order.
@@ -96,8 +96,8 @@ func blockingCIDR(cfg *config.Config, r config.Rule, a netip.Addr) (svc string, 
 // checkWarnings warns about a check address, or an IP literal host of a
 // check URL, of a family the tunnel has no Address of, and about a check URL
 // with a host name when the tunnel has no DNS server reachable through it
-// (checkServers): such a check is not made (decision 7, M11 decision 6,
-// design 8). One warning per such tunnel, in config order.
+// (checkServers): such a check is not made (decision 7, Wirefork M11 decision 6,
+// design 9). One warning per such tunnel, in config order.
 func checkWarnings(cfg *config.Config) []string {
 	var res []string
 	for _, t := range cfg.Tunnels {

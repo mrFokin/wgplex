@@ -61,7 +61,7 @@ func uapiLines(t *testing.T, s string) []string {
 	return strings.Split(body, "\n")
 }
 
-// design 5: the device is configured via UAPI; plan M3: field order and
+// design 6: the device is configured via UAPI; Wirefork plan M3: field order and
 // optional fields per the buildUAPI doc comment, keys in lowercase hex.
 func TestBuildUAPI(t *testing.T) {
 	priv, pub1, psk1, pub2, pub3 := fill(0x11), fill(0x22), fill(0x33), fill(0xa4), fill(0xb5)
@@ -194,7 +194,7 @@ func TestBuildUAPILowercaseHex(t *testing.T) {
 	}
 }
 
-// design 9.4: keys never get into logs; plan M3: every formatting path of
+// design 10.1: keys never get into logs; Wirefork plan M3: every formatting path of
 // uapiConfig prints "(redacted)".
 func TestUAPIConfigRedacted(t *testing.T) {
 	priv, pub, psk := testKey(t), testKey(t), testKey(t)

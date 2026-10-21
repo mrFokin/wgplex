@@ -1,5 +1,5 @@
 // Package tunnel runs one WireGuard tunnel: wireguard-go device over its own
-// utun, interface addresses and MTU from the .conf (design 5). Host routes to
+// utun, interface addresses and MTU from the .conf (design 6). Host routes to
 // endpoints are not its business: the caller sets them before Start.
 package tunnel
 
@@ -50,7 +50,7 @@ func Start(name string, wg *config.WGConfig, endpoints []netip.AddrPort, log *sl
 
 	if err := dev.IpcSetOperation(buildUAPI(wg, endpoints).reader()); err != nil {
 		// wireguard-go does not put key values into UAPI errors, but the
-		// text is redacted anyway: it may end up in RPC replies (design 9.4).
+		// text is redacted anyway: it may end up in RPC replies (design 10.1).
 		return fail("configure device: %s", newRedactor(keys...).Replace(err.Error()))
 	}
 	for _, p := range wg.Addresses {
@@ -105,7 +105,7 @@ func (t *Tunnel) Rehandshake(peers []config.Peer, expire bool) {
 			peer.ExpireCurrentKeypairs()
 		}
 		// Errors are logged by wireguard-go itself; without expire a recent
-		// attempt (under 5 s ago) makes this a no-op (M7 fact 8).
+		// attempt (under 5 s ago) makes this a no-op (Wirefork M7 fact 8).
 		peer.SendHandshakeInitiation(false)
 	}
 }
@@ -116,7 +116,7 @@ func (t *Tunnel) Rehandshake(peers []config.Peer, expire bool) {
 func (t *Tunnel) SetEndpoint(pub config.Key, ep netip.AddrPort) error {
 	if err := t.dev.IpcSet(endpointUAPI(pub, ep)); err != nil {
 		// wireguard-go does not put key values into UAPI errors; redacted
-		// anyway, as in Start (design 9.4).
+		// anyway, as in Start (design 10.1).
 		return fmt.Errorf("%s: set endpoint %s: %s", t.ifname, ep, newRedactor(pub).Replace(err.Error()))
 	}
 	return nil

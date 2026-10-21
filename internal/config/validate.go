@@ -12,18 +12,18 @@ import (
 )
 
 // build validates raw against the parsed .conf files and produces the final
-// Config (design 9.2): unique tunnel and service names, existing conf files,
+// Config (design 10.1): unique tunnel and service names, existing conf files,
 // rule references to existing services and tunnels, valid domains and CIDRs,
 // DNS present in .conf for tunnels with dns_domains, no "=" in dns_domains,
 // one .conf per tunnel, required routes, no /0 in AllowedIPs with routes: config,
 // defaults (ipv6_filter: true, autostart: false, fallback: default). Every error is collected rather than
 // stopping at the first one.
 //
-// Beyond design 9.2: a tunnel name must be non-empty, check must be an IP
+// Beyond design 10.1: a tunnel name must be non-empty, check must be an IP
 // address or an http(s) URL (parseCheckURL), a rule must list at least one service. Errors and warnings are
 // prefixed with their location ("tunnel work: ...", "work.conf: line 3: ...").
 // Service uniqueness is enforced by the YAML decoder (duplicate mapping keys).
-// conf must be a bare file name (design 9.3). A .conf file referenced by several
+// conf must be a bare file name (design 10.2). A .conf file referenced by several
 // tunnels is an error for every tunnel after the first and is parsed only for
 // the first one, so its own errors are not repeated.
 func build(raw *rawConfig, files map[string][]byte) (cfg *Config, warnings []string, errs []error) {
@@ -192,12 +192,12 @@ func build(raw *rawConfig, files map[string][]byte) (cfg *Config, warnings []str
 	return cfg, warnings, nil
 }
 
-// parseDomain normalizes a domain pattern from YAML (design 6.4):
+// parseDomain normalizes a domain pattern from YAML (design 7.4):
 // "=name" is exact, otherwise a suffix; lowercase, trailing dot removed.
 //
 // The name must be a valid hostname: labels of 1..63 letters, digits, "-" or
 // "_", not starting or ending with "-", at most 253 characters in total. A single
-// label ("corp") is allowed. Wildcards are rejected (design 6.4: no masks).
+// label ("corp") is allowed. Wildcards are rejected (design 7.4: no masks).
 func parseDomain(s string) (Domain, error) {
 	var d Domain
 	name := s
@@ -241,7 +241,7 @@ func checkLabel(l string) error {
 }
 
 // parsePrefix parses a CIDR or a bare address (as /32 or /128). canonical is
-// false when the input had non-zero host bits and was masked (design 9.2).
+// false when the input had non-zero host bits and was masked (design 10.1).
 // Zoned addresses are rejected.
 func parsePrefix(s string) (p netip.Prefix, canonical bool, err error) {
 	if !strings.Contains(s, "/") {
@@ -261,7 +261,7 @@ func parsePrefix(s string) (p netip.Prefix, canonical bool, err error) {
 
 // defaultRoutes returns the /0 prefixes (0.0.0.0/0, ::/0) found in AllowedIPs
 // of any peer, each once, in order of appearance. They are not allowed for a
-// tunnel with routes: config (design 9.2).
+// tunnel with routes: config (design 10.1).
 func defaultRoutes(wg WGConfig) []netip.Prefix {
 	var res []netip.Prefix
 	for _, peer := range wg.Peers {
@@ -293,7 +293,7 @@ func redactURL(s string) string {
 	return s[:i+len("://")] + s[at+1:]
 }
 
-// parseCheckURL parses the URL of an HTTP check (design 8, 9.2): the scheme
+// parseCheckURL parses the URL of an HTTP check (design 9, 10.1): the scheme
 // http or https, a host without an IPv6 zone, no userinfo or fragment; path, port and query are
 // free. The scheme and the host are lowercased (compared without case); the
 // result is URL.String().

@@ -13,7 +13,7 @@ import (
 // wantInfiniteLifetime is ND6_INFINITE_LIFETIME (netinet6/nd6.h).
 const wantInfiniteLifetime = 0xffffffff
 
-// Layouts must match the kernel structs (plan M3, spike): ifaliasreq is 64
+// Layouts must match the kernel structs (Wirefork plan M3, spike): ifaliasreq is 64
 // bytes, in6_aliasreq is 128 bytes.
 func TestIoctlStructLayout(t *testing.T) {
 	if s := unsafe.Sizeof(ifAliasReq{}); s != 64 {
@@ -48,7 +48,7 @@ func sin4(a string) unix.RawSockaddrInet4 {
 	}
 }
 
-// design 5: Address from .conf is assigned to the interface; plan M3: like
+// design 6: Address from .conf is assigned to the interface; Wirefork plan M3: like
 // "ifconfig utunN inet A/len A alias" — address and mask from the prefix,
 // dst = own address; the address is not masked to the network.
 func TestNewIfAliasReq(t *testing.T) {
@@ -131,7 +131,7 @@ func TestNewIn6AliasReq(t *testing.T) {
 	}
 }
 
-// design 5: MTU from .conf; without MTU — 1420.
+// design 6: MTU from .conf; without MTU — 1420.
 func TestMTU(t *testing.T) {
 	tests := []struct {
 		in, want int

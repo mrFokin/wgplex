@@ -3,7 +3,7 @@ package config
 import "strings"
 
 // MatchDomain returns the index of the rule whose domain matches name best
-// (design 6.4): exact > longer suffix > shorter suffix, ties by rule order.
+// (design 7.4): exact > longer suffix > shorter suffix, ties by rule order.
 // A suffix pattern matches the domain itself and all its subdomains. name is
 // the queried name as is (no CNAME analysis); it is compared case-insensitively
 // and a trailing dot is ignored. ok is false when no rule matches.
@@ -16,8 +16,8 @@ func (c *Config) MatchDomain(name string) (rule int, ok bool) {
 
 // MatchDomainFunc is MatchDomain over the rules i with use(i) true; nil use
 // means every rule. The best match is chosen among those rules by the same
-// order (design 6.4). The DNS resolver and Dynamics skip rules in
-// fallback: default (M5 decision 1).
+// order (design 7.4). The DNS resolver and Dynamics skip rules in
+// fallback: default (Wirefork M5 decision 1).
 func (c *Config) MatchDomainFunc(name string, use func(rule int) bool) (rule int, ok bool) {
 	name = strings.TrimSuffix(strings.ToLower(name), ".")
 	if name == "" {

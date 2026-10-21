@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Tests follow design 8 "HTTP" and the M11 plan ("Ход работы", step 3): the
+// Tests follow design 9 "HTTP" and the Wirefork M11 plan ("Ход работы", step 3): the
 // error of a failed GET in Reason is without `Get "<url>":` (Reason names
 // the URL), a timeout is "timeout after 5s".
 

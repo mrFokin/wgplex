@@ -19,7 +19,7 @@ import (
 // caller may log it and go on.
 var ErrFlush = errors.New("flush the DNS cache")
 
-// Capture makes 127.0.0.1 the system resolver (design 7): it sets CaptureKey
+// Capture makes 127.0.0.1 the system resolver (design 8): it sets CaptureKey
 // with /usr/sbin/scutil (captureScript on stdin) and flushes the
 // mDNSResponder cache (dscacheutil -flushcache, killall -HUP mDNSResponder).
 // The key is read back: Capture fails unless ServerAddresses is exactly
@@ -41,7 +41,7 @@ func Capture() error {
 }
 
 // Release removes the capture key (no error if it is absent) and flushes the
-// cache. Called at stop and at start, after a crash (design 7). The key is
+// cache. Called at stop and at start, after a crash (design 8). The key is
 // read back: Release fails if it is still there. When only the flush fails,
 // the error wraps ErrFlush.
 func Release() error {
@@ -112,7 +112,7 @@ func PrimaryService() (string, error) {
 }
 
 // SystemResolver resolves via servers, bypassing the system resolver and so
-// our own (design 5): for tunnel.ResolveEndpoints. It is a pure-Go resolver
+// our own (design 6): for tunnel.ResolveEndpoints. It is a pure-Go resolver
 // (PreferGo) whose Dial replaces the address with the servers, port 53.
 // Successive dials take the servers in turn, so the resolver's retries reach
 // the next server. No servers: every lookup fails.
@@ -160,7 +160,7 @@ func scutil(script string) (string, error) {
 	return string(out), nil
 }
 
-// flush flushes the mDNSResponder cache (fact 9 of the M5 plan); a failure
+// flush flushes the mDNSResponder cache (fact 9 of the Wirefork M5 plan); a failure
 // wraps ErrFlush.
 func flush() error {
 	var errs []error

@@ -13,11 +13,11 @@ import (
 	"github.com/mrFokin/wgplex/internal/config"
 )
 
-// Tests follow design 9.4, 11, 12 and the M6 plan (fact 6, the appendix
+// Tests follow design 10.1, 17.3, 13 and the Wirefork M6 plan (fact 6, the appendix
 // "образец IpcGet"), not the implementation. The keys are stubs: every key
 // is 32 copies of one byte, never a real key.
 
-// m6IpcGet is the IpcGet sample of the M6 plan appendix: the peers are listed
+// m6IpcGet is the IpcGet sample of the Wirefork M6 plan appendix: the peers are listed
 // in the reverse of the .conf order.
 const m6IpcGet = `private_key=0101010101010101010101010101010101010101010101010101010101010101
 listen_port=51820
@@ -75,7 +75,7 @@ func m6ParseStats(t *testing.T, uapi string, peers []config.Peer) (got []PeerSta
 	return parseStats(uapi, peers)
 }
 
-// M6 appendix: peers are matched by public_key whatever the IpcGet order;
+// Wirefork M6 appendix: peers are matched by public_key whatever the IpcGet order;
 // handshake 0 is "never" (zero time); sec+nsec make the handshake time.
 func TestM6ParseStatsSample(t *testing.T) {
 	peers := []config.Peer{
@@ -158,7 +158,7 @@ func TestM6ParseStatsEmpty(t *testing.T) {
 	}
 }
 
-// design 9.4: the result carries no key in any form, %#v or JSON.
+// design 10.1: the result carries no key in any form, %#v or JSON.
 func TestM6ParseStatsNoKeys(t *testing.T) {
 	peers := []config.Peer{
 		{PublicKey: m6StubKey(0x02), PresharedKey: m6StubKey(0x04)},

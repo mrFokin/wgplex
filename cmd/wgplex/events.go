@@ -12,7 +12,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/tunnel"
 )
 
-// handle reacts to netwatch events ("Реакция демона" of the M7 plan), under
+// handle reacts to netwatch events ("Реакция демона" of the Wirefork M7 plan), under
 // opMu:
 //   - Wake always, Network and Resync when the system DNS servers, the
 //     gateways or the primary service have changed (decision 12): onNetwork;
@@ -71,13 +71,13 @@ func (d *daemon) networkChanged() bool {
 	return gerr == nil && d.cfg != nil && (gws[0] != d.env.GW4 || gws[1] != d.env.GW6)
 }
 
-// onNetwork reacts to a network change or a wake (design 5): the system DNS
+// onNetwork reacts to a network change or a wake (design 6): the system DNS
 // servers, the gateways and the endpoint host routes, rebind and a new
 // handshake of every running tunnel (wake: with its keypairs expired), its
-// scoped routes to DNS servers and check put again (M6 decision 11), the
+// scoped routes to DNS servers and check put again (Wirefork M6 decision 11), the
 // health window reset, the rules selected again without going back to a
 // preferred tunnel and the failed tunnels brought up again, unless there is
-// no network (M11 decision 7: the selection reads the new gateways for it
+// no network (Wirefork M11 decision 7: the selection reads the new gateways for it
 // first). opMu is held.
 func (d *daemon) onNetwork(wake bool) {
 	d.renetwork(wake)
@@ -94,7 +94,7 @@ func (d *daemon) onNetwork(wake bool) {
 }
 
 // retryFailed brings up again the failed tunnels (err set) that due reports
-// true for, in config order, as SetEnabled does them (design 5: on a network
+// true for, in config order, as SetEnabled does them (design 6: on a network
 // change and retryEvery after a failure). Each one gets its rules as soon as
 // it is up; one that fails again gets a new failedAt. opMu is held.
 func (d *daemon) retryFailed(due func(*runTunnel) bool) {
@@ -125,7 +125,7 @@ func (d *daemon) retryFailed(due func(*runTunnel) bool) {
 
 // renetwork is the part of onNetwork that does not sync: the system DNS
 // servers (setSystem), the endpoint host names of the running tunnels
-// resolved again (design 5, DDNS; without mu), the gateways and the endpoint
+// resolved again (design 6, DDNS; without mu), the gateways and the endpoint
 // host routes, the new endpoint addresses (reendpoint), rebind, a new
 // handshake, the scoped routes and the health reset of every running
 // tunnel. Apply calls it alone: it brings up the failed tunnels and selects
@@ -184,7 +184,7 @@ func (d *daemon) renetwork(wake bool) {
 }
 
 // checkCapture puts the DNS capture back when it was made and its key is
-// gone (a configd restart, design 7). Our own write of the key also gives a
+// gone (a configd restart, design 8). Our own write of the key also gives a
 // Capture event: the key is there then, nothing is done. Without system DNS
 // servers the capture is not put back, as in Apply: the resolver would have
 // no upstream. Nor is it put back when the config has no domains: captured

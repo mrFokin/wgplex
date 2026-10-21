@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Tests follow design 8 "HTTP" and the M11 plan ("Модель → HTTP-проверка",
+// Tests follow design 9 "HTTP" and the Wirefork M11 plan ("Модель → HTTP-проверка",
 // "Сигнатуры → internal/health"), not the implementation: failures and the
 // verdict of an HTTP check are as of ping; the reason is
 // `http <url>: N failures (<last error>)`, without parentheses when Err is
@@ -31,7 +31,7 @@ func TestM11HTTPTimeout(t *testing.T) {
 	}
 }
 
-// design 8 "HTTP": dead after 3 failures in a row with the reason naming the
+// design 9 "HTTP": dead after 3 failures in a row with the reason naming the
 // URL, the count and the last error.
 func TestM11HTTPReason(t *testing.T) {
 	defer m7NoPanic(t)
@@ -67,7 +67,7 @@ func TestM11HTTPReason(t *testing.T) {
 			want:    "http http://10.255.255.1/: 3 failures (connect: no route to host)",
 		},
 		{
-			// design 8: the ping reason is unchanged.
+			// design 9: the ping reason is unchanged.
 			name:    "ping",
 			check:   netip.MustParseAddr("1.1.1.1"),
 			results: []PingResult{m7PingFail, m7PingFail, m7PingFail},
@@ -94,7 +94,7 @@ func TestM11HTTPReason(t *testing.T) {
 	}
 }
 
-// design 8: the verdict of an HTTP check is as of ping: not dead after 2
+// design 9: the verdict of an HTTP check is as of ping: not dead after 2
 // failures, alive after 1 success with its RTT; a success resets the count.
 func TestM11HTTPVerdict(t *testing.T) {
 	defer m7NoPanic(t)

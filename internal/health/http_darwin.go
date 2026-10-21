@@ -18,7 +18,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/router"
 )
 
-// HTTPChecker gets url through the interface index (design 8): sockets bound
+// HTTPChecker gets url through the interface index (design 9): sockets bound
 // by IP_BOUND_IF/IPV6_BOUND_IF, a scoped host route to the address
 // (router.AddScoped) put before a request unless one to the address is
 // already in place (AddScoped replaces the route), no redirects, no

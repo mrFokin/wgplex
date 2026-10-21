@@ -21,7 +21,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/tunnel"
 )
 
-// Tests follow design 6.2, 6.3, 6.4, 7, 9.4, 11, 12, 13 and the M6 plan
+// Tests follow design 7.2, 7.3, 7.4, 8, 10.1, 17.3, 13, 14 and the Wirefork M6 plan
 // ("Модель", the reply types, decisions 4, 6, 10; fact 8), not the
 // implementation. The config is built with config.Load from YAML and .conf
 // text; every key is generated per run.
@@ -323,7 +323,7 @@ func TestM6StatusNoConfig(t *testing.T) {
 	}
 }
 
-// design 11, 12: tunnels in config order with their state; addresses, route
+// design 17.3, 13: tunnels in config order with their state; addresses, route
 // mode, interface; peers in .conf order with their endpoint as written, the
 // resolved address and the stats.
 func TestM6StatusTunnels(t *testing.T) {
@@ -396,7 +396,7 @@ func TestM6StatusTunnels(t *testing.T) {
 	}
 }
 
-// design 6.3, 11, decision 10: rules in config order with via, fallback and
+// design 7.3, 17.3, decision 10: rules in config order with via, fallback and
 // the decision; Degraded when on a backup tunnel of via.
 func TestM6StatusRules(t *testing.T) {
 	f := m6NewFixture(t)
@@ -486,7 +486,7 @@ func TestM6StatusIcon(t *testing.T) {
 	}
 }
 
-// design 9.4, 13: no key of the fixture, public ones included, in any reply.
+// design 10.1, 14: no key of the fixture, public ones included, in any reply.
 func TestM6NoKeysInReplies(t *testing.T) {
 	f := m6NewFixture(t)
 	s := m6State(f)
@@ -513,7 +513,7 @@ func TestM6NoKeysInReplies(t *testing.T) {
 
 // --- Explain: domains ------------------------------------------------------------
 
-// design 6.4, 7 (dns.Choose): the rule, the upstream and its servers, the
+// design 7.4, 8 (dns.Choose): the rule, the upstream and its servers, the
 // zone, AAAA filtering and the dynamic addresses of the name.
 func TestM6ExplainDomain(t *testing.T) {
 	f := m6NewFixture(t)
@@ -533,7 +533,7 @@ func TestM6ExplainDomain(t *testing.T) {
 		// addresses recorded for this very name (not www.ifconfig.me).
 		{q: "ifconfig.me", query: "ifconfig.me", rule: &rules[m6RTun], upstream: "de",
 			servers: []string{"1.0.0.1"}, dropAAAA: true, addrs: []string{"34.160.111.145", "34.160.111.146"}},
-		// Case and the trailing dot are ignored (design 6.4).
+		// Case and the trailing dot are ignored (design 7.4).
 		{q: "IfConfig.ME.", query: "ifconfig.me", rule: &rules[m6RTun], upstream: "de",
 			servers: []string{"1.0.0.1"}, dropAAAA: true, addrs: []string{"34.160.111.145", "34.160.111.146"}},
 		// A subdomain: same rule, its own addresses.
@@ -542,24 +542,24 @@ func TestM6ExplainDomain(t *testing.T) {
 		// A name without recorded addresses.
 		{q: "api.ifconfig.me", query: "api.ifconfig.me", rule: &rules[m6RTun], upstream: "de",
 			servers: []string{"1.0.0.1"}, dropAAAA: true},
-		// fallback: block in fallback: NODATA (design 6.3, 7 step 2).
+		// fallback: block in fallback: NODATA (design 7.3, 8 step 2).
 		{q: "chat.openai.com", query: "chat.openai.com", rule: &rules[m6RAI], upstream: "block"},
-		// Empty via: the system DNS (design 7 step 4).
+		// Empty via: the system DNS (design 8 step 4).
 		{q: "icanhazip.com", query: "icanhazip.com", rule: &rules[m6RCorp], upstream: "system"},
 		// The exact rule in fallback: default is passed over; the next match
-		// (example.org via fi) wins (design 6.4, M5 decision 1). fi has IPv6
-		// and no DNS: 1.1.1.1 (design 7).
+		// (example.org via fi) wins (design 7.4, Wirefork M5 decision 1). fi has IPv6
+		// and no DNS: 1.1.1.1 (design 8).
 		{q: "www.example.org", query: "www.example.org", rule: &rules[m6ROrg], skipped: &rules[m6RDefFall],
 			upstream: "fi", servers: []string{"1.1.1.1"}, addrs: []string{"104.18.32.7"}},
-		// dns_domains of a tunnel with a utun (design 7 step 5).
+		// dns_domains of a tunnel with a utun (design 8 step 5).
 		{q: "vault.corp.example", query: "vault.corp.example", upstream: "work", zone: "corp.example",
 			servers: []string{"10.0.0.53"}},
 		{q: "corp.example", query: "corp.example", upstream: "work", zone: "corp.example",
 			servers: []string{"10.0.0.53"}},
 		// dns_domains of a tunnel without a utun (bad failed): the system DNS
-		// as if there were no field (design 7).
+		// as if there were no field (design 8).
 		{q: "x.bad.example", query: "x.bad.example", upstream: "system"},
-		// Nothing matches: the system DNS (design 7 step 6).
+		// Nothing matches: the system DNS (design 8 step 6).
 		{q: "unknown.test", query: "unknown.test", upstream: "system"},
 	}
 	s := m6State(f)
@@ -602,7 +602,7 @@ func TestM6ExplainDomain(t *testing.T) {
 	}
 }
 
-// design 7: a rule tunnel without a utun is not chosen (SelectRules skips
+// design 8: a rule tunnel without a utun is not chosen (SelectRules skips
 // it, fact 8); with dns_domains of a tunnel turned off the name goes to the
 // system DNS.
 func TestM6ExplainTunnelWithoutUtun(t *testing.T) {
@@ -619,7 +619,7 @@ func TestM6ExplainTunnelWithoutUtun(t *testing.T) {
 	}
 }
 
-// design 7: with ipv6_filter off AAAA is never dropped.
+// design 8: with ipv6_filter off AAAA is never dropped.
 func TestM6ExplainIPv6FilterOff(t *testing.T) {
 	f := m6NewFixture(t)
 	f.cfg.IPv6Filter = false
@@ -632,7 +632,7 @@ func TestM6ExplainIPv6FilterOff(t *testing.T) {
 	}
 }
 
-// M6 plan: a query that is neither an IP nor a domain is Invalid params.
+// Wirefork M6 plan: a query that is neither an IP nor a domain is Invalid params.
 func TestM6ExplainInvalid(t *testing.T) {
 	f := m6NewFixture(t)
 	s := m6State(f)
@@ -665,7 +665,7 @@ func TestM6ExplainNoConfig(t *testing.T) {
 
 // --- Explain: IPs -------------------------------------------------------------------
 
-// design 6.2: the longest prefix of the table; Names of a dynamic route;
+// design 7.2: the longest prefix of the table; Names of a dynamic route;
 // Skipped from Skips; Rule of a rule route; no route: nil (the system
 // default route); IPv4-mapped IPv6 is IPv4.
 func TestM6ExplainIP(t *testing.T) {
@@ -745,7 +745,7 @@ func TestM6ExplainIP(t *testing.T) {
 
 // --- RoutesOf ------------------------------------------------------------------------
 
-// design 12, 13: the last synced table in its order, with Names of dynamic
+// design 13, 14: the last synced table in its order, with Names of dynamic
 // routes, Skipped of routes not in the kernel and the Sync error.
 func TestM6RoutesOf(t *testing.T) {
 	f := m6NewFixture(t)
@@ -793,7 +793,7 @@ func TestM6RoutesOf(t *testing.T) {
 
 // --- decision 14: a tunnel being brought up ---------------------------------------
 
-// Decision 14, design 11: a tunnel being brought up (Starting) is enabled in
+// Decision 14, design 17.3: a tunnel being brought up (Starting) is enabled in
 // state "starting" without an error, an interface or peers; its AllowedIPs
 // stay in the table (reject in the kernel) and count in RouteCount.
 func TestM6StatusStarting(t *testing.T) {

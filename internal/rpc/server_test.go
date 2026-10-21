@@ -21,9 +21,9 @@ import (
 	"github.com/mrFokin/jrpc/v2"
 )
 
-// Tests follow design 13 (JSON-RPC 2.0 over the unix socket, POST /rpc,
+// Tests follow design 14 (JSON-RPC 2.0 over the unix socket, POST /rpc,
 // socket 0666, a stale file removed, a second instance refused, a foreign
-// uid gets HTTP 403, the error codes) and the M6 plan ("RPC", decisions 3,
+// uid gets HTTP 403, the error codes) and the Wirefork M6 plan ("RPC", decisions 3,
 // 5, 8; facts 1–4), not the implementation. The socket lives in
 // os.MkdirTemp("", "wgp"): t.TempDir() is too long for sun_path (fact 4).
 // No root and no network: the client is net/http over the unix socket.
@@ -273,7 +273,7 @@ func m6Same(t *testing.T, method string, got json.RawMessage, want any) {
 
 // --- methods ------------------------------------------------------------------------
 
-// design 13: config.apply passes the files to the daemon and returns its result.
+// design 14: config.apply passes the files to the daemon and returns its result.
 func TestM6ServeApply(t *testing.T) {
 	d := &m6FakeDaemon{applyResult: ApplyResult{
 		Warnings: []string{`service "tg" is not used by any rule`},
@@ -314,7 +314,7 @@ func TestM6ServeApplyConfigInvalid(t *testing.T) {
 	}
 }
 
-// design 13: tunnel.setEnabled passes name and enabled; the result is null.
+// design 14: tunnel.setEnabled passes name and enabled; the result is null.
 func TestM6ServeSetEnabled(t *testing.T) {
 	d := &m6FakeDaemon{}
 	s := m6Serve(t, d, nil)
@@ -356,7 +356,7 @@ func TestM6ServeSetEnabledErrors(t *testing.T) {
 	}
 }
 
-// M6 plan: an empty tunnel name and params that do not bind are Invalid params.
+// Wirefork M6 plan: an empty tunnel name and params that do not bind are Invalid params.
 func TestM6ServeSetEnabledInvalidParams(t *testing.T) {
 	d := &m6FakeDaemon{}
 	s := m6Serve(t, d, nil)
@@ -369,7 +369,7 @@ func TestM6ServeSetEnabledInvalidParams(t *testing.T) {
 	}
 }
 
-// design 13: tunnel.disableAll takes no params and returns null.
+// design 14: tunnel.disableAll takes no params and returns null.
 func TestM6ServeDisableAll(t *testing.T) {
 	d := &m6FakeDaemon{}
 	s := m6Serve(t, d, nil)
@@ -387,7 +387,7 @@ func TestM6ServeDisableAll(t *testing.T) {
 	m6WantCode(t, "tunnel.disableAll", s2.call(t, "tunnel.disableAll", nil), -32603)
 }
 
-// design 13: status.get, diag.routes, diag.explain answer from a State
+// design 14: status.get, diag.routes, diag.explain answer from a State
 // snapshot through StatusOf, RoutesOf, Explain.
 func TestM6ServeReads(t *testing.T) {
 	f := m6NewFixture(t)
@@ -442,7 +442,7 @@ func TestM6ServeUnknownMethod(t *testing.T) {
 
 // --- access -------------------------------------------------------------------------
 
-// design 10, 13: allow gets the uid of the peer (LOCAL_PEERCRED): here our own.
+// design 5, 14: allow gets the uid of the peer (LOCAL_PEERCRED): here our own.
 func TestM6ServeAllowGetsUID(t *testing.T) {
 	var mu sync.Mutex
 	var uids []uint32
@@ -466,7 +466,7 @@ func TestM6ServeAllowGetsUID(t *testing.T) {
 	}
 }
 
-// design 13, decision 3: a uid that allow refuses gets HTTP 403 with body
+// design 14, decision 3: a uid that allow refuses gets HTTP 403 with body
 // "forbidden", no JSON-RPC; the daemon is not called.
 func TestM6ServeForbidden(t *testing.T) {
 	d := &m6FakeDaemon{}
@@ -486,7 +486,7 @@ func TestM6ServeForbidden(t *testing.T) {
 	}
 }
 
-// M6 fact 1: not JSON is 415.
+// Wirefork M6 fact 1: not JSON is 415.
 func TestM6ServeNotJSON(t *testing.T) {
 	s := m6Serve(t, &m6FakeDaemon{}, nil)
 	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"status.get"}`)
@@ -495,7 +495,7 @@ func TestM6ServeNotJSON(t *testing.T) {
 	}
 }
 
-// design 13, decision 3: the uid check comes before anything else: a
+// design 14, decision 3: the uid check comes before anything else: a
 // forbidden peer gets 403 even with a body that is not JSON (not 415).
 func TestM6ServeForbiddenNotJSON(t *testing.T) {
 	d := &m6FakeDaemon{}
@@ -516,7 +516,7 @@ func TestM6ServeForbiddenNotJSON(t *testing.T) {
 
 // --- Listen ---------------------------------------------------------------------------
 
-// design 13, decision 8: the socket is 0666; access is checked per connection.
+// design 14, decision 8: the socket is 0666; access is checked per connection.
 func TestM6ListenMode(t *testing.T) {
 	path := filepath.Join(m6SockDir(t), "s.sock")
 	ln := m6Listen(t, path)
@@ -533,7 +533,7 @@ func TestM6ListenMode(t *testing.T) {
 	}
 }
 
-// design 13: a socket file nobody answers on (after a crash) is removed and
+// design 14: a socket file nobody answers on (after a crash) is removed and
 // the socket is created again.
 func TestM6ListenStale(t *testing.T) {
 	path := filepath.Join(m6SockDir(t), "s.sock")
@@ -552,7 +552,7 @@ func TestM6ListenStale(t *testing.T) {
 	m6WantResult(t, "status.get", s.call(t, "status.get", nil))
 }
 
-// design 13: a socket that answers is another wgplex daemon: Listen fails and
+// design 14: a socket that answers is another wgplex daemon: Listen fails and
 // the first one keeps answering.
 func TestM6ListenRunning(t *testing.T) {
 	s := m6Serve(t, &m6FakeDaemon{}, nil)
@@ -632,7 +632,7 @@ func TestM6ListenNotSocket(t *testing.T) {
 
 // --- Serve shutdown -----------------------------------------------------------------
 
-// M6 plan: Serve returns nil once ctx is done.
+// Wirefork M6 plan: Serve returns nil once ctx is done.
 func TestM6ServeStops(t *testing.T) {
 	path := filepath.Join(m6SockDir(t), "s.sock")
 	ln := m6Listen(t, path)

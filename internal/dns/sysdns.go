@@ -6,7 +6,7 @@ import (
 )
 
 // CaptureKey is the synthetic service of wgplex in SCDynamicStore
-// (design 7); the UUID is our own (design 4.1) and never changes, so a key
+// (design 8); the UUID is our own (design 4.1) and never changes, so a key
 // left by a crash is found and removed at the next start.
 const CaptureKey = "State:/Network/Service/50054742-C5CE-4C74-866E-FBD7AC0A16AE/DNS"
 

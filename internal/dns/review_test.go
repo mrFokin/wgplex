@@ -17,8 +17,8 @@ import (
 	"github.com/mrFokin/wgplex/internal/router"
 )
 
-// Tests from the M5 review (plan "Ход работы", step 3, "Замечания test-dev")
-// and decisions 5, 11, 12; they follow design 7 and the plan, not the code.
+// Tests from the Wirefork M5 review (plan "Ход работы", step 3, "Замечания test-dev")
+// and decisions 5, 11, 12; they follow design 8 and the plan, not the code.
 // The fake upstream, m5ServerCfg and the other m5 helpers are in the other
 // *_test.go files of the package.
 
@@ -111,7 +111,7 @@ func m5rSeq(hs ...func(r *dns.Msg, tcp bool) *dns.Msg) func(r *dns.Msg, tcp bool
 
 // --- B1: no answer before the Sync that covers its pair -----------------------
 
-// design 7 "Домены из правил" (the /32 before the answer), M5 "Модель" query
+// design 8 "Домены из правил" (the /32 before the answer), Wirefork M5 "Модель" query
 // step 5, decision 5, review blocker B1: two concurrent queries for one new
 // name of a rule (a retry of mDNSResponder). While Sync is blocked neither is
 // answered; after it returns both get NOERROR with the address, or both
@@ -240,8 +240,8 @@ func TestM5rServerSyncRetry(t *testing.T) {
 
 // --- a rule tunnel without utun ----------------------------------------------
 
-// design 7 "Домены из правил" (the query goes through the tunnel; an unbound
-// socket would go directly), M5 step 2 item 3: the rule's tunnel has no entry
+// design 8 "Домены из правил" (the query goes through the tunnel; an unbound
+// socket would go directly), Wirefork M5 step 2 item 3: the rule's tunnel has no entry
 // in ifaces → SERVFAIL, the upstream is not asked, no Sync. A dns_domains
 // name of that tunnel goes to the system (decision 7) and is answered.
 func TestM5rServerRuleTunnelWithoutUtun(t *testing.T) {
@@ -286,7 +286,7 @@ func m5rTwoServers(t *testing.T, servers ...string) *Server {
 	return m5rStartServer(t, cfg, rules, ifaces, m5Addrs(servers...), func() error { return nil })
 }
 
-// design 7 (2 s per server, the next one on no answer), decision 10: the
+// design 8 (2 s per server, the next one on no answer), decision 10: the
 // first server does not answer, the second does. Both through a rule tunnel
 // and the system upstream.
 func TestM5rServerNextOnSilence(t *testing.T) {
@@ -328,7 +328,7 @@ func TestM5rServerNextOnSilence(t *testing.T) {
 	}
 }
 
-// design 7, decision 12: SERVFAIL or REFUSED from a server → the next one; if
+// design 8, decision 12: SERVFAIL or REFUSED from a server → the next one; if
 // there is no better answer, the client gets the last such answer. Other
 // answers (NXDOMAIN) are final. One fake answers by query count; the tunnel
 // and the system have it twice.
@@ -373,7 +373,7 @@ func TestM5rServerNextOnServfail(t *testing.T) {
 
 // --- HTTPS end to end --------------------------------------------------------
 
-// design 7, decision 8: for rule domains (tunnel or direct) HTTPS loses
+// design 8, decision 8: for rule domains (tunnel or direct) HTTPS loses
 // ipv4hint and ipv6hint and keeps alpn; for a name without a rule the record
 // passes as is.
 func TestM5rServerHTTPSHints(t *testing.T) {
@@ -414,7 +414,7 @@ func TestM5rServerHTTPSHints(t *testing.T) {
 
 // --- NODATA with EDNS0 -------------------------------------------------------
 
-// design 6.3, M5 step 2 item 5: the NODATA of block has an OPT when the client
+// design 7.3, Wirefork M5 step 2 item 5: the NODATA of block has an OPT when the client
 // sent EDNS0, over TCP too (RFC 6891: and none without it).
 func TestM5rServerNoDataEDNS0(t *testing.T) {
 	u := m5StartUpstream(t, m5AddrAnswer("192.0.2.1", "2001:db8::1"))
@@ -452,7 +452,7 @@ func TestM5rServerNoDataEDNS0(t *testing.T) {
 
 // --- parseScutil: empty values -----------------------------------------------
 
-// M5 review, go-dev remark 6: an empty array element ("0 : ") is kept as "",
+// Wirefork M5 review, go-dev remark 6: an empty array element ("0 : ") is kept as "",
 // in its place; an empty scalar ("Key : ") is [""]. Capture checks
 // SupplementalMatchDomains = [""] by this.
 func TestM5rParseScutilEmpty(t *testing.T) {
@@ -500,7 +500,7 @@ func TestM5rParseScutilEmpty(t *testing.T) {
 
 // --- systemServers: loopback -------------------------------------------------
 
-// M5 review, go-dev remark 3: a loopback system server (127.0.0.1 is our own
+// Wirefork M5 review, go-dev remark 3: a loopback system server (127.0.0.1 is our own
 // resolver once captured; 127.0.0.53, ::1) would loop, so it is dropped.
 // Tested on systemServers: Server.SetSystem cannot filter it, the server
 // tests use 127.0.0.1 as the system upstream.

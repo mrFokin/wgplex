@@ -1,5 +1,5 @@
 // Package config parses and validates the wgplex configuration:
-// wgplex.yaml plus the WireGuard .conf files it references (design 9).
+// wgplex.yaml plus the WireGuard .conf files it references (design 10).
 package config
 
 import (
@@ -11,17 +11,17 @@ import (
 	"strings"
 )
 
-// mainFile is the main config file name (design 9.3).
+// mainFile is the main config file name (design 10.2).
 const mainFile = "wgplex.yaml"
 
 // Load parses and validates the config. files maps a base file name
-// ("wgplex.yaml", "work.conf") to its content, as sent by the client (design 9.3).
+// ("wgplex.yaml", "work.conf") to its content, as sent by the client (design 10.2).
 // On failure err is Errors with every problem found.
 //
-// Other *.yaml files besides wgplex.yaml are ignored with a warning (design 9.3).
+// Other *.yaml files besides wgplex.yaml are ignored with a warning (design 10.2).
 // Normalizations that keep the config usable (non-canonical CIDRs, services unused
 // by any rule, ignored wg-quick fields, non-IP DNS values) are reported in warnings
-// (design 5, 9.2). On error cfg is nil.
+// (design 6, 10.1). On error cfg is nil.
 //
 // A missing wgplex.yaml or a YAML syntax/strictness error is reported alone,
 // since nothing else can be checked without it. Files that are neither *.yaml
@@ -54,7 +54,7 @@ func Load(files map[string][]byte) (cfg *Config, warnings []string, err error) {
 	return cfg, warnings, nil
 }
 
-// Errors collects every validation problem found by Load (design 9.2).
+// Errors collects every validation problem found by Load (design 10.1).
 // It implements error.
 type Errors []error
 
@@ -67,15 +67,15 @@ func (e Errors) Error() string {
 	return strings.Join(msgs, "\n")
 }
 
-// Config is a validated and normalized configuration (design 9.1).
+// Config is a validated and normalized configuration (design 10.1).
 type Config struct {
 	IPv6Filter bool
-	Tunnels    []Tunnel // order = priority (design 6.2)
+	Tunnels    []Tunnel // order = priority (design 7.2)
 	Services   map[string]Service
-	Rules      []Rule // order = tie-break (design 6.4)
+	Rules      []Rule // order = tie-break (design 7.4)
 }
 
-// NeedsDNS reports whether the resolver has work for c (design 7, M10
+// NeedsDNS reports whether the resolver has work for c (design 8, M10
 // decision 11): a rule names a service with domains, or a tunnel has
 // dns_domains. Without either the system DNS is left alone.
 // A service with domains named by no rule does not count. A nil c needs
@@ -99,7 +99,7 @@ func (c *Config) NeedsDNS() bool {
 	return false
 }
 
-// RouteMode selects which routes a tunnel contributes to the routing table (design 5.1).
+// RouteMode selects which routes a tunnel contributes to the routing table (design 6.1).
 type RouteMode string // "config" | "rules"
 
 const (
@@ -109,7 +109,7 @@ const (
 	RoutesRules RouteMode = "rules"
 )
 
-// Tunnel is one WireGuard tunnel from wgplex.yaml with its parsed .conf (design 5, 9.1).
+// Tunnel is one WireGuard tunnel from wgplex.yaml with its parsed .conf (design 6, 10.1).
 type Tunnel struct {
 	Name       string
 	Routes     RouteMode
@@ -120,7 +120,7 @@ type Tunnel struct {
 	WG         WGConfig
 }
 
-// WGConfig is a parsed WireGuard .conf file (design 5).
+// WGConfig is a parsed WireGuard .conf file (design 6).
 type WGConfig struct {
 	PrivateKey Key
 	Addresses  []netip.Prefix
@@ -130,7 +130,7 @@ type WGConfig struct {
 	Peers      []Peer
 }
 
-// Peer is one [Peer] section of a .conf file; a file may have several (design 5).
+// Peer is one [Peer] section of a .conf file; a file may have several (design 6).
 type Peer struct {
 	PublicKey           Key
 	PresharedKey        Key    // zero: none
@@ -139,20 +139,20 @@ type Peer struct {
 	PersistentKeepalive int // seconds, 0: off
 }
 
-// Service is a named set of domains and CIDRs referenced by rules (design 6.3, 9.1).
+// Service is a named set of domains and CIDRs referenced by rules (design 7.3, 10.1).
 type Service struct {
 	Domains []Domain
 	CIDRs   []netip.Prefix
 }
 
-// Domain is a normalized domain pattern (design 6.4): a suffix match by default,
+// Domain is a normalized domain pattern (design 7.4): a suffix match by default,
 // an exact match when written as "=name".
 type Domain struct {
 	Name  string // lowercase, no trailing dot
 	Exact bool   // "=google.com"
 }
 
-// Fallback is what a rule does when none of its via tunnels is up (design 6.3).
+// Fallback is what a rule does when none of its via tunnels is up (design 7.3).
 type Fallback string // "default" | "block"
 
 const (
@@ -162,7 +162,7 @@ const (
 	FallbackBlock Fallback = "block"
 )
 
-// Rule routes the listed services via the first enabled and alive tunnel (design 6.3).
+// Rule routes the listed services via the first enabled and alive tunnel (design 7.3).
 type Rule struct {
 	Services []string
 	Via      []string // empty: always direct

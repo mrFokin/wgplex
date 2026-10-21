@@ -13,7 +13,7 @@ import (
 
 // Key is a WireGuard key (base64 of 32 bytes in .conf). Every formatting
 // path (String, GoString, Format, MarshalText) prints "(redacted)", so keys
-// never leak into logs or RPC (design 9.4); the bytes are reachable only by
+// never leak into logs or RPC (design 10.1); the bytes are reachable only by
 // indexing or slicing.
 //
 // Do not keep a Key in an unexported struct field that may reach fmt (logs,
@@ -22,10 +22,10 @@ import (
 // give the enclosing type its own redacting String/GoString/Format/LogValue.
 type Key [32]byte
 
-// String returns "(redacted)" so keys never leak into logs or RPC (design 9.4).
+// String returns "(redacted)" so keys never leak into logs or RPC (design 10.1).
 func (k Key) String() string { return "(redacted)" }
 
-// GoString returns "(redacted)" so %#v does not print the key bytes (design 9.4).
+// GoString returns "(redacted)" so %#v does not print the key bytes (design 10.1).
 func (k Key) GoString() string { return "(redacted)" }
 
 // Format writes "(redacted)" for every verb, including %d, %x and %v: without
@@ -33,11 +33,11 @@ func (k Key) GoString() string { return "(redacted)" }
 func (k Key) Format(f fmt.State, verb rune) { io.WriteString(f, "(redacted)") }
 
 // MarshalText returns "(redacted)" so JSON and other text encodings do not
-// expose the key (design 9.4).
+// expose the key (design 10.1).
 func (k Key) MarshalText() ([]byte, error) { return []byte("(redacted)"), nil }
 
 // wgQuickFields are wg-quick specific keys of [Interface] that wgplex ignores
-// with a warning (design 5). FwMark is a wg(8) key but has no meaning on macOS.
+// with a warning (design 6). FwMark is a wg(8) key but has no meaning on macOS.
 var wgQuickFields = map[string]bool{
 	"table":      true,
 	"preup":      true,
@@ -48,7 +48,7 @@ var wgQuickFields = map[string]bool{
 	"fwmark":     true,
 }
 
-// parseWGConf parses a .conf file (design 5, 9.2, 9.3). Line length is unbounded;
+// parseWGConf parses a .conf file (design 6, 10.1, 10.2). Line length is unbounded;
 // wg-quick fields (PreUp, PostUp, Table, SaveConfig, ...) and non-IP DNS values
 // are ignored with a warning; addresses without a prefix become /32 or /128;
 // non-canonical AllowedIPs are canonicalized with a warning; duplicates in Address,
@@ -61,10 +61,10 @@ var wgQuickFields = map[string]bool{
 // section is an error, as are unknown keys and sections, keys outside a section,
 // a missing or repeated [Interface], a missing PrivateKey or PublicKey, and a
 // file without [Peer]. PersistentKeepalive accepts "off". Address keeps the
-// prefix length as written (10.0.0.2/24 is an interface address, design 9.2).
+// prefix length as written (10.0.0.2/24 is an interface address, design 10.1).
 //
 // Error and warning messages carry the line number and never include key
-// values (design 9.4): section and key names must be identifiers ([A-Za-z]+),
+// values (design 10.1): section and key names must be identifiers ([A-Za-z]+),
 // otherwise the line is reported as malformed without its content, since a
 // mistyped "PrivateKey <key>" would otherwise end up in the message. Keys of
 // an unknown section are skipped silently: one error per section.
@@ -129,7 +129,7 @@ func parseWGConf(data []byte) (wg WGConfig, warnings []string, errs []error) {
 			continue
 		}
 
-		// The line content is never printed: it may hold a key (design 9.4).
+		// The line content is never printed: it may hold a key (design 10.1).
 		eq := strings.IndexByte(line, '=')
 		if eq < 0 {
 			errf(n, "malformed line")
@@ -306,7 +306,7 @@ func splitList(val string) []string {
 }
 
 // appendPrefixes parses a comma-separated list of CIDRs or bare addresses and
-// appends the new ones to dst, dropping duplicates (design 9.2).
+// appends the new ones to dst, dropping duplicates (design 10.1).
 func appendPrefixes(dst []netip.Prefix, val string, line int, field string,
 	errf func(int, string, ...any), warnf func(int, string, ...any)) []netip.Prefix {
 	for _, s := range splitList(val) {
@@ -328,7 +328,7 @@ func appendPrefixes(dst []netip.Prefix, val string, line int, field string,
 // appendAddresses parses a comma-separated Address list and appends the new
 // entries to dst. Unlike AllowedIPs, an interface address keeps its host bits
 // (10.0.0.2/24); a bare address becomes /32 or /128; exact duplicates (including
-// x and x/32) are dropped (design 9.2).
+// x and x/32) are dropped (design 10.1).
 func appendAddresses(dst []netip.Prefix, val string, line int, errf func(int, string, ...any)) []netip.Prefix {
 	for _, s := range splitList(val) {
 		var p netip.Prefix
@@ -385,7 +385,7 @@ func parseInt(s string, min, max int) (int, error) {
 }
 
 // checkEndpoint checks that s is host:port with a non-empty host and a port
-// in 1..65535. The host is not resolved here (design 5).
+// in 1..65535. The host is not resolved here (design 6).
 func checkEndpoint(s string) error {
 	host, port, err := net.SplitHostPort(s)
 	if err != nil {

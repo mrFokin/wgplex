@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// Tests follow design 9.4 (a key prints "(redacted)" under any formatting,
-// %v, %#v and JSON included) and decision 13 of the M3 plan (Format prints
+// Tests follow design 10.1 (a key prints "(redacted)" under any formatting,
+// %v, %#v and JSON included) and decision 13 of the Wirefork M3 plan (Format prints
 // "(redacted)" for every verb). All keys are generated per test.
 
 // leakForms returns substrings that would reveal k: hex and base64 of the
@@ -62,7 +62,7 @@ var keyVerbs = []string{
 	"%40v", "%-40s", "%#x", "%# x", "% x", "%08d", "%+d", "%#o", "%+q", "%#q", "%#U", "%12x", "%-12d",
 }
 
-// design 9.4, decision 13: a bare Key and a *Key print "(redacted)" under
+// design 10.1, decision 13: a bare Key and a *Key print "(redacted)" under
 // every verb, width and flag.
 func TestKeyFormat(t *testing.T) {
 	k, _ := genKey(t)
@@ -76,7 +76,7 @@ func TestKeyFormat(t *testing.T) {
 	}
 }
 
-// design 9.4: keys stay redacted inside structs, slices, arrays, maps and
+// design 10.1: keys stay redacted inside structs, slices, arrays, maps and
 // behind pointers, including the real configuration types.
 func TestKeyFormatNested(t *testing.T) {
 	priv, _ := genKey(t)
@@ -125,7 +125,7 @@ func TestKeyFormatNestedPointer(t *testing.T) {
 	}
 }
 
-// design 9.4: JSON never carries key bytes.
+// design 10.1: JSON never carries key bytes.
 func TestKeyJSON(t *testing.T) {
 	priv, _ := genKey(t)
 	pub, _ := genKey(t)

@@ -23,7 +23,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/rpc"
 )
 
-// Tests follow design 11, 12 and the M6 plan ("Вывод wf", decisions 4, 9,
+// Tests follow design 17.3, 13 and the Wirefork M6 plan ("Вывод wf", decisions 4, 9,
 // 10), not the implementation. Lines are compared by fields
 // (strings.Fields), never by spacing: columns come from text/tabwriter.
 
@@ -173,7 +173,7 @@ func TestM6FormatAgo(t *testing.T) {
 
 // --- printStatus --------------------------------------------------------------
 
-// m6Status is the "wgplex status" sample of the M6 plan.
+// m6Status is the "wgplex status" sample of the Wirefork M6 plan.
 func m6Status() rpc.Status {
 	return rpc.Status{
 		Configured:   true,
@@ -260,7 +260,7 @@ func TestM6PrintStatus(t *testing.T) {
 	}
 }
 
-// M6 plan: with several peers, HANDSHAKE is the latest handshake and RX, TX
+// Wirefork M6 plan: with several peers, HANDSHAKE is the latest handshake and RX, TX
 // are the sums.
 func TestM6PrintStatusSeveralPeers(t *testing.T) {
 	s := rpc.Status{
@@ -301,7 +301,7 @@ func TestM6PrintStatusNoHandshake(t *testing.T) {
 	m6WantRow(t, "fresh", out, "fresh up utun3 never - 0 B 0 B 0")
 }
 
-// M6 plan: without a config, "icon: off" and a hint; no tables.
+// Wirefork M6 plan: without a config, "icon: off" and a hint; no tables.
 func TestM6PrintStatusNoConfig(t *testing.T) {
 	out := m6Out(t, "printStatus", func(w io.Writer) {
 		printStatus(w, rpc.Status{Configured: false, Icon: "off"}, m6Now)
@@ -557,7 +557,7 @@ func m6WireError(t *testing.T, code int, message string, data any) *jrpc.JRPCErr
 	return &e
 }
 
-// design 12, M6 plan: config errors one per line under "config error:",
+// design 13, Wirefork M6 plan: config errors one per line under "config error:",
 // then the warnings.
 func TestM6PrintErrorConfigInvalid(t *testing.T) {
 	e := m6WireError(t, rpc.CodeConfigInvalid, "config is invalid", rpc.ConfigErrorData{
@@ -600,7 +600,7 @@ func TestM6PrintErrorCodes(t *testing.T) {
 	}
 }
 
-// design 13, M6 plan: HTTP 403 is "permission denied: ...".
+// design 14, Wirefork M6 plan: HTTP 403 is "permission denied: ...".
 func TestM6PrintErrorForbidden(t *testing.T) {
 	for _, err := range []error{
 		&httpError{Code: http.StatusForbidden, Body: "forbidden"},
@@ -619,7 +619,7 @@ func TestM6PrintErrorForbidden(t *testing.T) {
 	}
 }
 
-// M6 plan: no socket file is "wgplex daemon is not running": the bare dial error
+// Wirefork M6 plan: no socket file is "wgplex daemon is not running": the bare dial error
 // and the same error through an HTTP client over the unix socket.
 func TestM6PrintErrorNotRunning(t *testing.T) {
 	dir, err := os.MkdirTemp("", "wgp")
@@ -651,7 +651,7 @@ func TestM6PrintErrorNotRunning(t *testing.T) {
 	}
 }
 
-// M6 plan (printError): a socket file nobody listens on (stale after a
+// Wirefork M6 plan (printError): a socket file nobody listens on (stale after a
 // crash) gives ECONNREFUSED on dial: "wgplex daemon is not running" too.
 func TestM6PrintErrorConnRefused(t *testing.T) {
 	dir, err := os.MkdirTemp("", "wgp")
@@ -689,7 +689,7 @@ func TestM6PrintErrorConnRefused(t *testing.T) {
 	}
 }
 
-// M6 plan (printError, review step 3): "wgplex daemon is not running" is only
+// Wirefork M6 plan (printError, review step 3): "wgplex daemon is not running" is only
 // for the socket. ENOENT of something else (wgplex -config /nonexistent reload)
 // prints the error itself.
 func TestM6PrintErrorNotSocketENOENT(t *testing.T) {
@@ -710,7 +710,7 @@ func TestM6PrintErrorNotSocketENOENT(t *testing.T) {
 
 // --- M7: PING, dead -------------------------------------------------------------
 
-// Tests below follow design 11, 12 and the M7 plan ("Статус", "cmd/wf",
+// Tests below follow design 17.3, 13 and the Wirefork M7 plan ("Статус", "cmd/wf",
 // decision 10): the PING (CHECK since M11) column between HANDSHAKE and RX, state "dead" with
 // its reason at the end of the line, as the error of "error".
 
@@ -731,7 +731,7 @@ func m7WantOff(t *testing.T, out, name string) {
 	}
 }
 
-// m7Status is the "wgplex status" sample of the M7 plan and the other PING
+// m7Status is the "wgplex status" sample of the Wirefork M7 plan and the other PING
 // forms: "-" without check, "<RTT>ms" with Fails 0 and a LastOK, "fail N"
 // with Fails > 0, "?" before the first ping.
 func m7Status() rpc.Status {
@@ -798,7 +798,7 @@ func TestM7PrintStatusPing(t *testing.T) {
 
 // --- M11: CHECK with a URL ---------------------------------------------------
 
-// design 12, M11 plan ("internal/rpc, cmd/wf"): the column is CHECK, its
+// design 13, Wirefork M11 plan ("internal/rpc, cmd/wf"): the column is CHECK, its
 // values are as of PING (RTT, "fail N", "?", "-") also for an HTTP check;
 // CheckStatus.Addr (here a URL) is not in the column; the reason of a dead
 // HTTP check is at the end of the line.

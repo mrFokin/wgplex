@@ -14,10 +14,10 @@ import (
 
 const (
 	// reresolveEvery: a dead tunnel resolves its endpoint host names again
-	// at most this often, counted from the last resolving (design 5).
+	// at most this often, counted from the last resolving (design 6).
 	reresolveEvery = 60 * time.Second
 	// retryEvery: a failed tunnel is brought up again at most this often,
-	// counted from the last failure (design 5).
+	// counted from the last failure (design 6).
 	retryEvery = 60 * time.Second
 )
 
@@ -39,17 +39,17 @@ type probe struct {
 	rerr       error            // reresolve: resolving failed
 }
 
-// healthTick polls every running tunnel (Health model of the M7 plan):
+// healthTick polls every running tunnel (Health model of the Wirefork M7 plan):
 // a snapshot under mu, the checks of all tunnels in parallel without locks
-// (and the endpoints of the dead tunnels due it resolved again, design 5),
+// (and the endpoints of the dead tunnels due it resolved again, design 6),
 // then under opMu → mu the verdicts of the tunnels that are still the same
 // (not restarted or stopped meanwhile). A change of Alive selects the rules
-// again without going back to a preferred tunnel (design 6.3); a dead tunnel
+// again without going back to a preferred tunnel (design 7.3); a dead tunnel
 // gets a handshake attempt every health.PokeEvery, a new endpoint address
 // (reendpoint). Last, the failed tunnels due it are brought up again
 // (retryEvery).
 //
-// Without a network (no physical gateway, M7 decision 13, design 8) nothing
+// Without a network (no physical gateway, Wirefork M7 decision 13, design 9) nothing
 // is polled, poked, resolved or retried and the verdicts stay; the network
 // coming back resets the health window (onNetwork).
 func (d *daemon) healthTick(ctx context.Context, now time.Time) {
@@ -157,7 +157,7 @@ func (d *daemon) observe(probes []*probe, now time.Time) (offline bool) {
 }
 
 // offline reports whether there is no physical gateway, neither IPv4 nor
-// IPv6 (M7 decision 13); the first tick without one is logged. mu is held.
+// IPv6 (Wirefork M7 decision 13); the first tick without one is logged. mu is held.
 func (d *daemon) offline() bool {
 	off := !d.env.GW4.Addr.IsValid() && !d.env.GW6.Addr.IsValid()
 	if off && !d.healthOff {
@@ -203,7 +203,7 @@ func (d *daemon) probes(now time.Time) (res []*probe, offline bool) {
 // it: the check address, or the check URL; "" without a check, when its
 // address (an IP literal host of the URL) is of a family t has no Address of
 // (decision 7, checkWarnings) or when the URL host is a name and t has no
-// DNS server reachable through it (checkServers, M11 decision 6).
+// DNS server reachable through it (checkServers, Wirefork M11 decision 6).
 func activeCheck(t *config.Tunnel) string {
 	c := t.Check.Unmap()
 	if t.CheckURL != "" {
@@ -223,14 +223,14 @@ func activeCheck(t *config.Tunnel) string {
 }
 
 // checkIPv6 reports whether the HTTP check of t resolves its host name in
-// IPv6: t has no IPv4 Address (design 8).
+// IPv6: t has no IPv4 Address (design 9).
 func checkIPv6(t *config.Tunnel) bool {
 	return !hasFamily(t.WG.Addresses, false)
 }
 
 // checkServers returns the DNS servers of t (dns.Servers) reachable through
 // it, unmapped: those of a family t has an Address of, which it has scoped
-// routes to (addScoped, design 8). The family of the query is checkIPv6,
+// routes to (addScoped, design 9). The family of the query is checkIPv6,
 // independent of the server family.
 func checkServers(t *config.Tunnel) []netip.Addr {
 	var res []netip.Addr

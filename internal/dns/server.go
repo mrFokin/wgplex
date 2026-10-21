@@ -20,15 +20,15 @@ import (
 )
 
 const (
-	maxInflight     = 256             // concurrent upstream queries; over it: SERVFAIL (M5 decision 10)
-	upstreamTimeout = 2 * time.Second // per upstream server (M5 decision 10)
+	maxInflight     = 256             // concurrent upstream queries; over it: SERVFAIL (Wirefork M5 decision 10)
+	upstreamTimeout = 2 * time.Second // per upstream server (Wirefork M5 decision 10)
 )
 
 // upstreamPort is the port of upstream servers; tests point it at a fake
 // upstream on 127.0.0.1.
 var upstreamPort uint16 = 53
 
-// Server is the resolver on 127.0.0.1:53 (design 7). Safe for concurrent
+// Server is the resolver on 127.0.0.1:53 (design 8). Safe for concurrent
 // use; Sync is called without Server's lock held.
 //
 // A query: Choose; Block → NoData; else the servers of the upstream in turn
@@ -45,7 +45,7 @@ var upstreamPort uint16 = 53
 // at or after the generation of its own Add; otherwise Sync is called first.
 // A *router.SyncError whose Failed has no host prefix (/32, /128) of this
 // answer's addresses lets the answer go out without covering its generation
-// (M7 accumulated task 4); any other error → SERVFAIL. So a concurrent answer for the same pair (a retry
+// (Wirefork M7 accumulated task 4); any other error → SERVFAIL. So a concurrent answer for the same pair (a retry
 // of mDNSResponder) waits for a Sync of its own instead of going out before
 // the route is set, and after a failed Sync the next such answer calls Sync
 // again.

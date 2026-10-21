@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Tests follow design 5, 7, 10 and the M7 plan ("Модель → Netwatch",
+// Tests follow design 6, 8 and the Wirefork M7 plan ("Модель → Netwatch",
 // decisions 2, 4; facts 2–5), not the implementation. Time is passed
 // explicitly.
 
@@ -67,7 +67,7 @@ func TestM7ParseChangedKey(t *testing.T) {
 
 // --- classify ---------------------------------------------------------------------
 
-// M7 plan "Netwatch": global and service keys → Network, the capture key →
+// Wirefork M7 plan "Netwatch": global and service keys → Network, the capture key →
 // Capture (only: its own write must not look like a network change);
 // AirPort, the user keys (not watched, design 4.1) and the rest are not
 // ours.

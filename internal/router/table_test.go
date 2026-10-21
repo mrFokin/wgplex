@@ -10,10 +10,10 @@ import (
 	"github.com/mrFokin/wgplex/internal/config"
 )
 
-// Tests in this file follow docs/design.md sections 5.1, 6.1–6.3, 7, 8, 9.1 and
-// the M2 plan (docs/plans/m2-router.md, "Алгоритм", "Решения", "Готово, когда"),
+// Tests in this file follow docs/design.md sections 6.1, 7.1–7.3, 8, 9, 10.1 and
+// the Wirefork M2 plan (docs/plans/m2-router.md, "Алгоритм", "Решения", "Готово, когда"),
 // not the implementation. Addresses are documentation/private ranges, except the
-// telegram CIDRs taken verbatim from the design 9.1 example.
+// telegram CIDRs taken verbatim from the design 10.1 example.
 
 // --- helpers ---------------------------------------------------------------
 
@@ -82,7 +82,7 @@ func tDynVia(p, tunnel string, rule int) Route {
 }
 
 // tBuild calls Build, turns a panic into a test failure and checks the table
-// invariants that hold for every input (design 6.2, plan "Сигнатуры").
+// invariants that hold for every input (design 7.2, Wirefork plan "Сигнатуры").
 func tBuild(t *testing.T, cfg *config.Config, tunnels map[string]TunnelState, rules []RuleState, dyn []Dynamic) Table {
 	t.Helper()
 	var tbl Table
@@ -174,9 +174,9 @@ func tFind(tbl Table, p string) (Route, bool) {
 	return Route{}, false
 }
 
-// --- design 6.1 item 1: endpoints --------------------------------------------
+// --- design 7.1 item 1: endpoints --------------------------------------------
 
-// design 5, 6.1 item 1, 6.2: every Up tunnel gets direct host routes to its
+// design 6, 7.1 item 1, 7.2: every Up tunnel gets direct host routes to its
 // endpoints (/32 or /128), whatever its routes mode and even when dead.
 // A tunnel that is not Up (or missing from the map) contributes nothing.
 func TestBuildEndpoints(t *testing.T) {
@@ -193,11 +193,11 @@ func TestBuildEndpoints(t *testing.T) {
 			"cfg": {Up: true, Alive: true, Endpoints: tAs("203.0.113.1", "2001:db8::1")},
 			"rul": {Up: true, Alive: true, Endpoints: tAs("203.0.113.2")},
 		}, want: Table{tEndpoint("203.0.113.1/32"), tEndpoint("203.0.113.2/32"), tEndpoint("2001:db8::1/128")}},
-		// design 6.2, decision 7: kept while the tunnel is enabled, even if dead.
+		// design 7.2, decision 7: kept while the tunnel is enabled, even if dead.
 		{name: "dead but Up", tunnels: map[string]TunnelState{
 			"rul": {Up: true, Alive: false, Endpoints: tAs("203.0.113.2")},
 		}, want: Table{tEndpoint("203.0.113.2/32")}},
-		// design 6.2: removed when the tunnel is disabled.
+		// design 7.2: removed when the tunnel is disabled.
 		{name: "not Up", tunnels: map[string]TunnelState{
 			"rul": {Up: false, Alive: true, Endpoints: tAs("203.0.113.2")},
 		}, want: nil},
@@ -216,11 +216,11 @@ func TestBuildEndpoints(t *testing.T) {
 	}
 }
 
-// --- design 5.1, 6.1 item 2: AllowedIPs ------------------------------------
+// --- design 6.1, 7.1 item 2: AllowedIPs ------------------------------------
 
-// design 5.1, 6.1 item 2, 6.2: AllowedIPs of every [Peer] go into the table only
+// design 6.1, 7.1 item 2, 7.2: AllowedIPs of every [Peer] go into the table only
 // for Up tunnels with routes: config, alive or dead; routes: rules never.
-// design 6.2 (M4 decision 2): work has no IPv6 Address, so its IPv6
+// design 7.2 (Wirefork M4 decision 2): work has no IPv6 Address, so its IPv6
 // AllowedIPs become reject (Source and Rule unchanged).
 func TestBuildAllowedIPs(t *testing.T) {
 	cfg := &config.Config{Tunnels: []config.Tunnel{
@@ -245,7 +245,7 @@ func TestBuildAllowedIPs(t *testing.T) {
 		{name: "config tunnel dead", tunnels: map[string]TunnelState{"work": tDead}, want: workAll},
 		{name: "config tunnel not Up", tunnels: map[string]TunnelState{"work": tOff}, want: nil},
 		{name: "config tunnel missing", tunnels: map[string]TunnelState{}, want: nil},
-		// design 5.1: routes: rules AllowedIPs are only a crypto filter.
+		// design 6.1: routes: rules AllowedIPs are only a crypto filter.
 		{name: "rules tunnel alive", tunnels: map[string]TunnelState{"nl": tUp}, want: nil},
 		{name: "both", tunnels: map[string]TunnelState{"work": tUp, "nl": tUp}, want: workAll},
 	}
@@ -256,9 +256,9 @@ func TestBuildAllowedIPs(t *testing.T) {
 	}
 }
 
-// --- design 6.1 items 3, 4; 6.3: rule routes and their targets --------------
+// --- design 7.1 items 3, 4; 7.3: rule routes and their targets --------------
 
-// design 6.3 + decisions 2, 3: the target of rule routes (service CIDRs and
+// design 7.3 + decisions 2, 3: the target of rule routes (service CIDRs and
 // Dynamic addresses) follows the RuleState.
 func TestBuildRuleTargets(t *testing.T) {
 	cases := []struct {
@@ -273,19 +273,19 @@ func TestBuildRuleTargets(t *testing.T) {
 				tCIDRVia("192.0.2.0/24", "de", 0),
 				tDynVia("198.51.100.7/32", "de", 0),
 			}},
-		// design 6.3, decision 2: empty via → explicit direct routes.
+		// design 7.3, decision 2: empty via → explicit direct routes.
 		{name: "empty via: direct", via: nil, fallback: config.FallbackDefault, state: RuleState{},
 			want: Table{
 				tRuleRoute("192.0.2.0/24", SourceRuleCIDR, TargetDirect, "", 0),
 				tRuleRoute("198.51.100.7/32", SourceDynamic, TargetDirect, "", 0),
 			}},
-		// design 6.3: fallback block → reject for CIDRs and known IPs.
+		// design 7.3: fallback block → reject for CIDRs and known IPs.
 		{name: "fallback block: reject", via: []string{"nl", "de"}, fallback: config.FallbackBlock, state: tFallback,
 			want: Table{
 				tRuleRoute("192.0.2.0/24", SourceRuleCIDR, TargetReject, "", 0),
 				tRuleRoute("198.51.100.7/32", SourceDynamic, TargetReject, "", 0),
 			}},
-		// design 6.3, decision 3: fallback default → no routes for the rule.
+		// design 7.3, decision 3: fallback default → no routes for the rule.
 		{name: "fallback default: no routes", via: []string{"nl", "de"}, fallback: config.FallbackDefault, state: tFallback,
 			want: nil},
 	}
@@ -312,7 +312,7 @@ func TestBuildRuleTargets(t *testing.T) {
 	}
 }
 
-// design 6.1 item 3: CIDRs of every service of a rule are routed, from all services.
+// design 7.1 item 3: CIDRs of every service of a rule are routed, from all services.
 func TestBuildRuleSeveralServices(t *testing.T) {
 	cfg := &config.Config{
 		Tunnels: []config.Tunnel{tTun("nl", config.RoutesRules, []string{"10.88.0.2/32"})},
@@ -330,9 +330,9 @@ func TestBuildRuleSeveralServices(t *testing.T) {
 	})
 }
 
-// --- design 6.2: equal prefixes ----------------------------------------------
+// --- design 7.2: equal prefixes ----------------------------------------------
 
-// design 6.2 + decisions 1, 4: on an equal prefix, endpoint > rules (earlier
+// design 7.2 + decisions 1, 4: on an equal prefix, endpoint > rules (earlier
 // rule wins) > AllowedIPs (earlier tunnel wins).
 func TestBuildEqualPrefixPriority(t *testing.T) {
 	// Tunnels: work and home (routes: config), nl and de (routes: rules).
@@ -354,7 +354,7 @@ func TestBuildEqualPrefixPriority(t *testing.T) {
 		prefix   string
 		want     Route
 	}{
-		// design 6.2: AllowedIPs of different tunnels — tunnel order in the config.
+		// design 7.2: AllowedIPs of different tunnels — tunnel order in the config.
 		{name: "allowed-ips vs allowed-ips: earlier tunnel", prefix: "10.20.0.0/16",
 			want: tAllowed("10.20.0.0/16", "work")},
 		{name: "allowed-ips: later tunnel when earlier is down", prefix: "10.20.0.0/16",
@@ -367,7 +367,7 @@ func TestBuildEqualPrefixPriority(t *testing.T) {
 			rules:    []config.Rule{tRule([]string{"nl"}, config.FallbackDefault, "s")},
 			states:   []RuleState{tOn("nl")},
 			want:     tCIDRVia("10.20.0.0/16", "nl", 0)},
-		// design 6.2 consequence: dynamic /32 overrides a matching AllowedIPs address.
+		// design 7.2 consequence: dynamic /32 overrides a matching AllowedIPs address.
 		{name: "dynamic vs allowed-ips /32: rule", prefix: "192.0.2.5/32",
 			services: map[string]config.Service{"s": tDomains("example.com")},
 			rules:    []config.Rule{tRule([]string{"nl"}, config.FallbackDefault, "s")},
@@ -394,7 +394,7 @@ func TestBuildEqualPrefixPriority(t *testing.T) {
 			states:   []RuleState{tFallback},
 			want:     tAllowed("10.20.0.0/16", "work")},
 
-		// design 6.2: between rules — rule order.
+		// design 7.2: between rules — rule order.
 		{name: "rule cidr vs rule cidr: earlier rule", prefix: "198.51.100.0/24",
 			services: map[string]config.Service{"a": tCIDRs("198.51.100.0/24"), "b": tCIDRs("198.51.100.0/24")},
 			rules: []config.Rule{
@@ -411,7 +411,7 @@ func TestBuildEqualPrefixPriority(t *testing.T) {
 			},
 			states: []RuleState{{}, tOn("nl")},
 			want:   tRuleRoute("198.51.100.0/24", SourceRuleCIDR, TargetDirect, "", 0)},
-		// design 6.2: shared CDN address from two rules — the earlier rule,
+		// design 7.2: shared CDN address from two rules — the earlier rule,
 		// regardless of the order of Dynamic entries.
 		{name: "shared dynamic: earlier rule", prefix: "198.51.100.9/32",
 			services: map[string]config.Service{"a": tDomains("a.example"), "b": tDomains("b.example")},
@@ -461,7 +461,7 @@ func TestBuildEqualPrefixPriority(t *testing.T) {
 			states: []RuleState{tFallback, tOn("nl")},
 			want:   tRuleRoute("198.51.100.0/24", SourceRuleCIDR, TargetReject, "", 0)},
 
-		// design 6.2: host route to an endpoint beats everything.
+		// design 7.2: host route to an endpoint beats everything.
 		{name: "endpoint vs allowed-ips", prefix: "203.0.113.1/32",
 			tunnels: map[string]TunnelState{"work": tUp, "nl": {Up: true, Alive: true, Endpoints: tAs("203.0.113.1")}},
 			want:    tEndpoint("203.0.113.1/32")},
@@ -512,7 +512,7 @@ func TestBuildEqualPrefixPriority(t *testing.T) {
 	}
 }
 
-// design 6.2: different prefixes are neither merged nor collapsed —
+// design 7.2: different prefixes are neither merged nor collapsed —
 // longest-prefix match is the kernel's job.
 func TestBuildDifferentPrefixesKept(t *testing.T) {
 	cfg := &config.Config{
@@ -539,10 +539,10 @@ func TestBuildDifferentPrefixesKept(t *testing.T) {
 	})
 }
 
-// --- design 6.1 item 4, 6.2, 7: IPv6 -----------------------------------------
+// --- design 7.1 item 4, 7.2, 8: IPv6 -----------------------------------------
 
-// design 6.1 item 4, 7: a dynamic /128 is routed only when the rule's tunnel
-// has an IPv6 address in Address. design 6.2, M4 decision 2 (replaces M2
+// design 7.1 item 4, 8: a dynamic /128 is routed only when the rule's tunnel
+// has an IPv6 address in Address. design 7.2, Wirefork M4 decision 2 (replaces M2
 // decision 8): an IPv6 service CIDR goes via the tunnel only when it has an
 // IPv6 address, otherwise it becomes reject.
 func TestBuildIPv6(t *testing.T) {
@@ -583,7 +583,7 @@ func TestBuildIPv6(t *testing.T) {
 	}
 }
 
-// design 6.1 item 4: the /128 check is per rule tunnel — a rule moved to a
+// design 7.1 item 4: the /128 check is per rule tunnel — a rule moved to a
 // tunnel without IPv6 loses its /128, one on a tunnel with IPv6 keeps it.
 func TestBuildIPv6PerTunnel(t *testing.T) {
 	cfg := &config.Config{
@@ -602,7 +602,7 @@ func TestBuildIPv6PerTunnel(t *testing.T) {
 	tSameTable(t, got, Table{tDynVia("2001:db8::a/128", "nl", 0)})
 }
 
-// design 6.1 item 4, decision 9: a /128 from Dynamic is dropped only for the
+// design 7.1 item 4, decision 9: a /128 from Dynamic is dropped only for the
 // tunnel target; direct (empty via) and reject (fallback: block) routes keep it
 // even when no tunnel has an IPv6 Address.
 func TestBuildIPv6NoTunnelTarget(t *testing.T) {
@@ -613,13 +613,13 @@ func TestBuildIPv6NoTunnelTarget(t *testing.T) {
 		state    RuleState
 		want     Table
 	}{
-		// design 6.1 item 4: empty via → direct, /128 always set.
+		// design 7.1 item 4: empty via → direct, /128 always set.
 		{name: "empty via: direct keeps /128", via: nil, fallback: config.FallbackDefault, state: RuleState{},
 			want: Table{
 				tRuleRoute("192.0.2.10/32", SourceDynamic, TargetDirect, "", 0),
 				tRuleRoute("2001:db8:2::10/128", SourceDynamic, TargetDirect, "", 0),
 			}},
-		// design 6.1 item 4: fallback block → reject, /128 always set.
+		// design 7.1 item 4: fallback block → reject, /128 always set.
 		{name: "fallback block: reject keeps /128", via: []string{"nl"}, fallback: config.FallbackBlock, state: tFallback,
 			want: Table{
 				tRuleRoute("192.0.2.10/32", SourceDynamic, TargetReject, "", 0),
@@ -721,7 +721,7 @@ func TestBuildIPv4Mapped(t *testing.T) {
 
 // --- Dynamic input edge cases -------------------------------------------------
 
-// plan "Алгоритм": a Dynamic with a rule index out of range is ignored; the rest
+// Wirefork plan "Алгоритм": a Dynamic with a rule index out of range is ignored; the rest
 // of the table is unaffected.
 func TestBuildDynamicBadRuleIndex(t *testing.T) {
 	cfg := &config.Config{
@@ -774,8 +774,8 @@ func TestBuildEmpty(t *testing.T) {
 	}
 }
 
-// plan "Сигнатуры": sorted by Prefix.Addr().Compare, then Bits(); IPv4 before IPv6.
-// work has no IPv6 Address: its IPv6 AllowedIPs are reject (design 6.2, M4
+// Wirefork plan "Сигнатуры": sorted by Prefix.Addr().Compare, then Bits(); IPv4 before IPv6.
+// work has no IPv6 Address: its IPv6 AllowedIPs are reject (design 7.2, M4
 // decision 2); the order is the same.
 func TestBuildSortOrder(t *testing.T) {
 	cfg := &config.Config{
@@ -798,7 +798,7 @@ func TestBuildSortOrder(t *testing.T) {
 	})
 }
 
-// plan "Готово, когда": the result does not depend on map iteration order or
+// Wirefork plan "Готово, когда": the result does not depend on map iteration order or
 // on the order of Dynamic entries.
 func TestBuildDeterministic(t *testing.T) {
 	cfg := &config.Config{Services: map[string]config.Service{}}
@@ -870,9 +870,9 @@ func TestBuildDeterministic(t *testing.T) {
 	}
 }
 
-// --- design 9.1: the example, end to end ----------------------------------------
+// --- design 10.1: the example, end to end ----------------------------------------
 
-// tExampleCfg is the design 9.1 config with work/home AllowedIPs and addresses
+// tExampleCfg is the design 10.1 config with work/home AllowedIPs and addresses
 // filled in as the M1 tests do.
 func tExampleCfg() *config.Config {
 	return &config.Config{
@@ -895,7 +895,7 @@ func tExampleCfg() *config.Config {
 	}
 }
 
-// design 9.1 scenarios from plan "Готово, когда": SelectRules feeds Build over
+// design 10.1 scenarios from Wirefork plan "Готово, когда": SelectRules feeds Build over
 // a sequence of tunnel states (home has autostart: false and stays off).
 func TestBuildExampleScenarios(t *testing.T) {
 	cfg := tExampleCfg()
@@ -945,10 +945,10 @@ func TestBuildExampleScenarios(t *testing.T) {
 	}{
 		{"all alive", map[string]TunnelState{"work": work, "nl": nlUp, "de": deUp},
 			[]RuleState{tOn("nl"), tOn("nl")}, via("nl")},
-		// design 8: nl dead → rules move to de; nl endpoint stays (decision 7).
+		// design 9: nl dead → rules move to de; nl endpoint stays (decision 7).
 		{"nl dead", map[string]TunnelState{"work": work, "nl": nlDead, "de": deUp},
 			[]RuleState{tOn("de"), tOn("de")}, via("de")},
-		// design 6.3: no return to nl.
+		// design 7.3: no return to nl.
 		{"nl revived", map[string]TunnelState{"work": work, "nl": nlUp, "de": deUp},
 			[]RuleState{tOn("de"), tOn("de")}, via("de")},
 		{"nl and de dead", map[string]TunnelState{"work": work, "nl": nlDead, "de": deDead},
@@ -974,8 +974,8 @@ func TestBuildExampleScenarios(t *testing.T) {
 		}
 	}
 
-	// design 6.3: nl and de disabled by the user behave like dead for rules,
-	// but their endpoints go away (design 6.2).
+	// design 7.3: nl and de disabled by the user behave like dead for rules,
+	// but their endpoints go away (design 7.2).
 	t.Run("nl and de disabled", func(t *testing.T) {
 		ts := map[string]TunnelState{"work": work}
 		rules := tSelect(t, cfg, ts, nil)
@@ -1011,7 +1011,7 @@ func TestBuildExampleScenarios(t *testing.T) {
 	})
 }
 
-// --- design 6.2, M4 decision 2: IPv6 via a tunnel without IPv6 ----------------
+// --- design 7.2, Wirefork M4 decision 2: IPv6 via a tunnel without IPv6 ----------------
 
 // m4Reject is the reject route an IPv6 tunnel-target prefix becomes when its
 // tunnel has no IPv6 address: Tunnel empty, Source and Rule unchanged.
@@ -1019,7 +1019,7 @@ func m4Reject(p string, src Source, rule int) Route {
 	return tRuleRoute(p, src, TargetReject, "", rule)
 }
 
-// design 6.2 (M4 decision 2): an IPv6 prefix with target "tunnel" (a service
+// design 7.2 (Wirefork M4 decision 2): an IPv6 prefix with target "tunnel" (a service
 // CIDR or AllowedIPs of a routes: config tunnel) becomes reject when the
 // tunnel has no IPv6 address in Address; with one it goes via the tunnel.
 // IPv4 prefixes and non-tunnel targets are not affected.
@@ -1095,8 +1095,8 @@ func TestM4BuildIPv6WithoutAddress(t *testing.T) {
 			},
 		},
 		{
-			// design 6.2: a dead tunnel keeps its AllowedIPs; the IPv6 ones are
-			// reject either way. Not ::/0: design 9.2 forbids it with routes: config.
+			// design 7.2: a dead tunnel keeps its AllowedIPs; the IPv6 ones are
+			// reject either way. Not ::/0: design 10.1 forbids it with routes: config.
 			name: "AllowedIPs, config tunnel without IPv6: reject",
 			cfg: &config.Config{Tunnels: []config.Tunnel{
 				tTun("work", config.RoutesConfig, v4only, []string{"10.20.0.0/16", "fd00:20::/48", "fd00::/8"}),
@@ -1120,7 +1120,7 @@ func TestM4BuildIPv6WithoutAddress(t *testing.T) {
 			},
 		},
 		{
-			// design 6.2: between AllowedIPs the earlier tunnel wins; work
+			// design 7.2: between AllowedIPs the earlier tunnel wins; work
 			// (no IPv6) is first, so the prefix is reject from allowed-ips.
 			name: "equal AllowedIPs, first tunnel without IPv6",
 			cfg: &config.Config{Tunnels: []config.Tunnel{
@@ -1152,7 +1152,7 @@ func TestM4BuildIPv6WithoutAddress(t *testing.T) {
 			want:    Table{tRuleRoute("2001:db8:1::/48", SourceRuleCIDR, TargetDirect, "", 0)},
 		},
 		{
-			// design 6.2: a rule beats AllowedIPs on the same prefix; the rule's
+			// design 7.2: a rule beats AllowedIPs on the same prefix; the rule's
 			// tunnel has no IPv6, so the prefix is reject even though the
 			// AllowedIPs tunnel has IPv6.
 			name: "rule beats AllowedIPs, rule tunnel without IPv6",

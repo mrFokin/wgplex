@@ -10,7 +10,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/config"
 )
 
-// PeerStats is the runtime state of one peer (design 11, 12).
+// PeerStats is the runtime state of one peer (design 17.3, 13).
 type PeerStats struct {
 	LastHandshake time.Time // zero: never
 	RxBytes       uint64

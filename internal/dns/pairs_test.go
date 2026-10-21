@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// Tests of Dynamics.Pairs follow design 7 (a pair per name–address, deadline
+// Tests of Dynamics.Pairs follow design 8 (a pair per name–address, deadline
 // TTL + 1 h extended by every answer, names compared case-insensitively
-// without the trailing dot) and the M6 plan (Pairs sorted by name, then
+// without the trailing dot) and the Wirefork M6 plan (Pairs sorted by name, then
 // address), not the implementation.
 
 var m6T0 = time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
@@ -46,8 +46,8 @@ func TestM6PairsEmpty(t *testing.T) {
 	}
 }
 
-// M6 plan: sorted by name, then address (IPv4 before IPv6 as netip orders
-// them); names are normalized; the deadline is now + TTL + 1 h (design 7).
+// Wirefork M6 plan: sorted by name, then address (IPv4 before IPv6 as netip orders
+// them); names are normalized; the deadline is now + TTL + 1 h (design 8).
 func TestM6PairsSortedNormalized(t *testing.T) {
 	var d Dynamics
 	ttl := 5 * time.Minute
@@ -66,7 +66,7 @@ func TestM6PairsSortedNormalized(t *testing.T) {
 	m6SamePairs(t, "after Add", m6Pairs(t, &d), want)
 }
 
-// design 7: one pair per (name, address); an address shared by several names
+// design 8: one pair per (name, address); an address shared by several names
 // is a pair per name, each with its own deadline; a name written differently
 // is the same pair.
 func TestM6PairsSharedAddress(t *testing.T) {
@@ -83,7 +83,7 @@ func TestM6PairsSharedAddress(t *testing.T) {
 	m6SamePairs(t, "shared address", m6Pairs(t, &d), want)
 }
 
-// design 7: every answer extends the deadline; an earlier one does not
+// design 8: every answer extends the deadline; an earlier one does not
 // shorten it (max of old and new).
 func TestM6PairsDeadlineExtended(t *testing.T) {
 	var d Dynamics

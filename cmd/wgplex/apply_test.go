@@ -12,10 +12,10 @@ import (
 	"github.com/mrFokin/wgplex/internal/config"
 )
 
-// Tests follow design 6.3, 7, 9.3 (config.apply: autostart on the first
+// Tests follow design 7.3, 8, 10.2 (config.apply: autostart on the first
 // apply, toggles kept on a repeated one, restart only on a changed .conf,
 // the warning about a tunnel DNS server under a CIDR of a rule with
-// fallback: block) and the M6 plan (decisions 1, 6, 12; planApply and
+// fallback: block) and the Wirefork M6 plan (decisions 1, 6, 12; planApply and
 // blockedDNSWarnings), not the implementation. Configs are built with
 // config.Load from YAML and .conf text; keys are generated per test.
 
@@ -94,7 +94,7 @@ func m6NewConfs(t *testing.T) m6Confs {
 }
 
 // texts renders every conf with the same [Interface] DNS line (dns_domains
-// needs DNS, design 9.2); changed overrides the text of some confs.
+// needs DNS, design 10.1); changed overrides the text of some confs.
 func (cs m6Confs) texts(changed map[string]string) map[string]string {
 	out := map[string]string{}
 	for name, c := range cs {
@@ -179,7 +179,7 @@ func m6CheckPlan(t *testing.T, name string, cur, next *config.Config, enabled, r
 
 // --- planApply -------------------------------------------------------------
 
-// design 9.3, decision 1: the first apply after start enables and starts the
+// design 10.2, decision 1: the first apply after start enables and starts the
 // autostart tunnels, in config order.
 func TestM6PlanApplyFirst(t *testing.T) {
 	cs := m6NewConfs(t)
@@ -194,7 +194,7 @@ func TestM6PlanApplyFirst(t *testing.T) {
 	})
 }
 
-// design 9.3, decision 1: a repeated apply of the same config keeps the
+// design 10.2, decision 1: a repeated apply of the same config keeps the
 // user's toggles (de turned off, home turned on) and changes nothing.
 func TestM6PlanApplyKeepsToggles(t *testing.T) {
 	cs := m6NewConfs(t)
@@ -211,7 +211,7 @@ func TestM6PlanApplyKeepsToggles(t *testing.T) {
 	m6CheckPlan(t, "all off", cur, next, map[string]bool{}, map[string]bool{}, m6PlanWant{})
 }
 
-// design 9.3: a new tunnel is enabled by its autostart, a removed one is
+// design 10.2: a new tunnel is enabled by its autostart, a removed one is
 // stopped and gone.
 func TestM6PlanApplyAddRemove(t *testing.T) {
 	cs := m6NewConfs(t)
@@ -240,7 +240,7 @@ func TestM6PlanApplyAddRemove(t *testing.T) {
 	})
 }
 
-// design 9.3: a running tunnel whose .conf changed is restarted: stop and
+// design 10.2: a running tunnel whose .conf changed is restarted: stop and
 // start; the others are left alone.
 func TestM6PlanApplyConfChanged(t *testing.T) {
 	cs := m6NewConfs(t)
@@ -267,7 +267,7 @@ func TestM6PlanApplyConfChanged(t *testing.T) {
 	})
 }
 
-// design 9.3: changes of wgplex.yaml alone (routes, dns_domains, check,
+// design 10.2: changes of wgplex.yaml alone (routes, dns_domains, check,
 // services, rules) do not restart running tunnels.
 func TestM6PlanApplyYAMLOnly(t *testing.T) {
 	cs := m6NewConfs(t)
@@ -330,7 +330,7 @@ func TestM6PlanApplyDisabledChanged(t *testing.T) {
 	})
 }
 
-// M6 plan: stop in cur's tunnel order, start in next's tunnel order.
+// Wirefork M6 plan: stop in cur's tunnel order, start in next's tunnel order.
 func TestM6PlanApplyOrder(t *testing.T) {
 	cs := m6NewConfs(t)
 	cur := m6Load(t, m6BaseYAML(m6BaseTunnels()...), cs.texts(nil))
@@ -369,8 +369,8 @@ func m6Blocked(t *testing.T, cfg *config.Config) (got []string) {
 	return blockedDNSWarnings(cfg)
 }
 
-// design 9.3, decision 12: a DNS server of a tunnel (its .conf DNS, else
-// 1.1.1.1, design 7) inside a CIDR of a service of a rule with fallback:
+// design 10.2, decision 12: a DNS server of a tunnel (its .conf DNS, else
+// 1.1.1.1, design 8) inside a CIDR of a service of a rule with fallback:
 // block gets a warning naming the server and the tunnel; fallback: default
 // and an empty via do not.
 func TestM6BlockedDNSWarnings(t *testing.T) {
@@ -500,7 +500,7 @@ rules:
 	}
 }
 
-// design 9.4: warnings carry no key.
+// design 10.1: warnings carry no key.
 func TestM6BlockedDNSWarningsNoKeys(t *testing.T) {
 	c := m6NewConf(t, "10.1.0.2/32", "203.0.113.5:51820", "0.0.0.0/0")
 	cfg := m6Load(t, "tunnels:\n"+m6TunnelYAML("de", "rules", true)+`services:
@@ -524,7 +524,7 @@ rules:
 
 // --- checkWarnings (M7) -----------------------------------------------------
 
-// Tests below follow design 8 "Ping" and the M7 plan (decision 7): a check
+// Tests below follow design 9 "Ping" and the Wirefork M7 plan (decision 7): a check
 // of a family the tunnel has no Address of is not pinged; config.apply warns
 // about it, the config stays valid.
 

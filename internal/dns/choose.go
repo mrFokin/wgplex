@@ -8,15 +8,15 @@ import (
 	"github.com/mrFokin/wgplex/internal/router"
 )
 
-// Choice is where a query goes (design 7).
+// Choice is where a query goes (design 8).
 type Choice struct {
 	Rule     int    // index in cfg.Rules whose domain matched; -1: none
 	Tunnel   string // tunnel to query through; "": the system upstream
-	Block    bool   // fallback: block, answer NODATA (design 6.3)
-	DropAAAA bool   // ipv6_filter and the rule's tunnel has no IPv6 Address (design 7)
+	Block    bool   // fallback: block, answer NODATA (design 7.3)
+	DropAAAA bool   // ipv6_filter and the rule's tunnel has no IPv6 Address (design 8)
 }
 
-// Choose picks the upstream for name (design 7), without side effects:
+// Choose picks the upstream for name (design 8), without side effects:
 //
 //  1. the rule by MatchDomainFunc, skipping rules in fallback: default
 //     (useRule);
@@ -84,7 +84,7 @@ func hasIPv6(t *config.Tunnel) bool {
 	return false
 }
 
-// Servers returns the DNS servers of t: DNS from its .conf, else 1.1.1.1 (design 7).
+// Servers returns the DNS servers of t: DNS from its .conf, else 1.1.1.1 (design 8).
 func Servers(t *config.Tunnel) []netip.Addr {
 	if len(t.WG.DNS) > 0 {
 		return append([]netip.Addr(nil), t.WG.DNS...)
@@ -96,7 +96,7 @@ func Servers(t *config.Tunnel) []netip.Addr {
 var defaultServer = netip.AddrFrom4([4]byte{1, 1, 1, 1})
 
 // useRule reports whether rule i takes part in domain matching: not in
-// fallback: default (M5 decision 1). Shared by Choose and Dynamics.List.
+// fallback: default (Wirefork M5 decision 1). Shared by Choose and Dynamics.List.
 // A rule in fallback: block or with an empty via takes part; a rule without
 // an entry in rules does not (router.Build gives it no routes either).
 func useRule(cfg *config.Config, rules []router.RuleState) func(int) bool {

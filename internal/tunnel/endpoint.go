@@ -81,7 +81,7 @@ func lookup(ctx context.Context, r Resolver, host string) (netip.Addr, error) {
 }
 
 // HasHostnames reports whether some peer endpoint is a host name, not an IP
-// literal (design 10: such endpoints are resolved again).
+// literal (design 6: new endpoints are resolved when the network changes).
 func HasHostnames(peers []config.Peer) bool {
 	for _, p := range peers {
 		if p.Endpoint == "" {

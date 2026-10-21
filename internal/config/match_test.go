@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Tests follow docs/design.md 6.4 (domain matching), not the implementation.
+// Tests follow docs/design.md 7.4 (domain matching), not the implementation.
 
 // matchConfig is built as a literal so that matching is tested independently of Load.
 // Rules are deliberately ordered so that precedence by specificity can't be
@@ -52,14 +52,14 @@ func TestMatchDomain(t *testing.T) {
 		want int
 		why  string
 	}{
-		// design 6.4: a suffix pattern matches the domain itself and every subdomain.
+		// design 7.4: a suffix pattern matches the domain itself and every subdomain.
 		{"youtube.com", 0, "suffix: the domain itself"},
 		{"www.youtube.com", 0, "suffix: subdomain"},
 		{"a.b.c.youtube.com", 0, "suffix: deep subdomain"},
 		{"b.test", 9, "second domain of a multi-domain service"},
 		{"x.a.test", 9, "suffix of a service that also has CIDRs"},
 
-		// design 6.4: suffix matching respects label boundaries.
+		// design 7.4: suffix matching respects label boundaries.
 		{"notyoutube.com", none, "label boundary: notyoutube.com is not youtube.com"},
 		{"youtube.com.evil.test", none, "pattern must be a suffix, not a prefix"},
 		{"youtube.co", none, "different TLD"},
@@ -67,11 +67,11 @@ func TestMatchDomain(t *testing.T) {
 		{"com", none, "parent of the pattern"},
 		{"notgemini.google.com", 1, "label boundary falls back to the shorter suffix"},
 
-		// design 6.4: "=name" is an exact match only.
+		// design 7.4: "=name" is an exact match only.
 		{"exact.example", 7, "exact"},
 		{"www.exact.example", none, "exact does not match subdomains"},
 
-		// design 6.4: exact > longer suffix > shorter suffix, independent of rule order.
+		// design 7.4: exact > longer suffix > shorter suffix, independent of rule order.
 		{"google.com", 2, "exact beats suffix of the same name, though listed later"},
 		{"www.google.com", 1, "exact does not apply to subdomains; suffix does"},
 		{"music.youtube.com", 3, "longer suffix beats shorter, though listed later"},
@@ -80,12 +80,12 @@ func TestMatchDomain(t *testing.T) {
 		{"q.x.y.deep.example", 10, "longer suffix listed first still wins"},
 		{"y.deep.example", 11, "only the shorter suffix matches"},
 
-		// design 6.4: equal specificity — rule order decides.
+		// design 7.4: equal specificity — rule order decides.
 		{"example.org", 5, "same suffix in two rules: first rule"},
 		{"sub.example.org", 5, "same suffix in two rules, subdomain: first rule"},
 		// ex1/ex2 both exact; rule 7 comes first (also covered above).
 
-		// design 6.4: case-insensitive, trailing dot ignored.
+		// design 7.4: case-insensitive, trailing dot ignored.
 		{"WWW.YouTube.com.", 0, "design example: WWW.YouTube.com. matches youtube.com"},
 		{"YOUTUBE.COM", 0, "upper case"},
 		{"GOOGLE.COM.", 2, "exact match, upper case with trailing dot"},
@@ -116,7 +116,7 @@ func TestMatchDomain(t *testing.T) {
 	}
 }
 
-// design 6.4: ties by rule order — the outcome flips when the rules are swapped.
+// design 7.4: ties by rule order — the outcome flips when the rules are swapped.
 func TestMatchDomainTieFollowsRuleOrder(t *testing.T) {
 	cfg := &Config{
 		Services: map[string]Service{
@@ -150,7 +150,7 @@ func TestMatchDomainTieFollowsRuleOrder(t *testing.T) {
 	}
 }
 
-// design 6.4: a config without rules matches nothing.
+// design 7.4: a config without rules matches nothing.
 func TestMatchDomainNoRules(t *testing.T) {
 	cfg := &Config{Services: map[string]Service{"yt": {Domains: []Domain{{Name: "youtube.com"}}}}}
 	if got, ok := matchDomain(t, cfg, "youtube.com"); ok {
@@ -158,7 +158,7 @@ func TestMatchDomainNoRules(t *testing.T) {
 	}
 }
 
-// design 6.4 + 9.2: patterns normalized by Load match as written in the design.
+// design 7.4 + 10.1: patterns normalized by Load match as written in the design.
 func TestMatchDomainAfterLoad(t *testing.T) {
 	yaml := `
 tunnels:
@@ -206,7 +206,7 @@ func matchDomain(t *testing.T, cfg *Config, name string) (rule int, ok bool) {
 	return cfg.MatchDomain(name)
 }
 
-// --- MatchDomainFunc (M5 decision 1) -----------------------------------------
+// --- MatchDomainFunc (Wirefork M5 decision 1) -----------------------------------------
 
 // m5NoPanicMatch calls MatchDomainFunc and turns a panic into a test failure.
 func m5NoPanicMatch(t *testing.T, cfg *Config, name string, use func(int) bool) (rule int, ok bool) {
@@ -231,7 +231,7 @@ func m5Skip(skip ...int) func(int) bool {
 	}
 }
 
-// design 6.4, M5 plan "Сигнатуры": a nil use means every rule, the result is
+// design 7.4, Wirefork M5 plan "Сигнатуры": a nil use means every rule, the result is
 // that of MatchDomain.
 func TestM5MatchDomainFuncNilIsMatchDomain(t *testing.T) {
 	cfg := matchConfig()
@@ -251,7 +251,7 @@ func TestM5MatchDomainFuncNilIsMatchDomain(t *testing.T) {
 	}
 }
 
-// design 6.4 (fallback: default does not take part), 7 step 1, M5 decision 1:
+// design 7.4 (fallback: default does not take part), 8 step 1, Wirefork M5 decision 1:
 // a skipped rule gives the name to the next matching rule by the same order
 // of specificity; among the remaining rules ties go by rule order.
 func TestM5MatchDomainFunc(t *testing.T) {

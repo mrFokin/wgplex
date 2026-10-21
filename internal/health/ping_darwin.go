@@ -28,7 +28,7 @@ func init() {
 // itself; Close may be called during a Check.
 //
 // Every ICMP socket of the process gets every ICMP reply that connect does
-// not filter out (M7 fact 6), so a reply is matched by id, seq and a random
+// not filter out (Wirefork M7 fact 6), so a reply is matched by id, seq and a random
 // nonce in its data.
 type Pinger struct {
 	conn net.Conn   // SOCK_DGRAM ICMP socket, connected to dst

@@ -8,7 +8,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/tunnel"
 )
 
-// Tests follow design 8 and the M7 plan ("Модель → Health", decision 1), not
+// Tests follow design 9 and the Wirefork M7 plan ("Модель → Health", decision 1), not
 // the implementation. Time is passed explicitly; all times are wall times
 // without a monotonic reading (time.Date).
 
@@ -81,7 +81,7 @@ func m7Run(t *testing.T, what string, h Health, steps []m7Step) Health {
 
 // --- start ---------------------------------------------------------------------
 
-// design 8 "Начало", decision 1: Unknown after the tunnel is up, routable.
+// design 9 "Начало", decision 1: Unknown after the tunnel is up, routable.
 func TestM7HealthNew(t *testing.T) {
 	defer m7NoPanic(t)
 	h := New(m7T0)
@@ -111,7 +111,7 @@ func TestM7HealthAliveMethod(t *testing.T) {
 
 // --- active check ----------------------------------------------------------------
 
-// design 8 "Активная проверка": dead after 3 failures in a row, alive after
+// design 9 "Активная проверка": dead after 3 failures in a row, alive after
 // 1 success; Fails counts consecutive failures. No traffic in these
 // samples, so the passive verdict stays put.
 func TestM7HealthPing(t *testing.T) {
@@ -154,7 +154,7 @@ func TestM7HealthPing(t *testing.T) {
 	}
 }
 
-// M7 plan "Модель → Health": a success sets LastOK (the sample time) and
+// Wirefork M7 plan "Модель → Health": a success sets LastOK (the sample time) and
 // RTT; a failure keeps them (RTT of the last successful ping).
 func TestM7HealthPingLastOK(t *testing.T) {
 	defer m7NoPanic(t)
@@ -177,7 +177,7 @@ func TestM7HealthPingLastOK(t *testing.T) {
 	}
 }
 
-// M7 plan "Reason": the reason of a dead active check tells of
+// Wirefork M7 plan "Reason": the reason of a dead active check tells of
 // the 3 failures (status sample "ping 1.1.1.1: 3 failures").
 func TestM7HealthPingReason(t *testing.T) {
 	defer m7NoPanic(t)
@@ -192,7 +192,7 @@ func TestM7HealthPingReason(t *testing.T) {
 
 // --- passive check ------------------------------------------------------------------
 
-// design 8 "Пассивная проверка — точнее", M7 decision 11: dead when on two
+// design 9 "Пассивная проверка — точнее", Wirefork M7 decision 11: dead when on two
 // polls in a row tx grew and rx did not, and the handshake (not earlier than
 // up or reset) is older than 180 s; alive when rx grew or the handshake is at
 // most 180 s old; no traffic — no change. The first poll only records tx/rx.
@@ -255,7 +255,7 @@ func TestM7HealthPassive(t *testing.T) {
 	}
 }
 
-// M7 decision 11: a poll with tx growth and no rx growth at an old handshake
+// Wirefork M7 decision 11: a poll with tx growth and no rx growth at an old handshake
 // counts; dead needs two such polls in a row. A poll where rx grew or tx did
 // not zeroes the count; the first poll after New or Reset is the base and
 // does not count.
@@ -326,7 +326,7 @@ func TestM7HealthPassiveTwoPolls(t *testing.T) {
 	}
 }
 
-// M7 decision 11, design 8 "Сброс": the first poll after Reset is the base;
+// Wirefork M7 decision 11, design 9 "Сброс": the first poll after Reset is the base;
 // tx growth against the counters before the reset does not count, and the
 // count of before the reset does not carry over.
 func TestM7HealthPassiveTwoPollsReset(t *testing.T) {
@@ -345,7 +345,7 @@ func TestM7HealthPassiveTwoPollsReset(t *testing.T) {
 	})
 }
 
-// M7 plan "Reason": `no handshake for 3m10s while sending`.
+// Wirefork M7 plan "Reason": `no handshake for 3m10s while sending`.
 func TestM7HealthPassiveReason(t *testing.T) {
 	defer m7NoPanic(t)
 	hs := m7At(60 * time.Second)
@@ -359,7 +359,7 @@ func TestM7HealthPassiveReason(t *testing.T) {
 	}
 }
 
-// design 8 "Итоговый вердикт": dead when any verdict is dead.
+// design 9 "Итоговый вердикт": dead when any verdict is dead.
 func TestM7HealthVerdictsOR(t *testing.T) {
 	defer m7NoPanic(t)
 	s := time.Second
@@ -391,7 +391,7 @@ func TestM7HealthVerdictsOR(t *testing.T) {
 
 // --- Reset ---------------------------------------------------------------------------
 
-// design 8 "Сброс": after a wake the handshake is hours old (wall time), but
+// design 9 "Сброс": after a wake the handshake is hours old (wall time), but
 // the window runs from the reset: no false "dead" for 180 s.
 func TestM7HealthResetAfterSleep(t *testing.T) {
 	defer m7NoPanic(t)
@@ -422,7 +422,7 @@ func TestM7HealthResetAfterSleep(t *testing.T) {
 	})
 }
 
-// design 8 "Сброс": the reset zeroes the failure counter.
+// design 9 "Сброс": the reset zeroes the failure counter.
 func TestM7HealthResetFails(t *testing.T) {
 	defer m7NoPanic(t)
 	h := New(m7T0)
@@ -443,7 +443,7 @@ func TestM7HealthResetFails(t *testing.T) {
 	}
 }
 
-// design 8 "Сброс": a dead tunnel stays dead until evidence of life.
+// design 9 "Сброс": a dead tunnel stays dead until evidence of life.
 func TestM7HealthResetKeepsDead(t *testing.T) {
 	defer m7NoPanic(t)
 	s := time.Second
@@ -483,7 +483,7 @@ func TestM7HealthResetKeepsDead(t *testing.T) {
 
 // --- Poke ------------------------------------------------------------------------------
 
-// design 8 "Повторный handshake": a dead tunnel is poked at most every 30 s;
+// design 9 "Повторный handshake": a dead tunnel is poked at most every 30 s;
 // a tunnel not dead never.
 func TestM7HealthPoke(t *testing.T) {
 	defer m7NoPanic(t)
@@ -536,7 +536,7 @@ func TestM7HealthPoke(t *testing.T) {
 
 // --- SampleOf --------------------------------------------------------------------------
 
-// M7 plan: SampleOf takes the newest handshake and the sums of tx/rx.
+// Wirefork M7 plan: SampleOf takes the newest handshake and the sums of tx/rx.
 func TestM7SampleOf(t *testing.T) {
 	defer m7NoPanic(t)
 	at := m7At(time.Minute)

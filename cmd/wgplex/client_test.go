@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// Tests follow the M6 plan (step 4, remark 7: the CLI rejects a body over 1 MiB
+// Tests follow the Wirefork M6 plan (step 4, remark 7: the CLI rejects a body over 1 MiB
 // itself), not the implementation.
 
 const m6MiB = 1 << 20

@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// Tests follow design 16 (an overlap of tunnel routes with a local network is
-// only a warning) and the doc of Overlaps from the M4 plan: routes of the table
+// Tests follow design 18 (an overlap of tunnel routes with a local network is
+// only a warning) and the doc of Overlaps from the Wirefork M4 plan: routes of the table
 // whose prefix overlaps one of the local subnets, in table order, endpoint
 // routes excluded.
 
@@ -33,11 +33,11 @@ func TestM4Overlaps(t *testing.T) {
 		local []netip.Prefix
 		want  []Route
 	}{
-		// design 16: a prefix equal to the LAN subnet overlaps it.
+		// design 18: a prefix equal to the LAN subnet overlaps it.
 		{name: "equal to LAN", local: lan,
 			tbl:  Table{tAllowed("192.168.20.0/24", "home")},
 			want: []Route{tAllowed("192.168.20.0/24", "home")}},
-		// M4 fact 8: a prefix narrower than the LAN (/25 in /24).
+		// Wirefork M4 fact 8: a prefix narrower than the LAN (/25 in /24).
 		{name: "narrower than LAN", local: lan,
 			tbl:  Table{tAllowed("192.168.20.128/25", "home")},
 			want: []Route{tAllowed("192.168.20.128/25", "home")}},

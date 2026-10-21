@@ -1,4 +1,4 @@
-// Package netwatch reports the events the daemon reacts to (design 5, 7,
+// Package netwatch reports the events the daemon reacts to (design 6, 8,
 // 10): network changes, the DNS capture key, wake from sleep and a periodic
 // resync. The parsing of scutil output, the mapping of keys to events and
 // the debouncing are pure; Watch (watch_darwin.go) runs scutil.
@@ -34,9 +34,9 @@ func (e Event) String() string {
 	return strings.Join(names, "|")
 }
 
-// The keys and patterns watched (Netwatch model of the M7 plan); a pattern
+// The keys and patterns watched (Netwatch model of the Wirefork M7 plan); a pattern
 // is a regex(3) one for scutil "n.add <pattern> pattern" and matches whole
-// keys. AirPort keys are noise and are not watched (M7 fact 3).
+// keys. AirPort keys are noise and are not watched (Wirefork M7 fact 3).
 
 var (
 	networkKeys     = []string{"State:/Network/Global/IPv4", "State:/Network/Global/IPv6", "State:/Network/Global/DNS"}
@@ -132,7 +132,7 @@ func (d *debouncer) due(now time.Time) (Event, time.Time) {
 }
 
 // sleepJump is how much more wall time than monotonic time between two
-// ticks means a sleep (design 5).
+// ticks means a sleep (design 6).
 const sleepJump = 5 * time.Second
 
 // slept reports a sleep between two ticks: wall − mono > 5 s.

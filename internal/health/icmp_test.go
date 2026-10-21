@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Tests follow design 8 "Ping" and the M7 plan (fact 6, decision 8): echo
+// Tests follow design 9 "Ping" and the Wirefork M7 plan (fact 6, decision 8): echo
 // request and reply by RFC 792 (ICMPv4) and RFC 4443 (ICMPv6), the ICMPv4
 // checksum by RFC 1071, replies matched by id, seq and nonce because every
 // ICMP socket of the process gets every reply. Packets are built by hand

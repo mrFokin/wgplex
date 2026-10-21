@@ -157,7 +157,7 @@ PersistentKeepalive = off
 	}
 
 	// Exactly two warnings: the non-IP DNS value and the non-canonical CIDR.
-	// Bare addresses and duplicates are normalized silently (design 9.2).
+	// Bare addresses and duplicates are normalized silently (design 10.1).
 	if len(warns) != 2 {
 		t.Fatalf("warnings = %v, want 2", warns)
 	}
@@ -412,7 +412,7 @@ func TestParseKey(t *testing.T) {
 
 // A mistyped key line ("PrivateKey <key>", "PrivateKey: <key>") must not echo
 // the key into errors: base64 padding "=" would otherwise be taken as the
-// separator and the key as part of the name (design 9.4).
+// separator and the key as part of the name (design 10.1).
 func TestParseWGConfMalformedKeyLineNoLeak(t *testing.T) {
 	_, pubS := genKey(t)
 	_, secret := genKey(t)
@@ -454,7 +454,7 @@ func TestParseWGConfMalformedKeyLineNoLeak(t *testing.T) {
 }
 
 // Address is an interface address with a prefix length: host bits are kept
-// without a warning, and two addresses in the same /24 stay distinct (design 9.2).
+// without a warning, and two addresses in the same /24 stay distinct (design 10.1).
 func TestParseWGConfAddressKeepsHostBits(t *testing.T) {
 	_, privS := genKey(t)
 	_, pubS := genKey(t)

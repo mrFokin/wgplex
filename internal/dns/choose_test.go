@@ -9,7 +9,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/router"
 )
 
-// Tests follow docs/design.md 6.3, 6.4, 7 and the M5 plan ("Модель", steps
+// Tests follow docs/design.md 7.3, 7.4, 8 and the Wirefork M5 plan ("Модель", steps
 // 1–6 of the upstream choice; decisions 1, 6, 7), not the implementation.
 // Configs are built as literals: no keys at all.
 
@@ -161,7 +161,7 @@ func m5CheckChoice(t *testing.T, name string, got, want Choice) {
 
 // --- Choose ------------------------------------------------------------------
 
-// design 7 "Выбор апстрима" 1–6, 6.3, 6.4, M5 decisions 1, 6, 7.
+// design 8 "Выбор апстрима" 1–6, 7.3, 7.4, Wirefork M5 decisions 1, 6, 7.
 func TestM5Choose(t *testing.T) {
 	cfg := m5ChooseCfg(true)
 	rules := m5ChooseRules()
@@ -178,7 +178,7 @@ func TestM5Choose(t *testing.T) {
 		// Step 3: the tunnel has IPv6 → no DropAAAA.
 		{"rule on a tunnel with IPv6", "v6only.example", Choice{Rule: m5RLow, Tunnel: "v6"}},
 		// Step 4: empty via → system upstream, the rule is kept; direct is
-		// not filtered (design 7 IPv6: only when the target tunnel lacks it).
+		// not filtered (design 8 IPv6: only when the target tunnel lacks it).
 		{"empty via: system upstream", "icanhazip.com", Choice{Rule: m5RDirect}},
 		{"empty via: subdomain", "a.icanhazip.com", Choice{Rule: m5RDirect}},
 		// Step 2: fallback: block in fallback → NODATA.
@@ -224,7 +224,7 @@ func TestM5Choose(t *testing.T) {
 	}
 }
 
-// design 7 step 5, decision 7: without de's utun its zone goes to the next
+// design 8 step 5, decision 7: without de's utun its zone goes to the next
 // tunnel with the same zone; without any, to the system upstream.
 func TestM5ChooseDNSDomainsWithoutUtun(t *testing.T) {
 	cfg := m5ChooseCfg(true)
@@ -247,7 +247,7 @@ func TestM5ChooseDNSDomainsWithoutUtun(t *testing.T) {
 	}
 }
 
-// design 7 "IPv6", 9.2: with ipv6_filter: false nothing is filtered.
+// design 8 "IPv6", 10.1: with ipv6_filter: false nothing is filtered.
 func TestM5ChooseIPv6FilterOff(t *testing.T) {
 	cfg := m5ChooseCfg(false)
 	rules := m5ChooseRules()
@@ -269,7 +269,7 @@ func TestM5ChooseIPv6FilterOff(t *testing.T) {
 	}
 }
 
-// design 6.4: ties between rules go by rule order also when the upper one is
+// design 7.4: ties between rules go by rule order also when the upper one is
 // in fallback: default and so skipped (decision 1): the next equal one wins.
 func TestM5ChooseEqualRulesFallback(t *testing.T) {
 	cfg := &config.Config{
@@ -310,7 +310,7 @@ func TestM5ChooseEqualRulesFallback(t *testing.T) {
 
 // --- useRule -----------------------------------------------------------------
 
-// M5 decision 1: only rules in fallback: default (and in fallback) are left
+// Wirefork M5 decision 1: only rules in fallback: default (and in fallback) are left
 // out; block and empty via take part.
 func TestM5UseRule(t *testing.T) {
 	cfg := m5ChooseCfg(true)
@@ -341,7 +341,7 @@ func TestM5UseRule(t *testing.T) {
 
 // --- Servers -----------------------------------------------------------------
 
-// design 7: DNS from the .conf of the tunnel, else 1.1.1.1.
+// design 8: DNS from the .conf of the tunnel, else 1.1.1.1.
 func TestM5Servers(t *testing.T) {
 	cases := []struct {
 		why  string

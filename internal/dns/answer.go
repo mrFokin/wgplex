@@ -14,7 +14,7 @@ const noDataTTL = 30 * time.Second
 
 // Filter edits an upstream answer for c in place: with c.DropAAAA it removes
 // AAAA records and their RRSIGs; for a rule domain (c.Rule >= 0) it removes
-// ipv4hint and ipv6hint from HTTPS and SVCB records (M5 decision 8). Other
+// ipv4hint and ipv6hint from HTTPS and SVCB records (Wirefork M5 decision 8). Other
 // records and SVCB keys (alpn, …) are kept. All three sections are edited.
 func Filter(m *dns.Msg, c Choice) {
 	for _, sec := range []*[]dns.RR{&m.Answer, &m.Ns, &m.Extra} {

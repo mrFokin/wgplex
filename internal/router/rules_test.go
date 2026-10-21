@@ -7,7 +7,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/config"
 )
 
-// Tests in this file follow docs/design.md sections 6.3 and 8 and the M2 plan
+// Tests in this file follow docs/design.md sections 7.3 and 9 and the Wirefork M2 plan
 // (docs/plans/m2-router.md, "Алгоритм", "Решения"), not the implementation.
 
 // tSelect calls SelectRules and turns a panic (not implemented yet) into a test failure.
@@ -42,7 +42,7 @@ func tRuleCfg(fallback config.Fallback, vias ...[]string) *config.Config {
 var (
 	tUp   = TunnelState{Up: true, Alive: true}
 	tDead = TunnelState{Up: true, Alive: false}
-	tOff  = TunnelState{Up: false, Alive: true} // Alive is ignored when !Up (design 8, router.go)
+	tOff  = TunnelState{Up: false, Alive: true} // Alive is ignored when !Up (design 9, router.go)
 )
 
 func tOn(name string) RuleState { return RuleState{Tunnel: name} }
@@ -56,7 +56,7 @@ func tFmtRules(rs []RuleState) string {
 	return fmt.Sprintf("%+v", rs)
 }
 
-// design 6.3, 8: the first tunnel from via that is enabled (Up) and alive is used.
+// design 7.3, 9: the first tunnel from via that is enabled (Up) and alive is used.
 func TestSelectRulesSingleRule(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -66,7 +66,7 @@ func TestSelectRulesSingleRule(t *testing.T) {
 		prev     []RuleState
 		want     RuleState
 	}{
-		// design 6.3: via is ordered; the first usable one wins.
+		// design 7.3: via is ordered; the first usable one wins.
 		{name: "first in via usable", via: []string{"nl", "de"},
 			tunnels: map[string]TunnelState{"nl": tUp, "de": tUp}, want: tOn("nl")},
 		{name: "via order, not config order", via: []string{"de", "nl"},
@@ -74,7 +74,7 @@ func TestSelectRulesSingleRule(t *testing.T) {
 		{name: "third tunnel when first two unusable", via: []string{"nl", "de", "fi"},
 			tunnels: map[string]TunnelState{"nl": tDead, "de": tOff, "fi": tUp}, want: tOn("fi")},
 
-		// design 6.3: a tunnel disabled by the user does not exist for rules.
+		// design 7.3: a tunnel disabled by the user does not exist for rules.
 		{name: "disabled: missing from map", via: []string{"nl", "de"},
 			tunnels: map[string]TunnelState{"de": tUp}, want: tOn("de")},
 		{name: "disabled: Up=false even if Alive", via: []string{"nl", "de"},
@@ -82,11 +82,11 @@ func TestSelectRulesSingleRule(t *testing.T) {
 		{name: "nil tunnels map: all down", via: []string{"nl"},
 			tunnels: nil, want: tFallback},
 
-		// design 8: a dead tunnel is excluded from via.
+		// design 9: a dead tunnel is excluded from via.
 		{name: "dead first tunnel skipped", via: []string{"nl", "de"},
 			tunnels: map[string]TunnelState{"nl": tDead, "de": tUp}, want: tOn("de")},
 
-		// design 6.3: no usable tunnel → fallback, independent of default/block.
+		// design 7.3: no usable tunnel → fallback, independent of default/block.
 		{name: "all dead, fallback default", via: []string{"nl", "de"}, fallback: config.FallbackDefault,
 			tunnels: map[string]TunnelState{"nl": tDead, "de": tDead}, want: tFallback},
 		{name: "all dead, fallback block", via: []string{"nl", "de"}, fallback: config.FallbackBlock,
@@ -96,7 +96,7 @@ func TestSelectRulesSingleRule(t *testing.T) {
 		{name: "mixed dead and disabled", via: []string{"nl", "de", "fi"},
 			tunnels: map[string]TunnelState{"nl": tDead, "de": tOff}, want: tFallback},
 
-		// design 6.3: empty via is always direct — never fallback.
+		// design 7.3: empty via is always direct — never fallback.
 		{name: "empty via", via: nil,
 			tunnels: map[string]TunnelState{"nl": tUp}, want: RuleState{}},
 		{name: "empty via, everything dead", via: []string{},
@@ -104,7 +104,7 @@ func TestSelectRulesSingleRule(t *testing.T) {
 		{name: "empty via ignores prev", via: nil,
 			tunnels: map[string]TunnelState{"nl": tUp}, prev: []RuleState{tOn("nl")}, want: RuleState{}},
 
-		// design 6.3: no return to a higher-priority tunnel.
+		// design 7.3: no return to a higher-priority tunnel.
 		{name: "no return: stays on de while nl is alive again", via: []string{"nl", "de"},
 			tunnels: map[string]TunnelState{"nl": tUp, "de": tUp}, prev: []RuleState{tOn("de")}, want: tOn("de")},
 		{name: "prev on de, de dies: back to nl", via: []string{"nl", "de"},
@@ -149,7 +149,7 @@ func TestSelectRulesSingleRule(t *testing.T) {
 	}
 }
 
-// design 6.3: every rule gets its own decision; the result is indexed like cfg.Rules.
+// design 7.3: every rule gets its own decision; the result is indexed like cfg.Rules.
 func TestSelectRulesSeveralRules(t *testing.T) {
 	cfg := tRuleCfg(config.FallbackDefault,
 		[]string{"nl", "de"}, // 0
@@ -195,7 +195,7 @@ func TestSelectRulesLength(t *testing.T) {
 	}
 }
 
-// design 6.3, 8 over time on the 9.1 example rules (via [nl, de]):
+// design 7.3, 9 over time on the 10.1 example rules (via [nl, de]):
 // all alive → nl; nl dies → de; nl revives → still de; de dies → nl.
 func TestSelectRulesSequence(t *testing.T) {
 	cfg := tRuleCfg(config.FallbackDefault, []string{"nl", "de"}, []string{"nl", "de"})

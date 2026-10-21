@@ -25,7 +25,7 @@ func echoRequest(v6 bool, id, seq uint16, nonce []byte) []byte {
 		m.Type = ipv6.ICMPTypeEchoRequest
 	}
 	// With a nil pseudo header Marshal computes the ICMPv4 checksum and
-	// leaves the ICMPv6 one zero: the kernel fills it in (M7 fact 6).
+	// leaves the ICMPv6 one zero: the kernel fills it in (Wirefork M7 fact 6).
 	b, err := m.Marshal(nil)
 	if err != nil {
 		panic(err) // cannot happen: an Echo body always marshals

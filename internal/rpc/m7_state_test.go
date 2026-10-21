@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// Tests follow design 8 (a dead tunnel keeps its utun and its routes), 11
-// (state "dead", the icon, the ping result) and the M7 plan ("Статус",
+// Tests follow design 9 (a dead tunnel keeps its utun and its routes), 17.3
+// (state "dead", the icon, the ping result) and the Wirefork M7 plan ("Статус",
 // decision 10; TunnelStatus.Reason, Check, CheckStatus), not the
 // implementation. The fixture is m6State of state_test.go: work, de, fi up,
 // bad failed, home off.
@@ -31,7 +31,7 @@ func m7DeadState(f *m6Fixture) *State {
 	return s
 }
 
-// design 11, M7 plan "Статус": a running tunnel that health calls dead is
+// design 17.3, Wirefork M7 plan "Статус": a running tunnel that health calls dead is
 // "dead" with its reason; it keeps its interface, peers and route count; the
 // check result is passed on for "up" and "dead".
 func TestM7StatusDead(t *testing.T) {
@@ -76,7 +76,7 @@ func TestM7StatusDead(t *testing.T) {
 	}
 }
 
-// design 11, M7 plan "Статус": warn also for an enabled dead tunnel;
+// design 17.3, Wirefork M7 plan "Статус": warn also for an enabled dead tunnel;
 // Unknown and Alive are "up"; "starting" still never gives warn.
 func TestM7StatusIconDead(t *testing.T) {
 	f := m6NewFixture(t)
@@ -138,7 +138,7 @@ func m7TunnelsJSON(t *testing.T, st Status) map[string]map[string]any {
 	return out
 }
 
-// M7 plan "internal/rpc": reason and check are on the wire only when set;
+// Wirefork M7 plan "internal/rpc": reason and check are on the wire only when set;
 // check has addr and fails always, last_ok and rtt_ms only when known.
 func TestM7StatusJSON(t *testing.T) {
 	f := m6NewFixture(t)
@@ -190,7 +190,7 @@ func TestM7StatusJSON(t *testing.T) {
 	}
 }
 
-// design 9.4, 13: no key of the fixture in the replies with a dead tunnel.
+// design 10.1, 14: no key of the fixture in the replies with a dead tunnel.
 func TestM7NoKeysDead(t *testing.T) {
 	f := m6NewFixture(t)
 	s := m7DeadState(f)
@@ -204,8 +204,8 @@ func TestM7NoKeysDead(t *testing.T) {
 	}
 }
 
-// M7 plan "internal/rpc": Explain and RoutesOf do not change for a dead
-// tunnel: its utun is there, its routes are its own (design 8: AllowedIPs
+// Wirefork M7 plan "internal/rpc": Explain and RoutesOf do not change for a dead
+// tunnel: its utun is there, its routes are its own (design 9: AllowedIPs
 // stay on it; rules skip it by their RuleState).
 func TestM7RoutesDead(t *testing.T) {
 	f := m6NewFixture(t)

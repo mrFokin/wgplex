@@ -15,7 +15,7 @@ import (
 
 // newLogger adapts wireguard-go logging to slog: Verbosef → Debug, Errorf →
 // Warn, attribute tunnel=name. Any hex or base64 form of the given keys in a
-// message is replaced with "(redacted)" as a safety net (design 9.4).
+// message is replaced with "(redacted)" as a safety net (design 10.1).
 func newLogger(l *slog.Logger, name string, keys ...config.Key) *device.Logger {
 	l = l.With("tunnel", name)
 	red := newRedactor(keys...)

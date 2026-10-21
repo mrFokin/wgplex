@@ -13,11 +13,11 @@ import (
 	"github.com/mrFokin/wgplex/internal/config"
 )
 
-// Tests follow design 5 (DDNS: endpoints with a host name are resolved
-// again) and the M11 plan ("Модель → DDNS и повтор", "Сигнатуры →
+// Tests follow design 6 (DDNS: endpoints with a host name are resolved
+// again) and the Wirefork M11 plan ("Модель → DDNS и повтор", "Сигнатуры →
 // internal/tunnel"), not the implementation. Keys are generated per test.
 
-// design 5: HasHostnames — some peer endpoint is a host name, not an IP
+// design 6: HasHostnames — some peer endpoint is a host name, not an IP
 // literal; a peer without Endpoint does not count.
 func TestM11HasHostnames(t *testing.T) {
 	peer := func(ep string) config.Peer { return config.Peer{PublicKey: testKey(t), Endpoint: ep} }
@@ -60,7 +60,7 @@ func m11EndpointUAPI(t *testing.T, pub config.Key, ep netip.AddrPort) string {
 	return endpointUAPI(pub, ep)
 }
 
-// M11 plan: endpointUAPI is public_key (lowercase hex), update_only=true,
+// Wirefork M11 plan: endpointUAPI is public_key (lowercase hex), update_only=true,
 // endpoint — in this order; IPv6 in brackets.
 func TestM11EndpointUAPI(t *testing.T) {
 	pub := testKey(t)

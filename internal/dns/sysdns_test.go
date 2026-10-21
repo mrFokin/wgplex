@@ -25,11 +25,11 @@ func m5IsUUID(s string) bool {
 	return true
 }
 
-// Tests follow design 7 (the capture key, the original system DNS: manual,
-// else DHCP) and the M5 plan ("Модель": capture, the original servers;
+// Tests follow design 8 (the capture key, the original system DNS: manual,
+// else DHCP) and the Wirefork M5 plan ("Модель": capture, the original servers;
 // appendix: scutil samples, verbatim), not the implementation.
 
-// Samples from the appendix of the M5 plan, verbatim.
+// Samples from the appendix of the Wirefork M5 plan, verbatim.
 const (
 	m5ScutilGlobalIPv4 = `<dictionary> {
   PrimaryInterface : en0
@@ -124,7 +124,7 @@ func m5SameMap(t *testing.T, got, want map[string][]string) {
 
 // --- parseScutil -------------------------------------------------------------
 
-// M5 appendix: scalars as one-element slices, arrays in index order, nested
+// Wirefork M5 appendix: scalars as one-element slices, arrays in index order, nested
 // dictionaries skipped (with arrays of them), the value of a scalar is all
 // after the first " : ".
 func TestM5ParseScutil(t *testing.T) {
@@ -205,7 +205,7 @@ func TestM5ParseScutil(t *testing.T) {
 
 // --- systemServers -----------------------------------------------------------
 
-// design 7 "Остальное": DNS of the primary service, manual (Setup) first,
+// design 8 "Остальное": DNS of the primary service, manual (Setup) first,
 // else DHCP (State); invalid addresses are skipped.
 func TestM5SystemServers(t *testing.T) {
 	setup := m5Parse(t, m5ScutilSetupDNS)
@@ -245,7 +245,7 @@ func TestM5SystemServers(t *testing.T) {
 
 // --- captureScript -----------------------------------------------------------
 
-// design 7, M5 "Модель" (capture): the key State:/Network/Service/<constant
+// design 8, Wirefork M5 "Модель" (capture): the key State:/Network/Service/<constant
 // UUID>/DNS; the script is d.init, d.add of ServerAddresses 127.0.0.1 and
 // SupplementalMatchDomains "" (arrays), set of the key.
 func TestM5CaptureScript(t *testing.T) {

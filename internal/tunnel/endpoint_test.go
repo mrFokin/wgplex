@@ -78,7 +78,7 @@ func addrs(ss ...string) []netip.Addr {
 	return out
 }
 
-// design 5: the endpoint domain is resolved when the tunnel starts — first
+// design 6: the endpoint domain is resolved when the tunnel starts — first
 // IPv4, else first IPv6; an IP literal is used as is; no Endpoint, no address.
 func TestResolveEndpoints(t *testing.T) {
 	table := map[string][]netip.Addr{
@@ -175,7 +175,7 @@ func TestResolveEndpointsNoPeers(t *testing.T) {
 }
 
 // Errors: zones are rejected, resolver failures surface; error texts carry
-// no keys (design 9.4).
+// no keys (design 10.1).
 func TestResolveEndpointsErrors(t *testing.T) {
 	tests := []struct {
 		name     string

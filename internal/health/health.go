@@ -1,4 +1,4 @@
-// Package health decides whether a tunnel is alive (design 8): an active
+// Package health decides whether a tunnel is alive (design 9): an active
 // check (ping of the check address through the tunnel) and a passive one
 // (handshake age and tx/rx growth). Health is a pure value; the pings are
 // made by Pinger (ping_darwin.go).
@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	Interval         = 10 * time.Second  // design 8
+	Interval         = 10 * time.Second  // design 9
 	FailsToDead      = 3                 // consecutive ping failures
-	HandshakeTimeout = 180 * time.Second // design 8 "~3 minutes"
+	HandshakeTimeout = 180 * time.Second // design 9 "~3 minutes"
 	PingTimeout      = 3 * time.Second
-	HTTPTimeout      = 5 * time.Second  // the whole HTTP check (design 8)
+	HTTPTimeout      = 5 * time.Second  // the whole HTTP check (design 9)
 	PokeEvery        = 30 * time.Second // handshake attempts of a dead tunnel
 	StrikesToDead    = 2                // passive: polls in a row sending without receiving
 )

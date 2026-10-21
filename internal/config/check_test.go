@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// Tests follow design 8 "HTTP", 9.2 and the M11 plan ("Модель → HTTP-проверка",
+// Tests follow design 9 "HTTP", 10.1 and the Wirefork M11 plan ("Модель → HTTP-проверка",
 // "Сигнатуры → internal/config"), not the implementation: check is an IP
 // address (Check) or an http/https URL with a host, without userinfo and
 // fragment (CheckURL = url.Parse(..).String() with scheme and host lower-cased); at most one of them is set.
@@ -32,7 +32,7 @@ func m11Confs(t *testing.T) map[string]string {
 	return map[string]string{"nl.conf": simpleConf(t)}
 }
 
-// design 9.2: valid check values.
+// design 10.1: valid check values.
 func TestM11CheckValid(t *testing.T) {
 	cases := []struct {
 		name string
@@ -79,7 +79,7 @@ func TestM11CheckValid(t *testing.T) {
 	}
 }
 
-// design 9.2: a tunnel without check has neither Check nor CheckURL.
+// design 10.1: a tunnel without check has neither Check nor CheckURL.
 func TestM11CheckNone(t *testing.T) {
 	cfg, _ := mustLoad(t, filesOf(baseYAML, baseConfs(t)))
 	for _, tn := range cfg.Tunnels {
@@ -89,7 +89,7 @@ func TestM11CheckNone(t *testing.T) {
 	}
 }
 
-// design 9.2, M11 plan: a URL check must be http/https with a host, without
+// design 10.1, Wirefork M11 plan: a URL check must be http/https with a host, without
 // userinfo or fragment; anything else is a config error mentioning check and
 // the value (`<where>: check: invalid URL %q: <reason>`).
 func TestM11CheckInvalid(t *testing.T) {
@@ -127,7 +127,7 @@ func TestM11CheckInvalid(t *testing.T) {
 	}
 }
 
-// design 9.2: errors are collected; a bad check URL in one tunnel and a bad
+// design 10.1: errors are collected; a bad check URL in one tunnel and a bad
 // check IP in another are both reported.
 func TestM11CheckInvalidCollected(t *testing.T) {
 	yaml := `

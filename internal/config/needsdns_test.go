@@ -2,13 +2,13 @@ package config
 
 import "testing"
 
-// Tests in this file follow docs/design.md section 7 (first item: DNS capture
-// condition) and M10 plan decision 11, not the implementation. The resolver
+// Tests in this file follow docs/design.md section 8 (first item: DNS capture
+// condition) and Wirefork M10 plan decision 11, not the implementation. The resolver
 // has work, and the system DNS is captured, only when a rule names a service
 // with domains or a tunnel has dns_domains.
 func TestNeedsDNS(t *testing.T) {
 	// Every .conf is generated per test run (fresh keys) and has DNS, so that
-	// dns_domains is valid on any tunnel (design 9.2).
+	// dns_domains is valid on any tunnel (design 10.1).
 	confs := func(t *testing.T) map[string]string {
 		return map[string]string{
 			"nl.conf":   simpleConf(t),
@@ -32,12 +32,12 @@ tunnels:
 		yaml string
 		want bool
 	}{
-		// M10 decision 10/11: an empty config leaves the system DNS alone.
+		// Wirefork M10 decision 10/11: an empty config leaves the system DNS alone.
 		{name: "empty yaml", yaml: "", want: false},
-		// design 4.2: the template is fully commented out — an empty config.
+		// design 10.3: the template is fully commented out — an empty config.
 		{name: "only comments", yaml: "# tunnels:\n#   - name: nl\n\n# rules: []\n", want: false},
 		{name: "tunnels without dns_domains and rules", yaml: tunnels, want: false},
-		// design 7: only domains give the resolver work; CIDRs are routes.
+		// design 8: only domains give the resolver work; CIDRs are routes.
 		{name: "rule with cidr-only service", yaml: tunnels + `
 services:
   telegram:
@@ -54,7 +54,7 @@ rules:
   - services: [youtube]
     via: [nl]
 `, want: true},
-		// design 6.4: "=name" is an exact domain, still a domain.
+		// design 7.4: "=name" is an exact domain, still a domain.
 		{name: "rule with exact domain service", yaml: tunnels + `
 services:
   one:
@@ -63,8 +63,8 @@ rules:
   - services: [one]
     via: [nl]
 `, want: true},
-		// M10 plan, decision 11: a service no rule uses needs no capture
-		// (it only gives a warning, design 9.2).
+		// Wirefork M10 plan, decision 11: a service no rule uses needs no capture
+		// (it only gives a warning, design 10.1).
 		{name: "domain service without rule", yaml: tunnels + `
 services:
   youtube:
@@ -80,7 +80,7 @@ rules:
   - services: [telegram]
     via: [nl]
 `, want: false},
-		// design 7: dns_domains of a tunnel is split DNS — resolver work.
+		// design 8: dns_domains of a tunnel is split DNS — resolver work.
 		{name: "tunnel dns_domains without rules", yaml: `
 tunnels:
   - name: work
@@ -88,7 +88,7 @@ tunnels:
     routes: rules
     dns_domains: [corp.example]
 `, want: true},
-		// design 7: rules with an empty via keep working (system DNS upstream).
+		// design 8: rules with an empty via keep working (system DNS upstream).
 		{name: "rule with empty via and domains", yaml: tunnels + `
 services:
   direct:
@@ -104,7 +104,7 @@ services:
 rules:
   - services: [direct]
 `, want: true},
-		// design 7: block rules answer NODATA — the resolver must see the query.
+		// design 8: block rules answer NODATA — the resolver must see the query.
 		{name: "fallback block rule with domains", yaml: tunnels + `
 services:
   ai:
@@ -138,7 +138,7 @@ rules:
   - services: [youtube]
     via: [de]
 `, want: true},
-		// design 9.1 example: both dns_domains and rule domains.
+		// design 10.1 example: both dns_domains and rule domains.
 		{name: "design 9.1 example", yaml: `
 tunnels:
   - name: work

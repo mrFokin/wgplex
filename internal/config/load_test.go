@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-// Tests in this file follow docs/design.md sections 5, 9.1–9.3, not the implementation.
+// Tests in this file follow docs/design.md sections 6, 10.1–10.2, not the implementation.
 // All keys are generated per test; all addresses are private or documentation ranges.
 
 // --- helpers ---------------------------------------------------------------
@@ -101,7 +101,7 @@ func mustLoad(t *testing.T, files map[string][]byte) (*Config, []string) {
 	return cfg, warns
 }
 
-// mustFail checks the design 9.2 failure contract: err is Errors, non-empty, cfg is nil.
+// mustFail checks the design 10.1 failure contract: err is Errors, non-empty, cfg is nil.
 func mustFail(t *testing.T, files map[string][]byte) Errors {
 	t.Helper()
 	cfg, _, err := load(t, files)
@@ -206,7 +206,7 @@ func baseConfs(t *testing.T) map[string]string {
 	return map[string]string{"nl.conf": simpleConf(t), "de.conf": simpleConf(t)}
 }
 
-// --- design 9.1: the full example ------------------------------------------
+// --- design 10.1: the full example ------------------------------------------
 
 const exampleYAML = `# <prefix>/etc/wgplex/wgplex.yaml
 
@@ -256,7 +256,7 @@ rules:
     fallback: block
 `
 
-// workAllowedIPs builds a work-like AllowedIPs line (plan "Форма реальных конфигов"):
+// workAllowedIPs builds a work-like AllowedIPs line (Wirefork plan "Форма реальных конфигов"):
 // ~330 entries in one line, single addresses with and without /32, a few subnets,
 // duplicates including x and x/32, and the DNS servers. Returns the line and the
 // expected deduplicated set.
@@ -298,7 +298,7 @@ func workAllowedIPs() (line string, want []netip.Prefix) {
 	return strings.Join(items, ", "), want
 }
 
-// design 9.1: Load accepts the example and produces the expected Config.
+// design 10.1: Load accepts the example and produces the expected Config.
 func TestLoadExample(t *testing.T) {
 	allowed, wantAllowed := workAllowedIPs()
 	work := makeConf(t,
@@ -328,7 +328,7 @@ func TestLoadExample(t *testing.T) {
 	})
 	cfg, warns := mustLoad(t, files)
 
-	// design 9.2: nothing in the example needs a warning (bare addresses and
+	// design 10.1: nothing in the example needs a warning (bare addresses and
 	// duplicates are normalized silently, all services are used).
 	if len(warns) != 0 {
 		t.Errorf("warnings = %q, want none", warns)
@@ -392,7 +392,7 @@ func TestLoadExample(t *testing.T) {
 		{name: "de", routes: RoutesRules, autostart: true, check: addr("1.1.1.1"), wg: foreignWG(de, "de.example.net")},
 	}
 
-	// design 6.2: tunnel order is preserved.
+	// design 7.2: tunnel order is preserved.
 	if len(cfg.Tunnels) != len(want) {
 		t.Fatalf("got %d tunnels, want %d", len(cfg.Tunnels), len(want))
 	}
@@ -499,7 +499,7 @@ func checkRules(t *testing.T, got, want []Rule) {
 		if !slices.Equal(g.Services, w.Services) {
 			t.Errorf("Rules[%d].Services = %v, want %v", i, g.Services, w.Services)
 		}
-		// design 6.3: via is ordered.
+		// design 7.3: via is ordered.
 		if !slices.Equal(g.Via, w.Via) {
 			t.Errorf("Rules[%d].Via = %v, want %v", i, g.Via, w.Via)
 		}
@@ -509,7 +509,7 @@ func checkRules(t *testing.T, got, want []Rule) {
 	}
 }
 
-// design 9.4: a key prints as "(redacted)" under any formatting (%v, %#v, JSON),
+// design 10.1: a key prints as "(redacted)" under any formatting (%v, %#v, JSON),
 // alone and nested in WGConfig/Peer.
 func TestKeyRedactedLoad(t *testing.T) {
 	priv, privB64 := genKey(t)
@@ -575,7 +575,7 @@ func TestKeyRedactedLoad(t *testing.T) {
 			t.Errorf("%s: no \"(redacted)\" in %q", name, s)
 		}
 	}
-	// design 9.4: JSON of a key is the string "(redacted)".
+	// design 10.1: JSON of a key is the string "(redacted)".
 	if string(jsKey) != `"(redacted)"` {
 		t.Errorf(`json.Marshal(Key) = %s, want "(redacted)"`, jsKey)
 	}
@@ -590,7 +590,7 @@ func mustJSON(t *testing.T, v any) string {
 	return string(b)
 }
 
-// --- design 9.2: validation errors -----------------------------------------
+// --- design 10.1: validation errors -----------------------------------------
 
 // errorsMention reports which of subs are missing from the error text
 // (case-insensitive substring).
@@ -604,9 +604,9 @@ func errorsMention(errs Errors, subs ...string) (missing []string) {
 	return missing
 }
 
-// design 9.2: every problem fails Load, and the message points the user at the
+// design 10.1: every problem fails Load, and the message points the user at the
 // problem: it mentions the offending value or name (want). Key material must
-// never appear in it (notWant, design 9.4).
+// never appear in it (notWant, design 10.1).
 func TestLoadValidationErrors(t *testing.T) {
 	type tc struct {
 		name    string
@@ -617,7 +617,7 @@ func TestLoadValidationErrors(t *testing.T) {
 	}
 	var cases []tc
 
-	// design 9.2: unique tunnel names.
+	// design 10.1: unique tunnel names.
 	cases = append(cases, tc{name: "duplicate tunnel name", want: []string{"twin"}, yaml: `
 tunnels:
   - name: twin
@@ -628,7 +628,7 @@ tunnels:
     routes: rules
 `})
 
-	// design 9.2: unique service names. In YAML a service name is a mapping key,
+	// design 10.1: unique service names. In YAML a service name is a mapping key,
 	// so a duplicate is a repeated key.
 	cases = append(cases, tc{name: "duplicate service name", want: []string{"youtube"}, yaml: `
 tunnels:
@@ -645,7 +645,7 @@ rules:
     via: [nl]
 `})
 
-	// design 9.2: existing conf.
+	// design 10.1: existing conf.
 	cases = append(cases, tc{name: "conf file missing", want: []string{"missing.conf"}, yaml: `
 tunnels:
   - name: nl
@@ -657,7 +657,7 @@ tunnels:
   - name: lonely
     routes: rules
 `})
-	// design 9.3: conf refers to a base file name; a path never matches a delivered file.
+	// design 10.2: conf refers to a base file name; a path never matches a delivered file.
 	cases = append(cases, tc{name: "conf with a path", want: []string{"sub/nl.conf"}, yaml: `
 tunnels:
   - name: nl
@@ -665,7 +665,7 @@ tunnels:
     routes: rules
 `})
 
-	// design 9.2: one .conf must not be used by several tunnels.
+	// design 10.1: one .conf must not be used by several tunnels.
 	cases = append(cases, tc{name: "conf shared by two tunnels", want: []string{"shared.conf"},
 		confs: map[string]string{"shared.conf": simpleConf(t)}, yaml: `
 tunnels:
@@ -677,7 +677,7 @@ tunnels:
     routes: rules
 `})
 
-	// design 9.2: rule references existing services and tunnels.
+	// design 10.1: rule references existing services and tunnels.
 	cases = append(cases, tc{name: "rule references unknown service", want: []string{"nosuch"}, yaml: `
 tunnels:
   - name: nl
@@ -703,7 +703,7 @@ rules:
     via: [nl, ghost]
 `})
 
-	// design 9.2: valid domains. Masks are not supported (design 6.4).
+	// design 10.1: valid domains. Masks are not supported (design 7.4).
 	for _, d := range []string{
 		`"exa mple.com"`, `"*.youtube.com"`, `"foo..com"`, `".youtube.com"`, `"-foo.com"`, `"foo-.com"`,
 		`"="`, `""`, `"https://youtube.com"`, `"youtube.com/watch"`, `"youtube.com:443"`,
@@ -734,7 +734,7 @@ tunnels:
     routes: rules
     dns_domains: ["corp example"]
 `})
-	// design 9.2: dns_domains are zones, "=" (exact name) is not allowed there.
+	// design 10.1: dns_domains are zones, "=" (exact name) is not allowed there.
 	cases = append(cases, tc{name: "exact name in dns_domains", want: []string{"=corp.example"}, yaml: `
 tunnels:
   - name: nl
@@ -743,7 +743,7 @@ tunnels:
     dns_domains: [intra.example, "=corp.example"]
 `})
 
-	// design 9.2: valid CIDRs.
+	// design 10.1: valid CIDRs.
 	for _, c := range []string{`"91.108.4.0/33"`, `"not-a-cidr"`, `"300.1.1.0/24"`, `""`, `"2001:db8::/129"`, `"10.0.0.0/-1"`} {
 		want := []string{strings.Trim(c, `"`)}
 		if want[0] == "" {
@@ -763,8 +763,8 @@ rules:
 `})
 	}
 
-	// design 9.2: .conf is parsed completely; its errors fail Load and name the file.
-	// design 9.4: key material never appears in the error text.
+	// design 10.1: .conf is parsed completely; its errors fail Load and name the file.
+	// design 10.1: key material never appears in the error text.
 	oneTunnel := `
 tunnels:
   - name: nl
@@ -808,7 +808,7 @@ tunnels:
 		})
 	}
 
-	// design 9.2: unknown YAML keys are an error, at every level; the key is named.
+	// design 10.1: unknown YAML keys are an error, at every level; the key is named.
 	cases = append(cases,
 		tc{name: "unknown top-level key", want: []string{"colour"}, yaml: baseYAML + "colour: red\n"},
 		tc{name: "unknown tunnel key", want: []string{"mtu"}, yaml: `
@@ -846,14 +846,14 @@ rules:
 `},
 	)
 
-	// design 9.2: wgplex.yaml holds a single YAML document.
+	// design 10.1: wgplex.yaml holds a single YAML document.
 	// The design names no value to point at, so only the failure is checked.
 	cases = append(cases,
 		tc{name: "two yaml documents", yaml: baseYAML + "---\n" + baseYAML},
 		tc{name: "two yaml documents, second differs", yaml: baseYAML + "---\nipv6_filter: false\n"},
 	)
 
-	// design 9.2: a tunnel with dns_domains needs DNS in its .conf.
+	// design 10.1: a tunnel with dns_domains needs DNS in its .conf.
 	cases = append(cases, tc{name: "dns_domains without DNS in conf", want: []string{"work"}, yaml: `
 tunnels:
   - name: work
@@ -862,7 +862,7 @@ tunnels:
     dns_domains: [corp.example]
 `, confs: map[string]string{"work.conf": noDNSConf(t)}})
 	// design ambiguity: DNS holding only non-IP values (wg-quick search domains,
-	// design 5) is ignored, so the tunnel effectively has no DNS — treated as an error.
+	// design 6) is ignored, so the tunnel effectively has no DNS — treated as an error.
 	cases = append(cases, tc{name: "dns_domains with only search-domain DNS", want: []string{"work"}, yaml: `
 tunnels:
   - name: work
@@ -873,7 +873,7 @@ tunnels:
 		"Address = 10.67.0.2/32\nDNS = search.example",
 		"Endpoint = 203.0.113.2:51820\nAllowedIPs = 10.67.0.0/16").text}})
 
-	// design 9.2: routes is required; only config|rules are valid (design 5.1).
+	// design 10.1: routes is required; only config|rules are valid (design 6.1).
 	cases = append(cases,
 		tc{name: "routes missing", want: []string{"routes"}, yaml: `
 tunnels:
@@ -888,10 +888,10 @@ tunnels:
 `},
 	)
 
-	// design 6.3: fallback is default|block.
+	// design 7.3: fallback is default|block.
 	cases = append(cases, tc{name: "fallback invalid", want: []string{"drop"}, yaml: baseYAML + "    fallback: drop\n"})
 
-	// design ambiguity: check is "an address" (design 9.1); a non-IP value is
+	// design ambiguity: check is "an address" (design 10.1); a non-IP value is
 	// assumed to be an error rather than ignored.
 	cases = append(cases, tc{name: "check not an IP", want: []string{"gateway.local"}, yaml: `
 tunnels:
@@ -908,7 +908,7 @@ tunnels:
     routes: rules
 `})
 
-	// design 9.2: a routes: config tunnel must not have 0.0.0.0/0 or ::/0 in
+	// design 10.1: a routes: config tunnel must not have 0.0.0.0/0 or ::/0 in
 	// AllowedIPs (conflict with the system default route). The error names the
 	// tunnel and the prefix.
 	defaultRouteYAML := `
@@ -929,7 +929,7 @@ tunnels:
 			confs: map[string]string{"work.conf": makeConf(t, "Address = 10.66.0.2/32",
 				"Endpoint = 203.0.113.1:51820\nAllowedIPs = 10.66.0.0/16",
 				"Endpoint = 203.0.113.2:51820\nAllowedIPs = 0.0.0.0/0").text}},
-		// Non-canonical /0 (design 9.2 normalization) is still a default route;
+		// Non-canonical /0 (design 10.1 normalization) is still a default route;
 		// only the tunnel name is required since the spelling in the message may vary.
 		tc{name: "routes config with non-canonical /0", want: []string{"work", "/0"}, yaml: defaultRouteYAML,
 			confs: map[string]string{"work.conf": makeConf(t, "Address = 10.66.0.2/32",
@@ -968,7 +968,7 @@ tunnels:
 	}
 }
 
-// design 9.2, 5.1: the default-route ban applies to routes: config only; a
+// design 10.1, 6.1: the default-route ban applies to routes: config only; a
 // routes: rules tunnel (foreign VPN) normally has 0.0.0.0/0 and ::/0.
 func TestLoadRoutesRulesAllowsDefaultRoute(t *testing.T) {
 	conf := makeConf(t, "Address = 10.66.0.2/32\nDNS = 10.66.0.1",
@@ -980,7 +980,7 @@ func TestLoadRoutesRulesAllowsDefaultRoute(t *testing.T) {
 	}
 }
 
-// design 9.2: wgplex.yaml is one YAML document; an explicit document start
+// design 10.1: wgplex.yaml is one YAML document; an explicit document start
 // marker on that single document is fine.
 func TestLoadSingleDocumentWithMarker(t *testing.T) {
 	cfg, _ := mustLoad(t, filesOf("---\n"+baseYAML, baseConfs(t)))
@@ -989,13 +989,13 @@ func TestLoadSingleDocumentWithMarker(t *testing.T) {
 	}
 }
 
-// design ambiguity: design 9.3 names wgplex.yaml the main file but does not say
+// design ambiguity: design 10.2 names wgplex.yaml the main file but does not say
 // what happens without it; assumed an error.
 func TestLoadMissingMainFile(t *testing.T) {
 	mustFail(t, map[string][]byte{"nl.conf": []byte(simpleConf(t))})
 }
 
-// design 9.2: all errors are collected, not only the first; each one is
+// design 10.1: all errors are collected, not only the first; each one is
 // reported, recognizable by its value or name.
 func TestLoadCollectsAllErrors(t *testing.T) {
 	yaml := `
@@ -1073,7 +1073,7 @@ rules:
 	}
 }
 
-// design 9.2: errors in several .conf files are all reported.
+// design 10.1: errors in several .conf files are all reported.
 func TestLoadCollectsErrorsAcrossConfFiles(t *testing.T) {
 	broken := func() string { return strings.Replace(simpleConf(t), "PrivateKey = ", "PrivateKey = !!", 1) }
 	errs := mustFail(t, filesOf(baseYAML, map[string]string{"nl.conf": broken(), "de.conf": broken()}))
@@ -1082,7 +1082,7 @@ func TestLoadCollectsErrorsAcrossConfFiles(t *testing.T) {
 	}
 }
 
-// --- design 9.2: defaults ----------------------------------------------------
+// --- design 10.1: defaults ----------------------------------------------------
 
 func TestLoadDefaults(t *testing.T) {
 	cfg, _ := mustLoad(t, filesOf(baseYAML, baseConfs(t)))
@@ -1130,7 +1130,7 @@ rules:
 	}
 }
 
-// design 6.3: an empty via is valid (always direct).
+// design 7.3: an empty via is valid (always direct).
 func TestLoadEmptyVia(t *testing.T) {
 	for _, via := range []string{"    via: []\n", ""} {
 		yaml := `
@@ -1155,7 +1155,7 @@ rules:
 	}
 }
 
-// design 6.2/6.4: tunnel and rule order is preserved as written.
+// design 7.2/7.4: tunnel and rule order is preserved as written.
 func TestLoadPreservesOrder(t *testing.T) {
 	yaml := `
 tunnels:
@@ -1198,7 +1198,7 @@ rules:
 	})
 }
 
-// --- design 6.4/9.2: normalization -------------------------------------------
+// --- design 7.4/10.1: normalization ------------------------------------------
 
 func TestLoadNormalizesDomains(t *testing.T) {
 	yaml := `
@@ -1214,7 +1214,7 @@ rules:
   - services: [mixed]
     via: [work]
 `
-	// routes: config forbids a default route in AllowedIPs (design 9.2), so not simpleConf.
+	// routes: config forbids a default route in AllowedIPs (design 10.1), so not simpleConf.
 	work := makeConf(t, "Address = 10.66.0.2/32\nDNS = 10.66.0.1",
 		"Endpoint = 203.0.113.1:51820\nAllowedIPs = 10.66.0.0/16").text
 	cfg, _ := mustLoad(t, filesOf(yaml, map[string]string{"work.conf": work}))
@@ -1228,7 +1228,7 @@ rules:
 	}
 }
 
-// design 9.2: a CIDR with host bits in wgplex.yaml is canonicalized with a warning.
+// design 10.1: a CIDR with host bits in wgplex.yaml is canonicalized with a warning.
 func TestLoadCanonicalizesYAMLCIDR(t *testing.T) {
 	yaml := `
 tunnels:
@@ -1258,7 +1258,7 @@ rules:
 	}
 }
 
-// design 9.2: non-canonical AllowedIPs in .conf is canonicalized with a warning, as wg does.
+// design 10.1: non-canonical AllowedIPs in .conf is canonicalized with a warning, as wg does.
 func TestLoadCanonicalizesConfCIDR(t *testing.T) {
 	conf := makeConf(t, "Address = 10.66.0.2/32",
 		"Endpoint = 203.0.113.1:51820\nAllowedIPs = 10.1.2.3/16, 192.0.2.0/24").text
@@ -1278,7 +1278,7 @@ tunnels:
 	}
 }
 
-// design 9.2 "без предупреждения": bare addresses become /32 or /128, duplicates in
+// design 10.1 "без предупреждения": bare addresses become /32 or /128, duplicates in
 // Address, AllowedIPs and DNS (including x and x/32) are dropped — silently.
 func TestLoadSilentConfNormalization(t *testing.T) {
 	conf := makeConf(t,
@@ -1308,7 +1308,7 @@ tunnels:
 	}
 }
 
-// design 9.2: Address is an interface address with a prefix length; host bits are
+// design 10.1: Address is an interface address with a prefix length; host bits are
 // kept as written (no canonicalization) and no warning is issued.
 func TestLoadKeepsAddressAsWritten(t *testing.T) {
 	conf := makeConf(t,
@@ -1325,9 +1325,9 @@ func TestLoadKeepsAddressAsWritten(t *testing.T) {
 	}
 }
 
-// --- warnings (design 5, 9.2, 9.3) ---------------------------------------------
+// --- warnings (design 6, 10.1, 10.2) ---------------------------------------------
 
-// design 9.2: a service not used by any rule is a warning, the config still loads.
+// design 10.1: a service not used by any rule is a warning, the config still loads.
 func TestLoadWarnsUnusedService(t *testing.T) {
 	yaml := baseYAML[:strings.Index(baseYAML, "rules:")] + `  forgotten:
     domains: [forgotten.example]
@@ -1347,7 +1347,7 @@ rules:
 	}
 }
 
-// design 9.3: other *.yaml files are ignored with a warning — even when they are
+// design 10.2: other *.yaml files are ignored with a warning — even when they are
 // not valid YAML or not a valid config.
 func TestLoadWarnsExtraYAML(t *testing.T) {
 	files := filesOf(baseYAML, baseConfs(t))
@@ -1364,7 +1364,7 @@ func TestLoadWarnsExtraYAML(t *testing.T) {
 	}
 }
 
-// design 5: wg-quick specific fields are ignored with a warning.
+// design 6: wg-quick specific fields are ignored with a warning.
 func TestLoadWarnsWGQuickFields(t *testing.T) {
 	for _, field := range []string{
 		"PreUp = echo up", "PostUp = iptables -A FORWARD", "PreDown = echo down",
@@ -1382,7 +1382,7 @@ func TestLoadWarnsWGQuickFields(t *testing.T) {
 	}
 }
 
-// design 5: non-IP DNS values (wg-quick search domains) are ignored with a warning.
+// design 6: non-IP DNS values (wg-quick search domains) are ignored with a warning.
 func TestLoadWarnsNonIPDNS(t *testing.T) {
 	conf := makeConf(t, "Address = 10.66.0.2/32\nDNS = 10.66.0.1, corp.example",
 		"Endpoint = 203.0.113.1:51820\nAllowedIPs = 0.0.0.0/0").text
@@ -1395,7 +1395,7 @@ func TestLoadWarnsNonIPDNS(t *testing.T) {
 	}
 }
 
-// design 9.4 / CLAUDE.md: private keys never appear in errors or warnings.
+// design 10.1 / CLAUDE.md: private keys never appear in errors or warnings.
 func TestLoadDoesNotLeakKeys(t *testing.T) {
 	g := makeConf(t, "Address = 10.66.0.2/32\nDNS = 10.66.0.1\nPostUp = echo",
 		"Endpoint = 203.0.113.1:51820\nAllowedIPs = 10.1.2.3/16")

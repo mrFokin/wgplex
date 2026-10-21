@@ -19,7 +19,7 @@ func addrs(ss ...string) []netip.Addr {
 	return out
 }
 
-// M9 plan decision 12: a *net.DNSError gets Server replaced by the servers
+// Wirefork M9 plan decision 12: a *net.DNSError gets Server replaced by the servers
 // the lookup actually went to (comma-separated, addresses only); every other
 // field stays the same.
 func TestSystemErrorDNSError(t *testing.T) {
@@ -86,7 +86,7 @@ func TestSystemErrorDNSError(t *testing.T) {
 	}
 }
 
-// M9 plan decision 12: a wrapped *net.DNSError keeps its wrapping; errors.As
+// Wirefork M9 plan decision 12: a wrapped *net.DNSError keeps its wrapping; errors.As
 // on the result finds the copy with the new Server.
 func TestSystemErrorWrapped(t *testing.T) {
 	servers := addrs("192.168.20.1", "1.1.1.1")
@@ -136,7 +136,7 @@ func TestSystemErrorWrapped(t *testing.T) {
 	}
 }
 
-// M9 plan decision 12: non-DNS errors, nil and an empty server list give err
+// Wirefork M9 plan decision 12: non-DNS errors, nil and an empty server list give err
 // unchanged.
 func TestSystemErrorUnchanged(t *testing.T) {
 	plain := errors.New("connection refused")

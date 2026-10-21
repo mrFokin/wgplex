@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// M7 plan "Модель → Netwatch", review step 3 remark 8: watchScript adds the
+// Wirefork M7 plan "Модель → Netwatch", review step 3 remark 8: watchScript adds the
 // global keys and the capture key, the service patterns
 // (anchored, whole keys), and n.watch last.
 func TestM7WatchScript(t *testing.T) {
@@ -82,7 +82,7 @@ func TestM7WatchScript(t *testing.T) {
 		// One path segment for the service ID.
 		{"State:/Network/Service/a/b/IPv4", false},
 		{"State:/Network/Service//IPv4", false},
-		// Not ours: AirPort noise (M7 fact 3), other entities.
+		// Not ours: AirPort noise (Wirefork M7 fact 3), other entities.
 		{svc + "/AirPort", false},
 		{svc + "/Proxies", false},
 		{"Setup:/Network/Service/" + id + "/IPv4", false},
