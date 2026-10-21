@@ -13,10 +13,10 @@
 
 | Страница | Summary |
 |---|---|
-| [plans/m0-spike.md](plans/m0-spike.md) | M0: spike среды — образ VM, `scripts/vm.sh`, bridged-сеть, факты для дизайна |
-| [plans/m1-port.md](plans/m1-port.md) | M1: механический перенос кода из Wirefork, свои имена и метки, один бинарник |
-| [plans/m2-system-mode.md](plans/m2-system-mode.md) | M2: системный режим — конфиг читает демон, `state.json`, `wgplex check`, логи с ротацией |
-| [plans/m3-api-naming.md](plans/m3-api-naming.md) | M3 (внеочередной шаг): `tunnel.enable`/`tunnel.disable` вместо `tunnel.setEnabled`, без bool |
+| [plans/m0-spike.md](plans/m0-spike.md) | M0, done: spike среды — образ VM, `scripts/vm.sh`, bridged-сеть, факты для дизайна |
+| [plans/m1-port.md](plans/m1-port.md) | M1, done: механический перенос кода из Wirefork, свои имена и метки, один бинарник |
+| [plans/m2-system-mode.md](plans/m2-system-mode.md) | M2, done: системный режим — конфиг читает демон, `state.json`, `wgplex check`, логи с ротацией |
+| [plans/m3-api-naming.md](plans/m3-api-naming.md) | M3, done (внеочередной шаг): `tunnel.enable`/`tunnel.disable` вместо `tunnel.setEnabled`, без bool |
 
 ## Сырьё
 
