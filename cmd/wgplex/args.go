@@ -35,13 +35,13 @@ var nargs = map[string]int{
 }
 
 // parseArgs parses os.Args[1:]: [flags] <command> [arg] [flags]. The flags
-// are -socket path (every command), -config dir (daemon and check, design
-// 13: both read the config directory themselves), -state path and -log file
-// (daemon only, design 13: it reads its state file and writes its log
-// itself) and -v (daemon only); they may go before the command or after it
-// and its argument. A usage error is errUsage-wrapped (exit 2): no or an
-// unknown command, a wrong number of arguments, an empty argument, a flag the
-// command does not take.
+// are -socket path (the commands that are clients of the daemon), -config dir
+// (daemon and check, design 13: both read the config directory themselves),
+// -state path and -log file (daemon only, design 13: it reads its state file
+// and writes its log itself) and -v (daemon only); they may go before the
+// command or after it and its argument. A usage error is errUsage-wrapped
+// (exit 2): no or an unknown command, a wrong number of arguments, an empty
+// argument, a flag the command does not take.
 //
 // def gives the defaults (pathsFor(defaultPrefix()) in main), so parseArgs
 // itself looks at nothing outside args. ConfigDir is set for daemon and
@@ -108,12 +108,13 @@ func parseArgs(args []string, def paths) (command, error) {
 }
 
 // takesFlag reports whether command name takes flag (design 13): -socket is
-// for every command, -config for the daemon and check, -state, -log and -v
-// for the daemon only.
+// for the commands that are clients of the daemon (check is not one: it
+// validates the config locally), -config for the daemon and check, -state,
+// -log and -v for the daemon only.
 func takesFlag(name, flag string) bool {
 	switch flag {
 	case "socket":
-		return true
+		return name != "check"
 	case "config":
 		return name == "daemon" || name == "check"
 	default: // -state, -log, -v
