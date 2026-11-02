@@ -30,17 +30,17 @@ import (
 
 // --- fake daemon ----------------------------------------------------------------
 
-type m6Call struct {
+type recordedCall struct {
 	method  string
 	files   map[string]string
 	name    string
 	enabled bool
 }
 
-// m6FakeDaemon records calls and returns what the test set.
-type m6FakeDaemon struct {
+// fakeDaemon records calls and returns what the test set.
+type fakeDaemon struct {
 	mu          sync.Mutex
-	calls       []m6Call
+	calls       []recordedCall
 	applyResult ApplyResult
 	applyErr    error
 	setErr      error
@@ -48,46 +48,46 @@ type m6FakeDaemon struct {
 	state       *State
 }
 
-func (d *m6FakeDaemon) Apply(files map[string]string) (ApplyResult, error) {
+func (d *fakeDaemon) Apply(files map[string]string) (ApplyResult, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.calls = append(d.calls, m6Call{method: "Apply", files: maps.Clone(files)})
+	d.calls = append(d.calls, recordedCall{method: "Apply", files: maps.Clone(files)})
 	return d.applyResult, d.applyErr
 }
 
-func (d *m6FakeDaemon) SetEnabled(name string, enabled bool) error {
+func (d *fakeDaemon) SetEnabled(name string, enabled bool) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.calls = append(d.calls, m6Call{method: "SetEnabled", name: name, enabled: enabled})
+	d.calls = append(d.calls, recordedCall{method: "SetEnabled", name: name, enabled: enabled})
 	return d.setErr
 }
 
-func (d *m6FakeDaemon) DisableAll() error {
+func (d *fakeDaemon) DisableAll() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.calls = append(d.calls, m6Call{method: "DisableAll"})
+	d.calls = append(d.calls, recordedCall{method: "DisableAll"})
 	return d.disableErr
 }
 
-func (d *m6FakeDaemon) State() *State {
+func (d *fakeDaemon) State() *State {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.calls = append(d.calls, m6Call{method: "State"})
+	d.calls = append(d.calls, recordedCall{method: "State"})
 	if d.state == nil {
 		return &State{}
 	}
 	return d.state
 }
 
-func (d *m6FakeDaemon) Calls() []m6Call {
+func (d *fakeDaemon) Calls() []recordedCall {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return slices.Clone(d.calls)
 }
 
 // mutating lists the calls that change the daemon (not State).
-func (d *m6FakeDaemon) mutating() []m6Call {
-	var out []m6Call
+func (d *fakeDaemon) mutating() []recordedCall {
+	var out []recordedCall
 	for _, c := range d.Calls() {
 		if c.method != "State" {
 			out = append(out, c)
@@ -98,8 +98,8 @@ func (d *m6FakeDaemon) mutating() []m6Call {
 
 // --- server harness --------------------------------------------------------------
 
-// m6SockDir is a short temporary folder for the socket.
-func m6SockDir(t *testing.T) string {
+// sockDir is a short temporary folder for the socket.
+func sockDir(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "wgp")
 	if err != nil {
@@ -109,7 +109,7 @@ func m6SockDir(t *testing.T) string {
 	return dir
 }
 
-func m6Listen(t *testing.T, path string) net.Listener {
+func listenUnix(t *testing.T, path string) net.Listener {
 	t.Helper()
 	var ln net.Listener
 	var err error
@@ -127,30 +127,30 @@ func m6Listen(t *testing.T, path string) net.Listener {
 	return ln
 }
 
-// m6Server is a running Serve.
-type m6Server struct {
+// testServer is a running Serve.
+type testServer struct {
 	path   string
 	client *http.Client
 	cancel context.CancelFunc
 	done   chan error
 }
 
-// m6Serve listens in a fresh folder and serves d; allow nil allows any uid.
+// startServe listens in a fresh folder and serves d; allow nil allows any uid.
 // The server is stopped at cleanup.
-func m6Serve(t *testing.T, d Daemon, allow func(uint32) bool) *m6Server {
+func startServe(t *testing.T, d Daemon, allow func(uint32) bool) *testServer {
 	t.Helper()
-	path := filepath.Join(m6SockDir(t), "s.sock")
-	ln := m6Listen(t, path)
-	return m6ServeOn(t, path, ln, d, allow)
+	path := filepath.Join(sockDir(t), "s.sock")
+	ln := listenUnix(t, path)
+	return serveOn(t, path, ln, d, allow)
 }
 
-func m6ServeOn(t *testing.T, path string, ln net.Listener, d Daemon, allow func(uint32) bool) *m6Server {
+func serveOn(t *testing.T, path string, ln net.Listener, d Daemon, allow func(uint32) bool) *testServer {
 	t.Helper()
 	if allow == nil {
 		allow = func(uint32) bool { return true }
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &m6Server{path: path, cancel: cancel, done: make(chan error, 1), client: m6Client(path)}
+	s := &testServer{path: path, cancel: cancel, done: make(chan error, 1), client: unixClient(path)}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	go func() {
 		defer func() {
@@ -171,8 +171,8 @@ func m6ServeOn(t *testing.T, path string, ln net.Listener, d Daemon, allow func(
 	return s
 }
 
-// m6Client is an HTTP client that dials the unix socket path.
-func m6Client(path string) *http.Client {
+// unixClient is an HTTP client that dials the unix socket path.
+func unixClient(path string) *http.Client {
 	return &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
@@ -185,8 +185,8 @@ func m6Client(path string) *http.Client {
 	}
 }
 
-// m6Reply is a JSON-RPC response.
-type m6Reply struct {
+// reply is a JSON-RPC response.
+type reply struct {
 	Version string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
 	Result  json.RawMessage `json:"result"`
@@ -194,7 +194,7 @@ type m6Reply struct {
 }
 
 // post sends body to Path with the content type and returns the status and body.
-func (s *m6Server) post(t *testing.T, contentType string, body []byte) (int, []byte) {
+func (s *testServer) post(t *testing.T, contentType string, body []byte) (int, []byte) {
 	t.Helper()
 	resp, err := s.client.Post("http://wgplex"+Path, contentType, bytes.NewReader(body))
 	if err != nil {
@@ -209,7 +209,7 @@ func (s *m6Server) post(t *testing.T, contentType string, body []byte) (int, []b
 }
 
 // call sends one JSON-RPC request; params nil sends none.
-func (s *m6Server) call(t *testing.T, method string, params any) m6Reply {
+func (s *testServer) call(t *testing.T, method string, params any) reply {
 	t.Helper()
 	req := map[string]any{"jsonrpc": "2.0", "id": 7, "method": method}
 	if params != nil {
@@ -220,7 +220,7 @@ func (s *m6Server) call(t *testing.T, method string, params any) m6Reply {
 		t.Fatal(err)
 	}
 	code, b := s.post(t, "application/json", body)
-	var r m6Reply
+	var r reply
 	if code != http.StatusOK {
 		t.Fatalf("%s: HTTP %d %s", method, code, b)
 	}
@@ -233,14 +233,14 @@ func (s *m6Server) call(t *testing.T, method string, params any) m6Reply {
 	return r
 }
 
-func m6WantResult(t *testing.T, method string, r m6Reply) {
+func wantResult(t *testing.T, method string, r reply) {
 	t.Helper()
 	if r.Error != nil {
 		t.Fatalf("%s: error %+v, want a result", method, *r.Error)
 	}
 }
 
-func m6WantCode(t *testing.T, method string, r m6Reply, code int) {
+func wantCode(t *testing.T, method string, r reply, code int) {
 	t.Helper()
 	if r.Error == nil {
 		t.Fatalf("%s: result %s, want error %d", method, r.Result, code)
@@ -250,8 +250,8 @@ func m6WantCode(t *testing.T, method string, r m6Reply, code int) {
 	}
 }
 
-// m6Same compares the JSON of a reply result with the JSON of want.
-func m6Same(t *testing.T, method string, got json.RawMessage, want any) {
+// sameJSON compares the JSON of a reply result with the JSON of want.
+func sameJSON(t *testing.T, method string, got json.RawMessage, want any) {
 	t.Helper()
 	w, err := json.Marshal(want)
 	if err != nil {
@@ -274,16 +274,16 @@ func m6Same(t *testing.T, method string, got json.RawMessage, want any) {
 // --- methods ------------------------------------------------------------------------
 
 // design 14: config.apply passes the files to the daemon and returns its result.
-func TestM6ServeApply(t *testing.T) {
-	d := &m6FakeDaemon{applyResult: ApplyResult{
+func TestServeApply(t *testing.T) {
+	d := &fakeDaemon{applyResult: ApplyResult{
 		Warnings: []string{`service "tg" is not used by any rule`},
 		Tunnels:  []TunnelError{{Name: "bad", Error: "resolve endpoints: no such host"}},
 	}}
-	s := m6Serve(t, d, nil)
+	s := startServe(t, d, nil)
 	files := map[string]string{"wgplex.yaml": "tunnels: []\n", "de.conf": "[Interface]\n"}
 	r := s.call(t, "config.apply", ApplyParams{Files: files})
-	m6WantResult(t, "config.apply", r)
-	m6Same(t, "config.apply", r.Result, d.applyResult)
+	wantResult(t, "config.apply", r)
+	sameJSON(t, "config.apply", r.Result, d.applyResult)
 
 	calls := d.mutating()
 	if len(calls) != 1 || calls[0].method != "Apply" || !maps.Equal(calls[0].files, files) {
@@ -292,15 +292,15 @@ func TestM6ServeApply(t *testing.T) {
 }
 
 // CodeConfigInvalid passes as is, with ConfigErrorData in data.
-func TestM6ServeApplyConfigInvalid(t *testing.T) {
+func TestServeApplyConfigInvalid(t *testing.T) {
 	data := ConfigErrorData{
 		Errors:   []string{`tunnel "x": conf "x.conf" not found`},
 		Warnings: []string{"w1"},
 	}
-	d := &m6FakeDaemon{applyErr: jrpc.NewError(CodeConfigInvalid, "config is invalid", data)}
-	s := m6Serve(t, d, nil)
+	d := &fakeDaemon{applyErr: jrpc.NewError(CodeConfigInvalid, "config is invalid", data)}
+	s := startServe(t, d, nil)
 	r := s.call(t, "config.apply", ApplyParams{Files: map[string]string{"wgplex.yaml": "x"}})
-	m6WantCode(t, "config.apply", r, CodeConfigInvalid)
+	wantCode(t, "config.apply", r, CodeConfigInvalid)
 	if r.Error.Message != "config is invalid" {
 		t.Errorf("message %q", r.Error.Message)
 	}
@@ -309,18 +309,18 @@ func TestM6ServeApplyConfigInvalid(t *testing.T) {
 	if err := json.Unmarshal(js, &got); err != nil {
 		t.Fatalf("data %s: %v", js, err)
 	}
-	if !m6Strs(got.Errors, data.Errors) || !m6Strs(got.Warnings, data.Warnings) {
+	if !sameStrings(got.Errors, data.Errors) || !sameStrings(got.Warnings, data.Warnings) {
 		t.Errorf("data = %+v, want %+v", got, data)
 	}
 }
 
 // design 14: tunnel.setEnabled passes name and enabled; the result is null.
-func TestM6ServeSetEnabled(t *testing.T) {
-	d := &m6FakeDaemon{}
-	s := m6Serve(t, d, nil)
+func TestServeSetEnabled(t *testing.T) {
+	d := &fakeDaemon{}
+	s := startServe(t, d, nil)
 	for _, on := range []bool{true, false} {
 		r := s.call(t, "tunnel.setEnabled", SetEnabledParams{Name: "de", Enabled: on})
-		m6WantResult(t, "tunnel.setEnabled", r)
+		wantResult(t, "tunnel.setEnabled", r)
 		if string(r.Result) != "null" {
 			t.Errorf("tunnel.setEnabled: result %s, want null", r.Result)
 		}
@@ -334,7 +334,7 @@ func TestM6ServeSetEnabled(t *testing.T) {
 }
 
 // The daemon codes pass as is; any other error is Internal error.
-func TestM6ServeSetEnabledErrors(t *testing.T) {
+func TestServeSetEnabledErrors(t *testing.T) {
 	cases := []struct {
 		err  error
 		code int
@@ -345,10 +345,10 @@ func TestM6ServeSetEnabledErrors(t *testing.T) {
 		{errors.New("boom"), -32603},
 	}
 	for _, c := range cases {
-		d := &m6FakeDaemon{setErr: c.err}
-		s := m6Serve(t, d, nil)
+		d := &fakeDaemon{setErr: c.err}
+		s := startServe(t, d, nil)
 		r := s.call(t, "tunnel.setEnabled", SetEnabledParams{Name: "nosuch", Enabled: true})
-		m6WantCode(t, "tunnel.setEnabled", r, c.code)
+		wantCode(t, "tunnel.setEnabled", r, c.code)
 		var je *jrpc.JRPCError
 		if errors.As(c.err, &je) && r.Error != nil && r.Error.Message != je.Message {
 			t.Errorf("message %q, want %q", r.Error.Message, je.Message)
@@ -357,24 +357,24 @@ func TestM6ServeSetEnabledErrors(t *testing.T) {
 }
 
 // An empty tunnel name and params that do not bind are Invalid params.
-func TestM6ServeSetEnabledInvalidParams(t *testing.T) {
-	d := &m6FakeDaemon{}
-	s := m6Serve(t, d, nil)
+func TestServeSetEnabledInvalidParams(t *testing.T) {
+	d := &fakeDaemon{}
+	s := startServe(t, d, nil)
 	r := s.call(t, "tunnel.setEnabled", SetEnabledParams{Name: "", Enabled: true})
-	m6WantCode(t, "empty name", r, -32602)
+	wantCode(t, "empty name", r, -32602)
 	r = s.call(t, "tunnel.setEnabled", map[string]any{"name": 5, "enabled": "yes"})
-	m6WantCode(t, "bad types", r, -32602)
+	wantCode(t, "bad types", r, -32602)
 	if calls := d.mutating(); len(calls) != 0 {
 		t.Errorf("daemon called with invalid params: %+v", calls)
 	}
 }
 
 // design 14: tunnel.disableAll takes no params and returns null.
-func TestM6ServeDisableAll(t *testing.T) {
-	d := &m6FakeDaemon{}
-	s := m6Serve(t, d, nil)
+func TestServeDisableAll(t *testing.T) {
+	d := &fakeDaemon{}
+	s := startServe(t, d, nil)
 	r := s.call(t, "tunnel.disableAll", nil)
-	m6WantResult(t, "tunnel.disableAll", r)
+	wantResult(t, "tunnel.disableAll", r)
 	if string(r.Result) != "null" {
 		t.Errorf("result %s, want null", r.Result)
 	}
@@ -382,39 +382,39 @@ func TestM6ServeDisableAll(t *testing.T) {
 		t.Errorf("daemon calls = %+v, want one DisableAll", calls)
 	}
 
-	d2 := &m6FakeDaemon{disableErr: errors.New("sync: boom")}
-	s2 := m6Serve(t, d2, nil)
-	m6WantCode(t, "tunnel.disableAll", s2.call(t, "tunnel.disableAll", nil), -32603)
+	d2 := &fakeDaemon{disableErr: errors.New("sync: boom")}
+	s2 := startServe(t, d2, nil)
+	wantCode(t, "tunnel.disableAll", s2.call(t, "tunnel.disableAll", nil), -32603)
 }
 
 // design 14: status.get, diag.routes, diag.explain answer from a State
 // snapshot through StatusOf, RoutesOf, Explain.
-func TestM6ServeReads(t *testing.T) {
-	f := m6NewFixture(t)
-	st := m6State(f)
-	d := &m6FakeDaemon{state: st}
-	s := m6Serve(t, d, nil)
+func TestServeReads(t *testing.T) {
+	f := newFixture(t)
+	st := newState(f)
+	d := &fakeDaemon{state: st}
+	s := startServe(t, d, nil)
 
 	r := s.call(t, "status.get", nil)
-	m6WantResult(t, "status.get", r)
-	m6Same(t, "status.get", r.Result, m6StatusOf(t, st))
+	wantResult(t, "status.get", r)
+	sameJSON(t, "status.get", r.Result, statusOf(t, st))
 
 	r = s.call(t, "diag.routes", nil)
-	m6WantResult(t, "diag.routes", r)
-	m6Same(t, "diag.routes", r.Result, m6RoutesOf(t, st))
+	wantResult(t, "diag.routes", r)
+	sameJSON(t, "diag.routes", r.Result, routesOf(t, st))
 
 	for _, q := range []string{"ifconfig.me", "34.160.111.145"} {
 		r = s.call(t, "diag.explain", ExplainParams{Query: q})
-		m6WantResult(t, "diag.explain", r)
-		want, err := m6Explain(t, st, q)
+		wantResult(t, "diag.explain", r)
+		want, err := explainOf(t, st, q)
 		if err != nil {
 			t.Fatal(err)
 		}
-		m6Same(t, "diag.explain "+q, r.Result, want)
+		sameJSON(t, "diag.explain "+q, r.Result, want)
 	}
 
 	r = s.call(t, "diag.explain", ExplainParams{Query: "не_домен!"})
-	m6WantCode(t, "diag.explain invalid", r, -32602)
+	wantCode(t, "diag.explain invalid", r, -32602)
 
 	if calls := d.mutating(); len(calls) != 0 {
 		t.Errorf("reads changed the daemon: %+v", calls)
@@ -422,10 +422,10 @@ func TestM6ServeReads(t *testing.T) {
 }
 
 // An empty daemon (no config) answers status.get: not configured, icon off.
-func TestM6ServeStatusEmpty(t *testing.T) {
-	s := m6Serve(t, &m6FakeDaemon{}, nil)
+func TestServeStatusEmpty(t *testing.T) {
+	s := startServe(t, &fakeDaemon{}, nil)
 	r := s.call(t, "status.get", nil)
-	m6WantResult(t, "status.get", r)
+	wantResult(t, "status.get", r)
 	var st Status
 	if err := json.Unmarshal(r.Result, &st); err != nil {
 		t.Fatal(err)
@@ -435,15 +435,15 @@ func TestM6ServeStatusEmpty(t *testing.T) {
 	}
 }
 
-func TestM6ServeUnknownMethod(t *testing.T) {
-	s := m6Serve(t, &m6FakeDaemon{}, nil)
-	m6WantCode(t, "nosuch.method", s.call(t, "nosuch.method", nil), -32601)
+func TestServeUnknownMethod(t *testing.T) {
+	s := startServe(t, &fakeDaemon{}, nil)
+	wantCode(t, "nosuch.method", s.call(t, "nosuch.method", nil), -32601)
 }
 
 // --- access -------------------------------------------------------------------------
 
 // design 5, 14: allow gets the uid of the peer (LOCAL_PEERCRED): here our own.
-func TestM6ServeAllowGetsUID(t *testing.T) {
+func TestServeAllowGetsUID(t *testing.T) {
 	var mu sync.Mutex
 	var uids []uint32
 	allow := func(uid uint32) bool {
@@ -452,8 +452,8 @@ func TestM6ServeAllowGetsUID(t *testing.T) {
 		uids = append(uids, uid)
 		return true
 	}
-	s := m6Serve(t, &m6FakeDaemon{}, allow)
-	m6WantResult(t, "status.get", s.call(t, "status.get", nil))
+	s := startServe(t, &fakeDaemon{}, allow)
+	wantResult(t, "status.get", s.call(t, "status.get", nil))
 	mu.Lock()
 	defer mu.Unlock()
 	if len(uids) == 0 {
@@ -468,9 +468,9 @@ func TestM6ServeAllowGetsUID(t *testing.T) {
 
 // design 14: a uid that allow refuses gets HTTP 403 with body
 // "forbidden", no JSON-RPC; the daemon is not called.
-func TestM6ServeForbidden(t *testing.T) {
-	d := &m6FakeDaemon{}
-	s := m6Serve(t, d, func(uint32) bool { return false })
+func TestServeForbidden(t *testing.T) {
+	d := &fakeDaemon{}
+	s := startServe(t, d, func(uint32) bool { return false })
 	for _, method := range []string{"status.get", "tunnel.disableAll"} {
 		body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method})
 		code, b := s.post(t, "application/json", body)
@@ -487,8 +487,8 @@ func TestM6ServeForbidden(t *testing.T) {
 }
 
 // Not JSON is 415.
-func TestM6ServeNotJSON(t *testing.T) {
-	s := m6Serve(t, &m6FakeDaemon{}, nil)
+func TestServeNotJSON(t *testing.T) {
+	s := startServe(t, &fakeDaemon{}, nil)
 	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"status.get"}`)
 	if code, _ := s.post(t, "text/plain", body); code != http.StatusUnsupportedMediaType {
 		t.Errorf("text/plain: HTTP %d, want 415", code)
@@ -497,9 +497,9 @@ func TestM6ServeNotJSON(t *testing.T) {
 
 // design 14: the uid check comes before anything else: a
 // forbidden peer gets 403 even with a body that is not JSON (not 415).
-func TestM6ServeForbiddenNotJSON(t *testing.T) {
-	d := &m6FakeDaemon{}
-	s := m6Serve(t, d, func(uint32) bool { return false })
+func TestServeForbiddenNotJSON(t *testing.T) {
+	d := &fakeDaemon{}
+	s := startServe(t, d, func(uint32) bool { return false })
 	for _, body := range []string{`{"jsonrpc":"2.0","id":1,"method":"status.get"}`, "hello"} {
 		code, b := s.post(t, "text/plain", []byte(body))
 		if code != http.StatusForbidden {
@@ -517,9 +517,9 @@ func TestM6ServeForbiddenNotJSON(t *testing.T) {
 // --- Listen ---------------------------------------------------------------------------
 
 // design 14: the socket is 0666; access is checked per connection.
-func TestM6ListenMode(t *testing.T) {
-	path := filepath.Join(m6SockDir(t), "s.sock")
-	ln := m6Listen(t, path)
+func TestListenMode(t *testing.T) {
+	path := filepath.Join(sockDir(t), "s.sock")
+	ln := listenUnix(t, path)
 	defer ln.Close()
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -535,8 +535,8 @@ func TestM6ListenMode(t *testing.T) {
 
 // design 14: a socket file nobody answers on (after a crash) is removed and
 // the socket is created again.
-func TestM6ListenStale(t *testing.T) {
-	path := filepath.Join(m6SockDir(t), "s.sock")
+func TestListenStale(t *testing.T) {
+	path := filepath.Join(sockDir(t), "s.sock")
 	old, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
@@ -547,16 +547,16 @@ func TestM6ListenStale(t *testing.T) {
 		t.Fatalf("stale socket file not left: %v", err)
 	}
 
-	ln := m6Listen(t, path)
-	s := m6ServeOn(t, path, ln, &m6FakeDaemon{}, nil)
-	m6WantResult(t, "status.get", s.call(t, "status.get", nil))
+	ln := listenUnix(t, path)
+	s := serveOn(t, path, ln, &fakeDaemon{}, nil)
+	wantResult(t, "status.get", s.call(t, "status.get", nil))
 }
 
 // design 14: a socket that answers is another wgplex daemon: Listen fails and
 // the first one keeps answering.
-func TestM6ListenRunning(t *testing.T) {
-	s := m6Serve(t, &m6FakeDaemon{}, nil)
-	m6WantResult(t, "status.get", s.call(t, "status.get", nil))
+func TestListenRunning(t *testing.T) {
+	s := startServe(t, &fakeDaemon{}, nil)
+	wantResult(t, "status.get", s.call(t, "status.get", nil))
 
 	var ln net.Listener
 	var err error
@@ -572,12 +572,12 @@ func TestM6ListenRunning(t *testing.T) {
 		ln.Close()
 		t.Fatal("Listen on a live socket: no error")
 	}
-	m6WantResult(t, "status.get after the second Listen", s.call(t, "status.get", nil))
+	wantResult(t, "status.get after the second Listen", s.call(t, "status.get", nil))
 }
 
 // Listen doc: a file at the path that is not a socket is an
 // error and is left alone: still there, same content.
-func TestM6ListenNotSocket(t *testing.T) {
+func TestListenNotSocket(t *testing.T) {
 	cases := []struct {
 		name string
 		make func(path string) error
@@ -587,7 +587,7 @@ func TestM6ListenNotSocket(t *testing.T) {
 		{"directory", func(p string) error { return os.Mkdir(p, 0o700) }},
 	}
 	for _, c := range cases {
-		path := filepath.Join(m6SockDir(t), "s.sock")
+		path := filepath.Join(sockDir(t), "s.sock")
 		if err := c.make(path); err != nil {
 			t.Fatal(err)
 		}
@@ -633,9 +633,9 @@ func TestM6ListenNotSocket(t *testing.T) {
 // --- Serve shutdown -----------------------------------------------------------------
 
 // Serve returns nil once ctx is done.
-func TestM6ServeStops(t *testing.T) {
-	path := filepath.Join(m6SockDir(t), "s.sock")
-	ln := m6Listen(t, path)
+func TestServeStops(t *testing.T) {
+	path := filepath.Join(sockDir(t), "s.sock")
+	ln := listenUnix(t, path)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
@@ -644,10 +644,10 @@ func TestM6ServeStops(t *testing.T) {
 				done <- errors.New("Serve panicked")
 			}
 		}()
-		done <- Serve(ctx, ln, &m6FakeDaemon{}, func(uint32) bool { return true }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		done <- Serve(ctx, ln, &fakeDaemon{}, func(uint32) bool { return true }, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	}()
 
-	s := &m6Server{path: path, client: m6Client(path)}
+	s := &testServer{path: path, client: unixClient(path)}
 	// Wait until it answers, then stop it.
 	deadline := time.Now().Add(5 * time.Second)
 	for {

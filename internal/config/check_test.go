@@ -10,8 +10,8 @@ import (
 // address (Check) or an http/https URL with a host, without userinfo and
 // fragment (CheckURL = url.Parse(..).String() with scheme and host lower-cased); at most one of them is set.
 
-// m11CheckYAML is a one-tunnel config with the given check line value.
-func m11CheckYAML(check string) string {
+// checkYAML is a one-tunnel config with the given check line value.
+func checkYAML(check string) string {
 	return `
 tunnels:
   - name: nl
@@ -27,12 +27,12 @@ rules:
 `
 }
 
-func m11Confs(t *testing.T) map[string]string {
+func checkConfs(t *testing.T) map[string]string {
 	return map[string]string{"nl.conf": simpleConf(t)}
 }
 
 // design 10.1: valid check values.
-func TestM11CheckValid(t *testing.T) {
+func TestCheckValid(t *testing.T) {
 	cases := []struct {
 		name string
 		yaml string // the YAML value
@@ -54,7 +54,7 @@ func TestM11CheckValid(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			cfg, _ := mustLoad(t, filesOf(m11CheckYAML(c.yaml), m11Confs(t)))
+			cfg, _ := mustLoad(t, filesOf(checkYAML(c.yaml), checkConfs(t)))
 			tn := tunnelByName(t, cfg, "nl")
 			if c.ip != "" {
 				if tn.Check != addr(c.ip) {
@@ -79,7 +79,7 @@ func TestM11CheckValid(t *testing.T) {
 }
 
 // design 10.1: a tunnel without check has neither Check nor CheckURL.
-func TestM11CheckNone(t *testing.T) {
+func TestCheckNone(t *testing.T) {
 	cfg, _ := mustLoad(t, filesOf(baseYAML, baseConfs(t)))
 	for _, tn := range cfg.Tunnels {
 		if tn.Check.IsValid() || tn.CheckURL != "" {
@@ -91,7 +91,7 @@ func TestM11CheckNone(t *testing.T) {
 // design 10.1: a URL check must be http/https with a host, without
 // userinfo or fragment; anything else is a config error mentioning check and
 // the value (`<where>: check: invalid URL %q: <reason>`).
-func TestM11CheckInvalid(t *testing.T) {
+func TestCheckInvalid(t *testing.T) {
 	cases := []struct {
 		name string
 		yaml string
@@ -115,7 +115,7 @@ func TestM11CheckInvalid(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			errs := mustFail(t, filesOf(m11CheckYAML(c.yaml), m11Confs(t)))
+			errs := mustFail(t, filesOf(checkYAML(c.yaml), checkConfs(t)))
 			if missing := errorsMention(errs, c.want...); len(missing) > 0 {
 				t.Errorf("error text does not mention %q:\n%v", missing, errs)
 			}
@@ -128,7 +128,7 @@ func TestM11CheckInvalid(t *testing.T) {
 
 // design 10.1: errors are collected; a bad check URL in one tunnel and a bad
 // check IP in another are both reported.
-func TestM11CheckInvalidCollected(t *testing.T) {
+func TestCheckInvalidCollected(t *testing.T) {
 	yaml := `
 tunnels:
   - name: nl

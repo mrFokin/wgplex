@@ -46,7 +46,7 @@ const (
 	KindIface     Kind = iota + 1 // via a utun: RTAX_GATEWAY = LinkAddr{Index}, no RTF_GATEWAY
 	KindGateway                   // via a physical gateway: RTF_GATEWAY
 	KindReject                    // RTF_REJECT to lo0 (127.0.0.1 / ::1)
-	KindBlackhole                 // RTF_BLACKHOLE to lo0; only endpoint routes of M3, never wanted by Sync
+	KindBlackhole                 // RTF_BLACKHOLE to lo0; only endpoint routes of tunnels, never wanted by Sync
 )
 
 // KernelRoute is a route of ours (RTF_PROTO2) as the kernel holds it.

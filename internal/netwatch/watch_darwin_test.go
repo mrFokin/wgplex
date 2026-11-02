@@ -9,9 +9,9 @@ import (
 // watchScript adds the
 // global keys and the capture key, the service patterns
 // (anchored, whole keys), and n.watch last.
-func TestM7WatchScript(t *testing.T) {
-	defer m7NoPanic(t)
-	script := watchScript(m7CaptureKey)
+func TestWatchScript(t *testing.T) {
+	defer noPanic(t)
+	script := watchScript(captureKey)
 	if !strings.HasSuffix(script, "\n") {
 		t.Errorf("script %q: want a trailing newline (scutil reads lines)", script)
 	}
@@ -50,7 +50,7 @@ func TestM7WatchScript(t *testing.T) {
 		"State:/Network/Global/IPv4",
 		"State:/Network/Global/IPv6",
 		"State:/Network/Global/DNS",
-		m7CaptureKey,
+		captureKey,
 	} {
 		if !keys[k] {
 			t.Errorf("key %q not added; script %q", k, script)
@@ -95,8 +95,8 @@ func TestM7WatchScript(t *testing.T) {
 }
 
 // The capture key passed in is the one added (not a fixed one).
-func TestM7WatchScriptCaptureKey(t *testing.T) {
-	defer m7NoPanic(t)
+func TestWatchScriptCaptureKey(t *testing.T) {
+	defer noPanic(t)
 	const other = "State:/Network/Service/00000000-0000-0000-0000-000000000000/DNS"
 	script := watchScript(other)
 	if !strings.Contains(script, "n.add "+other+"\n") {

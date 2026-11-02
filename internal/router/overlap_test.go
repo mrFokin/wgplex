@@ -10,8 +10,8 @@ import (
 // whose prefix overlaps one of the local subnets, in table order, endpoint
 // routes excluded.
 
-// m4Overlaps calls Overlaps and turns a panic into a test failure.
-func m4Overlaps(t *testing.T, tbl Table, local []netip.Prefix) []Route {
+// overlapsOf calls Overlaps and turns a panic into a test failure.
+func overlapsOf(t *testing.T, tbl Table, local []netip.Prefix) []Route {
 	t.Helper()
 	var got []Route
 	func() {
@@ -25,7 +25,7 @@ func m4Overlaps(t *testing.T, tbl Table, local []netip.Prefix) []Route {
 	return got
 }
 
-func TestM4Overlaps(t *testing.T) {
+func TestOverlaps(t *testing.T) {
 	lan := tPs("192.168.20.0/24")
 	cases := []struct {
 		name  string
@@ -115,7 +115,7 @@ func TestM4Overlaps(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := m4Overlaps(t, c.tbl, c.local)
+			got := overlapsOf(t, c.tbl, c.local)
 			equal := len(got) == len(c.want)
 			for i := 0; equal && i < len(got); i++ {
 				equal = got[i] == c.want[i]

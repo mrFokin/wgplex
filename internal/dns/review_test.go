@@ -18,7 +18,7 @@ import (
 )
 
 // Tests from the review of the DNS resolver; they follow design 8, not the code.
-// The fake upstream, m5ServerCfg and the other m5 helpers are in the other
+// The fake upstream, serverCfg and the other m5 helpers are in the other
 // *_test.go files of the package.
 
 // --- helpers -----------------------------------------------------------------
@@ -30,7 +30,7 @@ func m5rStartServer(t *testing.T, cfg *config.Config, rules []router.RuleState, 
 	t.Helper()
 	s := &Server{Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Sync: syncFn}
 	ok := false
-	m5NoPanic(t, "Server setup", func() {
+	noPanic(t, "Server setup", func() {
 		s.SetState(cfg, rules, ifaces)
 		s.SetSystem(system)
 		if err := s.Start("127.0.0.1:0"); err != nil {
@@ -110,8 +110,8 @@ func m5rSeq(hs ...func(r *dns.Msg, tcp bool) *dns.Msg) func(r *dns.Msg, tcp bool
 
 // --- B1: no answer before the Sync that covers its pair -----------------------
 
-// design 8 "Домены из правил" (the /32 before the answer), M5 "Модель" query
-// step 5, review blocker B1: two concurrent queries for one new
+// design 8 "Домены из правил" (the /32 before the answer), review
+// blocker B1: two concurrent queries for one new
 // name of a rule (a retry of mDNSResponder). While Sync is blocked neither is
 // answered; after it returns both get NOERROR with the address, or both
 // SERVFAIL if it failed. More than one Sync call is fine.
@@ -125,14 +125,14 @@ func TestM5rServerSyncConcurrent(t *testing.T) {
 		{"Sync fails", errors.New("route add: no buffer space"), dns.RcodeServerFailure},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			u := m5StartUpstream(t, m5AddrAnswer("192.0.2.1", "2001:db8::1"))
+			u := startUpstream(t, addrAnswer("192.0.2.1", "2001:db8::1"))
 			var (
 				calls   atomic.Int32
 				entered = make(chan struct{}, 64)
 				release = make(chan struct{})
 				once    sync.Once
 			)
-			cfg, rules, ifaces := m5ServerCfg()
+			cfg, rules, ifaces := serverCfg()
 			s := m5rStartServer(t, cfg, rules, ifaces, m5rLoopback(), func() error {
 				calls.Add(1)
 				select {
@@ -171,14 +171,14 @@ func TestM5rServerSyncConcurrent(t *testing.T) {
 				var res m5rResult
 				select {
 				case res = <-ch:
-				case <-time.After(m5ClientTimeout):
+				case <-time.After(clientTimeout):
 					t.Fatalf("query %d: no answer after Sync returned", i+1)
 				}
 				if res.err != nil {
 					t.Fatalf("query %d: %v", i+1, res.err)
 				}
-				m5Rcode(t, res.m, tc.rcode)
-				got := m5AnswerAddrs(res.m)
+				wantRcode(t, res.m, tc.rcode)
+				got := answerAddrs(res.m)
 				if tc.rcode == dns.RcodeSuccess && !slices.Equal(got, []string{"192.0.2.1"}) {
 					t.Errorf("query %d: answer = %v, want [192.0.2.1]", i+1, got)
 				}
@@ -197,14 +197,14 @@ func TestM5rServerSyncConcurrent(t *testing.T) {
 // (SERVFAIL); the next query for the same name calls Sync again although the
 // pair is already known, and gets NOERROR once it succeeds.
 func TestM5rServerSyncRetry(t *testing.T) {
-	m5StartUpstream(t, m5AddrAnswer("192.0.2.1", "2001:db8::1"))
+	startUpstream(t, addrAnswer("192.0.2.1", "2001:db8::1"))
 	var (
 		calls atomic.Int32
 		mu    sync.Mutex
 		dyn   []router.Dynamic
 		s     *Server
 	)
-	cfg, rules, ifaces := m5ServerCfg()
+	cfg, rules, ifaces := serverCfg()
 	s = m5rStartServer(t, cfg, rules, ifaces, m5rLoopback(), func() error {
 		d := s.Dynamic()
 		mu.Lock()
@@ -216,15 +216,15 @@ func TestM5rServerSyncRetry(t *testing.T) {
 		return nil
 	})
 
-	resp := m5Exchange(t, s, "udp", "ifconfig.me", dns.TypeA, 0)
-	m5Rcode(t, resp, dns.RcodeServerFailure)
+	resp := exchangeMsg(t, s, "udp", "ifconfig.me", dns.TypeA, 0)
+	wantRcode(t, resp, dns.RcodeServerFailure)
 	if n := calls.Load(); n != 1 {
 		t.Fatalf("after the first query Sync called %d times, want 1", n)
 	}
 
-	resp = m5Exchange(t, s, "udp", "ifconfig.me", dns.TypeA, 0)
-	m5Rcode(t, resp, dns.RcodeSuccess)
-	if got := m5AnswerAddrs(resp); !slices.Equal(got, []string{"192.0.2.1"}) {
+	resp = exchangeMsg(t, s, "udp", "ifconfig.me", dns.TypeA, 0)
+	wantRcode(t, resp, dns.RcodeSuccess)
+	if got := answerAddrs(resp); !slices.Equal(got, []string{"192.0.2.1"}) {
 		t.Errorf("answer = %v, want [192.0.2.1]", got)
 	}
 	if n := calls.Load(); n != 2 {
@@ -232,7 +232,7 @@ func TestM5rServerSyncRetry(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if want := m5Dyn("192.0.2.1", m5SRTun); !slices.Contains(dyn, want) {
+	if want := dynamicOf("192.0.2.1", sRTun); !slices.Contains(dyn, want) {
 		t.Errorf("Dynamic at the second Sync = %v, want it to hold %v", dyn, want)
 	}
 }
@@ -244,17 +244,17 @@ func TestM5rServerSyncRetry(t *testing.T) {
 // in ifaces → SERVFAIL, the upstream is not asked, no Sync. A dns_domains
 // name of that tunnel goes to the system and is answered.
 func TestM5rServerRuleTunnelWithoutUtun(t *testing.T) {
-	u := m5StartUpstream(t, m5AddrAnswer("192.0.2.1", "2001:db8::1"))
+	u := startUpstream(t, addrAnswer("192.0.2.1", "2001:db8::1"))
 	var calls atomic.Int32
-	cfg, rules, _ := m5ServerCfg()
+	cfg, rules, _ := serverCfg()
 	s := m5rStartServer(t, cfg, rules, map[string]int{}, m5rLoopback(), func() error {
 		calls.Add(1)
 		return nil
 	})
 
 	for _, qtype := range []uint16{dns.TypeA, dns.TypeAAAA, dns.TypeTXT} {
-		resp := m5Exchange(t, s, "udp", "ifconfig.me", qtype, 0)
-		m5Rcode(t, resp, dns.RcodeServerFailure)
+		resp := exchangeMsg(t, s, "udp", "ifconfig.me", qtype, 0)
+		wantRcode(t, resp, dns.RcodeServerFailure)
 		if len(resp.Answer) != 0 {
 			t.Errorf("%s: SERVFAIL carries %v", dns.TypeToString[qtype], resp.Answer)
 		}
@@ -266,23 +266,23 @@ func TestM5rServerRuleTunnelWithoutUtun(t *testing.T) {
 		t.Errorf("Sync called %d times", n)
 	}
 
-	resp := m5Exchange(t, s, "udp", "vault.corp.example", dns.TypeA, 0)
-	m5Rcode(t, resp, dns.RcodeSuccess)
-	if got := m5AnswerAddrs(resp); !slices.Equal(got, []string{"192.0.2.1"}) {
+	resp := exchangeMsg(t, s, "udp", "vault.corp.example", dns.TypeA, 0)
+	wantRcode(t, resp, dns.RcodeSuccess)
+	if got := answerAddrs(resp); !slices.Equal(got, []string{"192.0.2.1"}) {
 		t.Errorf("dns_domains name without utun: answer = %v, want [192.0.2.1] from the system", got)
 	}
 }
 
 // --- the next server ---------------------------------------------------------
 
-// m5rTwoServers is m5ServerCfg with the tunnel de's DNS and the system
+// m5rTwoServers is serverCfg with the tunnel de's DNS and the system
 // upstream both set to servers (built directly: config.Load would drop
 // duplicates).
 func m5rTwoServers(t *testing.T, servers ...string) *Server {
 	t.Helper()
-	cfg, rules, ifaces := m5ServerCfg()
-	cfg.Tunnels[0].WG.DNS = m5Addrs(servers...)
-	return m5rStartServer(t, cfg, rules, ifaces, m5Addrs(servers...), func() error { return nil })
+	cfg, rules, ifaces := serverCfg()
+	cfg.Tunnels[0].WG.DNS = parseAddrs(servers...)
+	return m5rStartServer(t, cfg, rules, ifaces, parseAddrs(servers...), func() error { return nil })
 }
 
 // design 8 (2 s per server, the next one on no answer): the
@@ -298,22 +298,22 @@ func TestM5rServerNextOnSilence(t *testing.T) {
 		// The fake is asked twice: the first time it keeps silent.
 		{"first silent", []string{"127.0.0.1", "127.0.0.1"},
 			func() func(*dns.Msg, bool) *dns.Msg {
-				return m5rSeq(m5rSilent, m5AddrAnswer("192.0.2.1", "2001:db8::1"))
+				return m5rSeq(m5rSilent, addrAnswer("192.0.2.1", "2001:db8::1"))
 			}, 2},
 		// Nothing listens on 127.0.0.2 (no alias on lo0: a send error, a
 		// refusal or a timeout — any of them is "no answer").
 		{"first is 127.0.0.2", []string{"127.0.0.2", "127.0.0.1"},
-			func() func(*dns.Msg, bool) *dns.Msg { return m5AddrAnswer("192.0.2.1", "2001:db8::1") }, 1},
+			func() func(*dns.Msg, bool) *dns.Msg { return addrAnswer("192.0.2.1", "2001:db8::1") }, 1},
 	} {
 		for _, name := range []string{"ifconfig.me", "apple.test"} {
 			t.Run(tc.why+" "+name, func(t *testing.T) {
-				u := m5StartUpstream(t, tc.handle())
+				u := startUpstream(t, tc.handle())
 				s := m5rTwoServers(t, tc.servers...)
 				start := time.Now()
-				resp := m5Exchange(t, s, "udp", name, dns.TypeA, 0)
+				resp := exchangeMsg(t, s, "udp", name, dns.TypeA, 0)
 				el := time.Since(start)
-				m5Rcode(t, resp, dns.RcodeSuccess)
-				if got := m5AnswerAddrs(resp); !slices.Equal(got, []string{"192.0.2.1"}) {
+				wantRcode(t, resp, dns.RcodeSuccess)
+				if got := answerAddrs(resp); !slices.Equal(got, []string{"192.0.2.1"}) {
 					t.Errorf("answer = %v, want [192.0.2.1] from the second server", got)
 				}
 				if n := u.total(); n != tc.asked {
@@ -332,7 +332,7 @@ func TestM5rServerNextOnSilence(t *testing.T) {
 // answers (NXDOMAIN) are final. One fake answers by query count; the tunnel
 // and the system have it twice.
 func TestM5rServerNextOnServfail(t *testing.T) {
-	addr := m5AddrAnswer("192.0.2.1", "2001:db8::1")
+	addr := addrAnswer("192.0.2.1", "2001:db8::1")
 	for _, tc := range []struct {
 		why   string
 		hs    []func(r *dns.Msg, tcp bool) *dns.Msg
@@ -355,11 +355,11 @@ func TestM5rServerNextOnServfail(t *testing.T) {
 	} {
 		for _, name := range []string{"ifconfig.me", "apple.test"} {
 			t.Run(tc.why+" "+name, func(t *testing.T) {
-				u := m5StartUpstream(t, m5rSeq(tc.hs...))
+				u := startUpstream(t, m5rSeq(tc.hs...))
 				s := m5rTwoServers(t, "127.0.0.1", "127.0.0.1")
-				resp := m5Exchange(t, s, "udp", name, dns.TypeA, 0)
-				m5Rcode(t, resp, tc.rcode)
-				if got := m5AnswerAddrs(resp); !slices.Equal(got, tc.addrs) {
+				resp := exchangeMsg(t, s, "udp", name, dns.TypeA, 0)
+				wantRcode(t, resp, tc.rcode)
+				if got := answerAddrs(resp); !slices.Equal(got, tc.addrs) {
 					t.Errorf("answer = %v, want %v", got, tc.addrs)
 				}
 				if n := u.total(); n != tc.asked {
@@ -376,13 +376,13 @@ func TestM5rServerNextOnServfail(t *testing.T) {
 // ipv4hint and ipv6hint and keeps alpn; for a name without a rule the record
 // passes as is.
 func TestM5rServerHTTPSHints(t *testing.T) {
-	m5StartUpstream(t, m5Answer(func(q dns.Question) []dns.RR {
+	startUpstream(t, answerFunc(func(q dns.Question) []dns.RR {
 		if q.Qtype == dns.TypeHTTPS {
-			return []dns.RR{m5HTTPS(q.Name)}
+			return []dns.RR{httpsRR(q.Name)}
 		}
 		return nil
 	}))
-	cfg, rules, ifaces := m5ServerCfg()
+	cfg, rules, ifaces := serverCfg()
 	s := m5rStartServer(t, cfg, rules, ifaces, m5rLoopback(), func() error { return nil })
 	for _, tc := range []struct {
 		name string
@@ -396,12 +396,12 @@ func TestM5rServerHTTPSHints(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, network := range []string{"udp", "tcp"} {
-				resp := m5Exchange(t, s, network, tc.name, dns.TypeHTTPS, 0)
-				m5Rcode(t, resp, dns.RcodeSuccess)
+				resp := exchangeMsg(t, s, network, tc.name, dns.TypeHTTPS, 0)
+				wantRcode(t, resp, dns.RcodeSuccess)
 				if len(resp.Answer) != 1 {
 					t.Fatalf("%s: answer = %v, want one HTTPS record", network, resp.Answer)
 				}
-				got := m5SVCBKeys(resp.Answer[0])
+				got := sVCBKeys(resp.Answer[0])
 				slices.Sort(got)
 				if !slices.Equal(got, tc.want) {
 					t.Errorf("%s: HTTPS keys = %v, want %v", network, got, tc.want)
@@ -416,8 +416,8 @@ func TestM5rServerHTTPSHints(t *testing.T) {
 // design 7.3: the NODATA of block has an OPT when the client
 // sent EDNS0, over TCP too (RFC 6891: and none without it).
 func TestM5rServerNoDataEDNS0(t *testing.T) {
-	u := m5StartUpstream(t, m5AddrAnswer("192.0.2.1", "2001:db8::1"))
-	cfg, rules, ifaces := m5ServerCfg()
+	u := startUpstream(t, addrAnswer("192.0.2.1", "2001:db8::1"))
+	cfg, rules, ifaces := serverCfg()
 	s := m5rStartServer(t, cfg, rules, ifaces, m5rLoopback(), func() error { return nil })
 	for _, tc := range []struct {
 		network string
@@ -428,8 +428,8 @@ func TestM5rServerNoDataEDNS0(t *testing.T) {
 		{"tcp", 0},
 		{"udp", 0},
 	} {
-		resp := m5Exchange(t, s, tc.network, "www.example.com", dns.TypeA, tc.edns)
-		m5Rcode(t, resp, dns.RcodeSuccess)
+		resp := exchangeMsg(t, s, tc.network, "www.example.com", dns.TypeA, tc.edns)
+		wantRcode(t, resp, dns.RcodeSuccess)
 		if len(resp.Answer) != 0 {
 			t.Errorf("%s EDNS0 %d: answer = %v, want empty", tc.network, tc.edns, resp.Answer)
 		}
@@ -488,8 +488,8 @@ func TestM5rParseScutilEmpty(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := m5Parse(t, c.out)
-			m5SameMap(t, got, c.want)
+			got := parseSections(t, c.out)
+			sameMap(t, got, c.want)
 			if len(got) != len(c.want) {
 				t.Errorf("parsed %d keys %q, want %d", len(got), got, len(c.want))
 			}
@@ -520,7 +520,7 @@ func TestM5rSystemServersLoopback(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.why, func(t *testing.T) {
 			var got []string
-			m5NoPanic(t, "systemServers", func() {
+			noPanic(t, "systemServers", func() {
 				for _, a := range systemServers(c.setup, c.state) {
 					got = append(got, a.String())
 				}

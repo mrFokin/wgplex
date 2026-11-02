@@ -19,7 +19,7 @@ import (
 
 // design 6: HasHostnames — some peer endpoint is a host name, not an IP
 // literal; a peer without Endpoint does not count.
-func TestM11HasHostnames(t *testing.T) {
+func TestHasHostnames(t *testing.T) {
 	peer := func(ep string) config.Peer { return config.Peer{PublicKey: testKey(t), Endpoint: ep} }
 	cases := []struct {
 		name  string
@@ -50,7 +50,7 @@ func TestM11HasHostnames(t *testing.T) {
 	}
 }
 
-func m11EndpointUAPI(t *testing.T, pub config.Key, ep netip.AddrPort) string {
+func endpointUAPIOf(t *testing.T, pub config.Key, ep netip.AddrPort) string {
 	t.Helper()
 	defer func() {
 		if r := recover(); r != nil {
@@ -62,7 +62,7 @@ func m11EndpointUAPI(t *testing.T, pub config.Key, ep netip.AddrPort) string {
 
 // endpointUAPI is public_key (lowercase hex), update_only=true,
 // endpoint — in this order; IPv6 in brackets.
-func TestM11EndpointUAPI(t *testing.T) {
+func TestEndpointUAPI(t *testing.T) {
 	pub := testKey(t)
 	cases := []struct {
 		ep   string
@@ -73,7 +73,7 @@ func TestM11EndpointUAPI(t *testing.T) {
 		{"198.51.100.200:443", "198.51.100.200:443"},
 	}
 	for _, c := range cases {
-		got := m11EndpointUAPI(t, pub, netip.MustParseAddrPort(c.ep))
+		got := endpointUAPIOf(t, pub, netip.MustParseAddrPort(c.ep))
 		lines := uapiLines(t, got)
 		want := []string{
 			"public_key=" + hexKey(pub),
@@ -92,7 +92,7 @@ func TestM11EndpointUAPI(t *testing.T) {
 // The text of endpointUAPI is accepted by a real wireguard-go device (no
 // root): it changes the endpoint of that peer only, keeps its allowed IPs
 // and the other peers, and never creates a peer.
-func TestM11EndpointUAPIAcceptedByDevice(t *testing.T) {
+func TestEndpointUAPIAcceptedByDevice(t *testing.T) {
 	priv, pub1, pub2 := testKey(t), testKey(t), testKey(t)
 	wg := config.WGConfig{
 		PrivateKey: priv,
@@ -113,12 +113,12 @@ func TestM11EndpointUAPIAcceptedByDevice(t *testing.T) {
 	}
 
 	// bindtest keeps only the endpoint port, so the new endpoint has a new port.
-	text := m11EndpointUAPI(t, pub2, netip.MustParseAddrPort("198.51.100.8:51999"))
+	text := endpointUAPIOf(t, pub2, netip.MustParseAddrPort("198.51.100.8:51999"))
 	if err := dev.IpcSetOperation(strings.NewReader(text)); err != nil {
 		t.Fatalf("IpcSetOperation(endpointUAPI): %v", err)
 	}
 	// An unknown key: update_only does not create a peer.
-	if err := dev.IpcSetOperation(strings.NewReader(m11EndpointUAPI(t, testKey(t), netip.MustParseAddrPort("198.51.100.9:52000")))); err != nil {
+	if err := dev.IpcSetOperation(strings.NewReader(endpointUAPIOf(t, testKey(t), netip.MustParseAddrPort("198.51.100.9:52000")))); err != nil {
 		t.Fatalf("IpcSetOperation(endpointUAPI, unknown key): %v", err)
 	}
 

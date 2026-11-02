@@ -15,7 +15,7 @@ import (
 
 // --- helpers ---------------------------------------------------------------
 
-func m5Pfxs(ss ...string) []netip.Prefix {
+func prefixes(ss ...string) []netip.Prefix {
 	var out []netip.Prefix
 	for _, s := range ss {
 		out = append(out, netip.MustParsePrefix(s))
@@ -23,7 +23,7 @@ func m5Pfxs(ss ...string) []netip.Prefix {
 	return out
 }
 
-func m5Addrs(ss ...string) []netip.Addr {
+func parseAddrs(ss ...string) []netip.Addr {
 	var out []netip.Addr
 	for _, s := range ss {
 		out = append(out, netip.MustParseAddr(s))
@@ -31,8 +31,8 @@ func m5Addrs(ss ...string) []netip.Addr {
 	return out
 }
 
-// m5Domains parses domain patterns as written in YAML ("=name" is exact).
-func m5Domains(ss ...string) []config.Domain {
+// domainList parses domain patterns as written in YAML ("=name" is exact).
+func domainList(ss ...string) []config.Domain {
 	var out []config.Domain
 	for _, s := range ss {
 		if s[0] == '=' {
@@ -44,21 +44,21 @@ func m5Domains(ss ...string) []config.Domain {
 	return out
 }
 
-// m5Tunnel is a tunnel with the given Address, DNS and dns_domains.
-func m5Tunnel(name string, addrs, dns []string, domains ...string) config.Tunnel {
+// tunnelCfg is a tunnel with the given Address, DNS and dns_domains.
+func tunnelCfg(name string, addrs, dns []string, domains ...string) config.Tunnel {
 	return config.Tunnel{
 		Name:       name,
 		Routes:     config.RoutesRules,
-		DNSDomains: m5Domains(domains...),
+		DNSDomains: domainList(domains...),
 		WG: config.WGConfig{
-			Addresses: m5Pfxs(addrs...),
-			DNS:       m5Addrs(dns...),
+			Addresses: prefixes(addrs...),
+			DNS:       parseAddrs(dns...),
 		},
 	}
 }
 
-// m5NoPanic runs f and turns a panic into a test failure.
-func m5NoPanic(t *testing.T, what string, f func()) {
+// noPanic runs f and turns a panic into a test failure.
+func noPanic(t *testing.T, what string, f func()) {
 	t.Helper()
 	defer func() {
 		if r := recover(); r != nil {
@@ -68,85 +68,85 @@ func m5NoPanic(t *testing.T, what string, f func()) {
 	f()
 }
 
-// Rule indexes of m5ChooseCfg.
+// Rule indexes of chooseCfg.
 const (
-	m5RTun       = 0 // via [de], de has no IPv6
-	m5RDirect    = 1 // empty via
-	m5RBlock     = 2 // fallback: block, in fallback
-	m5RDefFallen = 3 // fallback: default, in fallback
-	m5RLow       = 4 // below m5RDefFallen, via [v6], v6 has IPv6
-	m5RInZone    = 5 // a rule domain inside a dns_domains zone, via [work]
-	m5RBlockUp   = 6 // fallback: block, its tunnel is up
-	m5RDefUp     = 7 // fallback: default, its tunnel is up
+	rTun       = 0 // via [de], de has no IPv6
+	rDirect    = 1 // empty via
+	rBlock     = 2 // fallback: block, in fallback
+	rDefFallen = 3 // fallback: default, in fallback
+	rLow       = 4 // below rDefFallen, via [v6], v6 has IPv6
+	rInZone    = 5 // a rule domain inside a dns_domains zone, via [work]
+	rBlockUp   = 6 // fallback: block, its tunnel is up
+	rDefUp     = 7 // fallback: default, its tunnel is up
 )
 
-// m5ChooseCfg: tunnels in order de, v6, work, off; v6 has an IPv6 Address
+// chooseCfg: tunnels in order de, v6, work, off; v6 has an IPv6 Address
 // and no DNS; dns_domains: corp.example in de and work (tie by tunnel order),
 // a.corp.example in v6 (longer zone), offline.example in work, off.example in
-// off (no utun in m5Ifaces).
-func m5ChooseCfg(ipv6Filter bool) *config.Config {
+// off (no utun in ifaceIndexes).
+func chooseCfg(ipv6Filter bool) *config.Config {
 	return &config.Config{
 		IPv6Filter: ipv6Filter,
 		Tunnels: []config.Tunnel{
-			m5Tunnel("de", []string{"10.0.0.2/32"}, []string{"1.0.0.1"}, "corp.example"),
-			m5Tunnel("v6", []string{"10.1.0.2/32", "fd00:1::2/128"}, nil, "a.corp.example"),
-			m5Tunnel("work", []string{"10.2.0.2/24"}, []string{"10.199.17.1"}, "corp.example", "offline.example"),
-			m5Tunnel("off", []string{"10.3.0.2/32"}, []string{"10.3.0.1"}, "off.example"),
+			tunnelCfg("de", []string{"10.0.0.2/32"}, []string{"1.0.0.1"}, "corp.example"),
+			tunnelCfg("v6", []string{"10.1.0.2/32", "fd00:1::2/128"}, nil, "a.corp.example"),
+			tunnelCfg("work", []string{"10.2.0.2/24"}, []string{"10.199.17.1"}, "corp.example", "offline.example"),
+			tunnelCfg("off", []string{"10.3.0.2/32"}, []string{"10.3.0.1"}, "off.example"),
 		},
 		Services: map[string]config.Service{
-			"tun":      {Domains: m5Domains("ifconfig.me", "ipinfo.io")},
-			"direct":   {Domains: m5Domains("icanhazip.com")},
-			"block":    {Domains: m5Domains("example.com")},
-			"deffall":  {Domains: m5Domains("=www.example.org", "default.example", "fb.corp.example")},
-			"low":      {Domains: m5Domains("example.org")},
-			"inzone":   {Domains: m5Domains("rule.corp.example")},
-			"blockup":  {Domains: m5Domains("blockup.example")},
-			"defup":    {Domains: m5Domains("defup.example")},
-			"tunnelv6": {Domains: m5Domains("v6only.example")},
+			"tun":      {Domains: domainList("ifconfig.me", "ipinfo.io")},
+			"direct":   {Domains: domainList("icanhazip.com")},
+			"block":    {Domains: domainList("example.com")},
+			"deffall":  {Domains: domainList("=www.example.org", "default.example", "fb.corp.example")},
+			"low":      {Domains: domainList("example.org")},
+			"inzone":   {Domains: domainList("rule.corp.example")},
+			"blockup":  {Domains: domainList("blockup.example")},
+			"defup":    {Domains: domainList("defup.example")},
+			"tunnelv6": {Domains: domainList("v6only.example")},
 		},
 		Rules: []config.Rule{
-			m5RTun:       {Services: []string{"tun"}, Via: []string{"de"}, Fallback: config.FallbackDefault},
-			m5RDirect:    {Services: []string{"direct"}, Fallback: config.FallbackDefault},
-			m5RBlock:     {Services: []string{"block"}, Via: []string{"home"}, Fallback: config.FallbackBlock},
-			m5RDefFallen: {Services: []string{"deffall"}, Via: []string{"home"}, Fallback: config.FallbackDefault},
-			m5RLow:       {Services: []string{"low", "tunnelv6"}, Via: []string{"v6"}, Fallback: config.FallbackDefault},
-			m5RInZone:    {Services: []string{"inzone"}, Via: []string{"work"}, Fallback: config.FallbackDefault},
-			m5RBlockUp:   {Services: []string{"blockup"}, Via: []string{"de"}, Fallback: config.FallbackBlock},
-			m5RDefUp:     {Services: []string{"defup"}, Via: []string{"de"}, Fallback: config.FallbackDefault},
+			rTun:       {Services: []string{"tun"}, Via: []string{"de"}, Fallback: config.FallbackDefault},
+			rDirect:    {Services: []string{"direct"}, Fallback: config.FallbackDefault},
+			rBlock:     {Services: []string{"block"}, Via: []string{"home"}, Fallback: config.FallbackBlock},
+			rDefFallen: {Services: []string{"deffall"}, Via: []string{"home"}, Fallback: config.FallbackDefault},
+			rLow:       {Services: []string{"low", "tunnelv6"}, Via: []string{"v6"}, Fallback: config.FallbackDefault},
+			rInZone:    {Services: []string{"inzone"}, Via: []string{"work"}, Fallback: config.FallbackDefault},
+			rBlockUp:   {Services: []string{"blockup"}, Via: []string{"de"}, Fallback: config.FallbackBlock},
+			rDefUp:     {Services: []string{"defup"}, Via: []string{"de"}, Fallback: config.FallbackDefault},
 		},
 	}
 }
 
-// m5ChooseRules is the SelectRules result for m5ChooseCfg: home is down.
-func m5ChooseRules() []router.RuleState {
+// chooseRules is the SelectRules result for chooseCfg: home is down.
+func chooseRules() []router.RuleState {
 	return []router.RuleState{
-		m5RTun:       {Tunnel: "de"},
-		m5RDirect:    {},
-		m5RBlock:     {Fallback: true},
-		m5RDefFallen: {Fallback: true},
-		m5RLow:       {Tunnel: "v6"},
-		m5RInZone:    {Tunnel: "work"},
-		m5RBlockUp:   {Tunnel: "de"},
-		m5RDefUp:     {Tunnel: "de"},
+		rTun:       {Tunnel: "de"},
+		rDirect:    {},
+		rBlock:     {Fallback: true},
+		rDefFallen: {Fallback: true},
+		rLow:       {Tunnel: "v6"},
+		rInZone:    {Tunnel: "work"},
+		rBlockUp:   {Tunnel: "de"},
+		rDefUp:     {Tunnel: "de"},
 	}
 }
 
-// m5Ifaces: de, v6 and work have a utun, off does not.
-func m5Ifaces() map[string]int {
+// ifaceIndexes: de, v6 and work have a utun, off does not.
+func ifaceIndexes() map[string]int {
 	return map[string]int{"de": 15, "v6": 16, "work": 17}
 }
 
-func m5Choose(t *testing.T, cfg *config.Config, rules []router.RuleState, ifaces map[string]int, name string) Choice {
+func chooseFor(t *testing.T, cfg *config.Config, rules []router.RuleState, ifaces map[string]int, name string) Choice {
 	t.Helper()
 	var c Choice
-	m5NoPanic(t, "Choose", func() { c = Choose(cfg, rules, ifaces, name) })
+	noPanic(t, "Choose", func() { c = Choose(cfg, rules, ifaces, name) })
 	return c
 }
 
-// m5CheckChoice compares got with want. For a Block choice only Rule and
+// checkChoice compares got with want. For a Block choice only Rule and
 // Block are compared: what Tunnel and DropAAAA hold
 // when no upstream is asked is not specified.
-func m5CheckChoice(t *testing.T, name string, got, want Choice) {
+func checkChoice(t *testing.T, name string, got, want Choice) {
 	t.Helper()
 	if want.Block {
 		if got.Rule != want.Rule || !got.Block {
@@ -162,10 +162,10 @@ func m5CheckChoice(t *testing.T, name string, got, want Choice) {
 // --- Choose ------------------------------------------------------------------
 
 // design 8 "Выбор апстрима" 1–6, 6.3, 6.4.
-func TestM5Choose(t *testing.T) {
-	cfg := m5ChooseCfg(true)
-	rules := m5ChooseRules()
-	ifaces := m5Ifaces()
+func TestChoose(t *testing.T) {
+	cfg := chooseCfg(true)
+	rules := chooseRules()
+	ifaces := ifaceIndexes()
 	sys := Choice{Rule: -1}
 	cases := []struct {
 		why  string
@@ -173,26 +173,26 @@ func TestM5Choose(t *testing.T) {
 		want Choice
 	}{
 		// Step 3: a rule on a tunnel; de has no IPv6 Address → DropAAAA.
-		{"rule on a tunnel", "ifconfig.me", Choice{Rule: m5RTun, Tunnel: "de", DropAAAA: true}},
-		{"rule on a tunnel, subdomain", "www.ipinfo.io", Choice{Rule: m5RTun, Tunnel: "de", DropAAAA: true}},
+		{"rule on a tunnel", "ifconfig.me", Choice{Rule: rTun, Tunnel: "de", DropAAAA: true}},
+		{"rule on a tunnel, subdomain", "www.ipinfo.io", Choice{Rule: rTun, Tunnel: "de", DropAAAA: true}},
 		// Step 3: the tunnel has IPv6 → no DropAAAA.
-		{"rule on a tunnel with IPv6", "v6only.example", Choice{Rule: m5RLow, Tunnel: "v6"}},
+		{"rule on a tunnel with IPv6", "v6only.example", Choice{Rule: rLow, Tunnel: "v6"}},
 		// Step 4: empty via → system upstream, the rule is kept; direct is
 		// not filtered (design 8 IPv6: only when the target tunnel lacks it).
-		{"empty via: system upstream", "icanhazip.com", Choice{Rule: m5RDirect}},
-		{"empty via: subdomain", "a.icanhazip.com", Choice{Rule: m5RDirect}},
+		{"empty via: system upstream", "icanhazip.com", Choice{Rule: rDirect}},
+		{"empty via: subdomain", "a.icanhazip.com", Choice{Rule: rDirect}},
 		// Step 2: fallback: block in fallback → NODATA.
-		{"fallback block", "example.com", Choice{Rule: m5RBlock, Block: true}},
-		{"fallback block, subdomain", "www.example.com", Choice{Rule: m5RBlock, Block: true}},
+		{"fallback block", "example.com", Choice{Rule: rBlock, Block: true}},
+		{"fallback block, subdomain", "www.example.com", Choice{Rule: rBlock, Block: true}},
 		// A block rule whose tunnel is up is an ordinary tunnel rule.
-		{"block rule with its tunnel up", "blockup.example", Choice{Rule: m5RBlockUp, Tunnel: "de", DropAAAA: true}},
+		{"block rule with its tunnel up", "blockup.example", Choice{Rule: rBlockUp, Tunnel: "de", DropAAAA: true}},
 		// Step 1: a rule in fallback: default does not take
 		// part; the name goes to the rule below (exact above, suffix below).
-		{"fallback default: the lower rule gets the name", "www.example.org", Choice{Rule: m5RLow, Tunnel: "v6"}},
+		{"fallback default: the lower rule gets the name", "www.example.org", Choice{Rule: rLow, Tunnel: "v6"}},
 		{"fallback default: no lower rule → system", "default.example", sys},
 		{"fallback default: no lower rule, dns_domains apply", "fb.corp.example", Choice{Rule: -1, Tunnel: "de"}},
 		// A default rule whose tunnel is up takes part as usual.
-		{"fallback default rule with its tunnel up", "defup.example", Choice{Rule: m5RDefUp, Tunnel: "de", DropAAAA: true}},
+		{"fallback default rule with its tunnel up", "defup.example", Choice{Rule: rDefUp, Tunnel: "de", DropAAAA: true}},
 		// Step 5: dns_domains — the longest zone, ties by tunnel order, no
 		// dynamic addresses (Rule -1), no AAAA filter.
 		{"dns_domains: zone apex", "corp.example", Choice{Rule: -1, Tunnel: "de"}},
@@ -203,32 +203,32 @@ func TestM5Choose(t *testing.T) {
 		// A tunnel without a utun → as if the field were absent.
 		{"dns_domains of a tunnel without utun → system", "y.off.example", sys},
 		// A rule wins over dns_domains, even inside a longer zone.
-		{"rule wins over dns_domains", "rule.corp.example", Choice{Rule: m5RInZone, Tunnel: "work", DropAAAA: true}},
-		{"rule wins over dns_domains, subdomain", "x.rule.corp.example", Choice{Rule: m5RInZone, Tunnel: "work", DropAAAA: true}},
+		{"rule wins over dns_domains", "rule.corp.example", Choice{Rule: rInZone, Tunnel: "work", DropAAAA: true}},
+		{"rule wins over dns_domains, subdomain", "x.rule.corp.example", Choice{Rule: rInZone, Tunnel: "work", DropAAAA: true}},
 		// Zone boundary: label boundary as in 6.4.
 		{"dns_domains: label boundary", "notcorp.example", sys},
 		// Step 6.
 		{"nothing matches → system", "apple.com", sys},
 		{"PTR name → system", "1.0.0.10.in-addr.arpa", sys},
 		// 6.4: case and trailing dot.
-		{"case and trailing dot: rule", "IfConfig.ME.", Choice{Rule: m5RTun, Tunnel: "de", DropAAAA: true}},
-		{"case and trailing dot: block", "WWW.Example.COM.", Choice{Rule: m5RBlock, Block: true}},
-		{"case and trailing dot: fallback default", "WWW.example.ORG.", Choice{Rule: m5RLow, Tunnel: "v6"}},
+		{"case and trailing dot: rule", "IfConfig.ME.", Choice{Rule: rTun, Tunnel: "de", DropAAAA: true}},
+		{"case and trailing dot: block", "WWW.Example.COM.", Choice{Rule: rBlock, Block: true}},
+		{"case and trailing dot: fallback default", "WWW.example.ORG.", Choice{Rule: rLow, Tunnel: "v6"}},
 		{"case and trailing dot: dns_domains", "X.A.Corp.Example.", Choice{Rule: -1, Tunnel: "v6"}},
 		{"case and trailing dot: system", "Apple.COM.", sys},
 	}
 	for _, c := range cases {
 		t.Run(c.why, func(t *testing.T) {
-			m5CheckChoice(t, c.name, m5Choose(t, cfg, rules, ifaces, c.name), c.want)
+			checkChoice(t, c.name, chooseFor(t, cfg, rules, ifaces, c.name), c.want)
 		})
 	}
 }
 
 // design 8 step 5: without de's utun its zone goes to the next
 // tunnel with the same zone; without any, to the system upstream.
-func TestM5ChooseDNSDomainsWithoutUtun(t *testing.T) {
-	cfg := m5ChooseCfg(true)
-	rules := m5ChooseRules()
+func TestChooseDNSDomainsWithoutUtun(t *testing.T) {
+	cfg := chooseCfg(true)
+	rules := chooseRules()
 	cases := []struct {
 		why    string
 		ifaces map[string]int
@@ -242,47 +242,47 @@ func TestM5ChooseDNSDomainsWithoutUtun(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.why, func(t *testing.T) {
-			m5CheckChoice(t, c.name, m5Choose(t, cfg, rules, c.ifaces, c.name), c.want)
+			checkChoice(t, c.name, chooseFor(t, cfg, rules, c.ifaces, c.name), c.want)
 		})
 	}
 }
 
 // design 8 "IPv6", 9.2: with ipv6_filter: false nothing is filtered.
-func TestM5ChooseIPv6FilterOff(t *testing.T) {
-	cfg := m5ChooseCfg(false)
-	rules := m5ChooseRules()
-	ifaces := m5Ifaces()
+func TestChooseIPv6FilterOff(t *testing.T) {
+	cfg := chooseCfg(false)
+	rules := chooseRules()
+	ifaces := ifaceIndexes()
 	cases := []struct {
 		name string
 		want Choice
 	}{
-		{"ifconfig.me", Choice{Rule: m5RTun, Tunnel: "de"}},
-		{"v6only.example", Choice{Rule: m5RLow, Tunnel: "v6"}},
-		{"icanhazip.com", Choice{Rule: m5RDirect}},
-		{"rule.corp.example", Choice{Rule: m5RInZone, Tunnel: "work"}},
+		{"ifconfig.me", Choice{Rule: rTun, Tunnel: "de"}},
+		{"v6only.example", Choice{Rule: rLow, Tunnel: "v6"}},
+		{"icanhazip.com", Choice{Rule: rDirect}},
+		{"rule.corp.example", Choice{Rule: rInZone, Tunnel: "work"}},
 		{"host.corp.example", Choice{Rule: -1, Tunnel: "de"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			m5CheckChoice(t, c.name, m5Choose(t, cfg, rules, ifaces, c.name), c.want)
+			checkChoice(t, c.name, chooseFor(t, cfg, rules, ifaces, c.name), c.want)
 		})
 	}
 }
 
 // design 7.4: ties between rules go by rule order also when the upper one is
 // in fallback: default and so skipped: the next equal one wins.
-func TestM5ChooseEqualRulesFallback(t *testing.T) {
+func TestChooseEqualRulesFallback(t *testing.T) {
 	cfg := &config.Config{
 		IPv6Filter: true,
 		Tunnels: []config.Tunnel{
-			m5Tunnel("nl", []string{"10.0.0.2/32", "fd00::2/128"}, nil),
-			m5Tunnel("de", []string{"10.1.0.2/32", "fd00:1::2/128"}, nil),
-			m5Tunnel("fi", []string{"10.2.0.2/32", "fd00:2::2/128"}, nil),
+			tunnelCfg("nl", []string{"10.0.0.2/32", "fd00::2/128"}, nil),
+			tunnelCfg("de", []string{"10.1.0.2/32", "fd00:1::2/128"}, nil),
+			tunnelCfg("fi", []string{"10.2.0.2/32", "fd00:2::2/128"}, nil),
 		},
 		Services: map[string]config.Service{
-			"a": {Domains: m5Domains("youtube.com")},
-			"b": {Domains: m5Domains("youtube.com")},
-			"c": {Domains: m5Domains("youtube.com")},
+			"a": {Domains: domainList("youtube.com")},
+			"b": {Domains: domainList("youtube.com")},
+			"c": {Domains: domainList("youtube.com")},
 		},
 		Rules: []config.Rule{
 			{Services: []string{"a"}, Via: []string{"nl"}, Fallback: config.FallbackDefault},
@@ -303,7 +303,7 @@ func TestM5ChooseEqualRulesFallback(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.why, func(t *testing.T) {
-			m5CheckChoice(t, "www.youtube.com", m5Choose(t, cfg, c.rules, ifaces, "www.youtube.com"), c.want)
+			checkChoice(t, "www.youtube.com", chooseFor(t, cfg, c.rules, ifaces, "www.youtube.com"), c.want)
 		})
 	}
 }
@@ -312,27 +312,27 @@ func TestM5ChooseEqualRulesFallback(t *testing.T) {
 
 // Only rules in fallback: default (and in fallback) are left
 // out; block and empty via take part.
-func TestM5UseRule(t *testing.T) {
-	cfg := m5ChooseCfg(true)
-	rules := m5ChooseRules()
+func TestUseRule(t *testing.T) {
+	cfg := chooseCfg(true)
+	rules := chooseRules()
 	var use func(int) bool
-	m5NoPanic(t, "useRule", func() { use = useRule(cfg, rules) })
+	noPanic(t, "useRule", func() { use = useRule(cfg, rules) })
 	if use == nil {
 		t.Fatal("useRule returned nil")
 	}
 	want := map[int]bool{
-		m5RTun:       true,
-		m5RDirect:    true,
-		m5RBlock:     true,
-		m5RDefFallen: false,
-		m5RLow:       true,
-		m5RInZone:    true,
-		m5RBlockUp:   true,
-		m5RDefUp:     true,
+		rTun:       true,
+		rDirect:    true,
+		rBlock:     true,
+		rDefFallen: false,
+		rLow:       true,
+		rInZone:    true,
+		rBlockUp:   true,
+		rDefUp:     true,
 	}
 	for i := range cfg.Rules {
 		var got bool
-		m5NoPanic(t, "use", func() { got = use(i) })
+		noPanic(t, "use", func() { got = use(i) })
 		if got != want[i] {
 			t.Errorf("useRule(%d) = %v, want %v", i, got, want[i])
 		}
@@ -342,7 +342,7 @@ func TestM5UseRule(t *testing.T) {
 // --- Servers -----------------------------------------------------------------
 
 // design 8: DNS from the .conf of the tunnel, else 1.1.1.1.
-func TestM5Servers(t *testing.T) {
+func TestServers(t *testing.T) {
 	cases := []struct {
 		why  string
 		dns  []string
@@ -354,10 +354,10 @@ func TestM5Servers(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.why, func(t *testing.T) {
-			tun := m5Tunnel("x", []string{"10.0.0.2/32"}, c.dns)
+			tun := tunnelCfg("x", []string{"10.0.0.2/32"}, c.dns)
 			var got []netip.Addr
-			m5NoPanic(t, "Servers", func() { got = Servers(&tun) })
-			if !slices.Equal(got, m5Addrs(c.want...)) {
+			noPanic(t, "Servers", func() { got = Servers(&tun) })
+			if !slices.Equal(got, parseAddrs(c.want...)) {
 				t.Errorf("Servers = %v, want %v", got, c.want)
 			}
 		})

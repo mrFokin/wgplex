@@ -14,15 +14,15 @@ import (
 // here, independently of the code under test.
 
 const (
-	m7EchoRequestV4 = 8
-	m7EchoReplyV4   = 0
-	m7EchoRequestV6 = 128
-	m7EchoReplyV6   = 129
+	echoRequestV4 = 8
+	echoReplyV4   = 0
+	echoRequestV6 = 128
+	echoReplyV6   = 129
 )
 
-// m7Checksum is the RFC 1071 internet checksum of b (an odd byte padded
+// checksum is the RFC 1071 internet checksum of b (an odd byte padded
 // with zero). Over a message with a correct checksum field it is 0.
-func m7Checksum(b []byte) uint16 {
+func checksum(b []byte) uint16 {
 	var sum uint32
 	for i := 0; i+1 < len(b); i += 2 {
 		sum += uint32(b[i])<<8 | uint32(b[i+1])
@@ -36,21 +36,21 @@ func m7Checksum(b []byte) uint16 {
 	return ^uint16(sum)
 }
 
-// m7Echo builds an ICMP echo message of type typ with id, seq and data;
+// icmpEcho builds an ICMP echo message of type typ with id, seq and data;
 // v4: the checksum is set, v6: left zero.
-func m7Echo(v6 bool, typ byte, id, seq uint16, data []byte) []byte {
+func icmpEcho(v6 bool, typ byte, id, seq uint16, data []byte) []byte {
 	b := make([]byte, 8+len(data))
 	b[0] = typ
 	binary.BigEndian.PutUint16(b[4:], id)
 	binary.BigEndian.PutUint16(b[6:], seq)
 	copy(b[8:], data)
 	if !v6 {
-		binary.BigEndian.PutUint16(b[2:], m7Checksum(b))
+		binary.BigEndian.PutUint16(b[2:], checksum(b))
 	}
 	return b
 }
 
-func m7EchoRequest(t *testing.T, v6 bool, id, seq uint16, nonce []byte) (b []byte) {
+func echoRequestOf(t *testing.T, v6 bool, id, seq uint16, nonce []byte) (b []byte) {
 	t.Helper()
 	defer func() {
 		if r := recover(); r != nil {
@@ -60,7 +60,7 @@ func m7EchoRequest(t *testing.T, v6 bool, id, seq uint16, nonce []byte) (b []byt
 	return echoRequest(v6, id, seq, nonce)
 }
 
-func m7IsReply(t *testing.T, v6 bool, b []byte, id, seq uint16, nonce []byte) (ok bool) {
+func replyNoPanic(t *testing.T, v6 bool, b []byte, id, seq uint16, nonce []byte) (ok bool) {
 	t.Helper()
 	defer func() {
 		if r := recover(); r != nil {
@@ -70,29 +70,29 @@ func m7IsReply(t *testing.T, v6 bool, b []byte, id, seq uint16, nonce []byte) (o
 	return isReply(v6, b, id, seq, nonce)
 }
 
-var m7Nonce = []byte{0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04}
+var nonce = []byte{0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04}
 
 // ICMPv4 echo request: type 8, code 0, id, seq, the nonce as data and a
 // valid RFC 1071 checksum.
-func TestM7EchoRequestV4(t *testing.T) {
+func TestEchoRequestV4(t *testing.T) {
 	cases := []struct {
 		id, seq uint16
 		nonce   []byte
 	}{
-		{0x1234, 1, m7Nonce},
-		{0xffff, 0xffff, m7Nonce},
-		{0, 0, m7Nonce},
-		{0xabcd, 7, m7Nonce[:7]}, // odd length: padding in the checksum
+		{0x1234, 1, nonce},
+		{0xffff, 0xffff, nonce},
+		{0, 0, nonce},
+		{0xabcd, 7, nonce[:7]}, // odd length: padding in the checksum
 		{0x0102, 300, bytes.Repeat([]byte{0xff}, 16)},
 	}
 	for _, c := range cases {
 		name := fmt.Sprintf("id %#x seq %d nonce %d bytes", c.id, c.seq, len(c.nonce))
-		b := m7EchoRequest(t, false, c.id, c.seq, c.nonce)
+		b := echoRequestOf(t, false, c.id, c.seq, c.nonce)
 		if len(b) != 8+len(c.nonce) {
 			t.Errorf("%s: %d bytes, want %d", name, len(b), 8+len(c.nonce))
 			continue
 		}
-		if b[0] != m7EchoRequestV4 || b[1] != 0 {
+		if b[0] != echoRequestV4 || b[1] != 0 {
 			t.Errorf("%s: type %d code %d, want 8 0", name, b[0], b[1])
 		}
 		if id, seq := binary.BigEndian.Uint16(b[4:]), binary.BigEndian.Uint16(b[6:]); id != c.id || seq != c.seq {
@@ -101,10 +101,10 @@ func TestM7EchoRequestV4(t *testing.T) {
 		if !bytes.Equal(b[8:], c.nonce) {
 			t.Errorf("%s: data % x, want % x", name, b[8:], c.nonce)
 		}
-		if cs := m7Checksum(b); cs != 0 {
+		if cs := checksum(b); cs != 0 {
 			t.Errorf("%s: checksum field %#04x is wrong (RFC 1071 sum %#04x)", name, binary.BigEndian.Uint16(b[2:]), cs)
 		}
-		if want := m7Echo(false, m7EchoRequestV4, c.id, c.seq, c.nonce); !bytes.Equal(b, want) {
+		if want := icmpEcho(false, echoRequestV4, c.id, c.seq, c.nonce); !bytes.Equal(b, want) {
 			t.Errorf("%s: % x, want % x", name, b, want)
 		}
 	}
@@ -112,9 +112,9 @@ func TestM7EchoRequestV4(t *testing.T) {
 
 // ICMPv6 echo request: type 128, code 0, id, seq, nonce; the checksum is
 // the kernel's, left zero.
-func TestM7EchoRequestV6(t *testing.T) {
-	b := m7EchoRequest(t, true, 0x4321, 9, m7Nonce)
-	want := m7Echo(true, m7EchoRequestV6, 0x4321, 9, m7Nonce)
+func TestEchoRequestV6(t *testing.T) {
+	b := echoRequestOf(t, true, 0x4321, 9, nonce)
+	want := icmpEcho(true, echoRequestV6, 0x4321, 9, nonce)
 	if !bytes.Equal(b, want) {
 		t.Errorf("echoRequest v6 = % x, want % x", b, want)
 	}
@@ -123,38 +123,38 @@ func TestM7EchoRequestV6(t *testing.T) {
 // isReply: only the echo reply of the same family to this id, seq and
 // nonce; anything else (another Pinger's reply, an old seq, the own echo
 // request looped back on lo0, a short packet) is not.
-func TestM7IsReply(t *testing.T) {
+func TestIsReply(t *testing.T) {
 	const id, seq = 0x1234, 42
 	other := []byte{0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x05}
 	for _, v6 := range []bool{false, true} {
-		reply, request := byte(m7EchoReplyV4), byte(m7EchoRequestV4)
-		otherReply := byte(m7EchoReplyV6)
+		reply, request := byte(echoReplyV4), byte(echoRequestV4)
+		otherReply := byte(echoReplyV6)
 		fam := "v4"
 		if v6 {
-			reply, request, otherReply, fam = m7EchoReplyV6, m7EchoRequestV6, m7EchoReplyV4, "v6"
+			reply, request, otherReply, fam = echoReplyV6, echoRequestV6, echoReplyV4, "v6"
 		}
-		own := m7Echo(v6, reply, id, seq, m7Nonce)
+		own := icmpEcho(v6, reply, id, seq, nonce)
 		cases := []struct {
 			name string
 			b    []byte
 			want bool
 		}{
 			{"own reply", own, true},
-			{"other id", m7Echo(v6, reply, id+1, seq, m7Nonce), false},
-			{"other seq", m7Echo(v6, reply, id, seq-1, m7Nonce), false},
-			{"other nonce", m7Echo(v6, reply, id, seq, other), false},
-			{"truncated nonce", m7Echo(v6, reply, id, seq, m7Nonce[:4]), false},
-			{"no data", m7Echo(v6, reply, id, seq, nil), false},
-			{"own echo request (lo0)", m7Echo(v6, request, id, seq, m7Nonce), false},
-			{"reply of the other family", m7Echo(v6, otherReply, id, seq, m7Nonce), false},
-			{"destination unreachable", m7Echo(v6, map[bool]byte{false: 3, true: 1}[v6], id, seq, m7Nonce), false},
+			{"other id", icmpEcho(v6, reply, id+1, seq, nonce), false},
+			{"other seq", icmpEcho(v6, reply, id, seq-1, nonce), false},
+			{"other nonce", icmpEcho(v6, reply, id, seq, other), false},
+			{"truncated nonce", icmpEcho(v6, reply, id, seq, nonce[:4]), false},
+			{"no data", icmpEcho(v6, reply, id, seq, nil), false},
+			{"own echo request (lo0)", icmpEcho(v6, request, id, seq, nonce), false},
+			{"reply of the other family", icmpEcho(v6, otherReply, id, seq, nonce), false},
+			{"destination unreachable", icmpEcho(v6, map[bool]byte{false: 3, true: 1}[v6], id, seq, nonce), false},
 			{"empty", nil, false},
 			{"1 byte", own[:1], false},
 			{"4 bytes", own[:4], false},
 			{"7 bytes", own[:7], false},
 		}
 		for _, c := range cases {
-			if got := m7IsReply(t, v6, c.b, id, seq, m7Nonce); got != c.want {
+			if got := replyNoPanic(t, v6, c.b, id, seq, nonce); got != c.want {
 				t.Errorf("%s %s: isReply = %v, want %v", fam, c.name, got, c.want)
 			}
 		}
@@ -163,24 +163,24 @@ func TestM7IsReply(t *testing.T) {
 
 // A request built by echoRequest, turned into a reply by the peer (type
 // changed, checksum fixed), is recognized: the two agree on the layout.
-func TestM7EchoRoundTrip(t *testing.T) {
+func TestEchoRoundTrip(t *testing.T) {
 	for _, v6 := range []bool{false, true} {
-		b := m7EchoRequest(t, v6, 0x0a0b, 3, m7Nonce)
+		b := echoRequestOf(t, v6, 0x0a0b, 3, nonce)
 		if len(b) < 8 {
 			t.Fatalf("v6 %v: echoRequest %d bytes", v6, len(b))
 		}
 		r := bytes.Clone(b)
 		r[2], r[3] = 0, 0
 		if v6 {
-			r[0] = m7EchoReplyV6
+			r[0] = echoReplyV6
 		} else {
-			r[0] = m7EchoReplyV4
-			binary.BigEndian.PutUint16(r[2:], m7Checksum(r))
+			r[0] = echoReplyV4
+			binary.BigEndian.PutUint16(r[2:], checksum(r))
 		}
-		if !m7IsReply(t, v6, r, 0x0a0b, 3, m7Nonce) {
+		if !replyNoPanic(t, v6, r, 0x0a0b, 3, nonce) {
 			t.Errorf("v6 %v: the reply to echoRequest is not recognized: % x", v6, r)
 		}
-		if m7IsReply(t, v6, b, 0x0a0b, 3, m7Nonce) {
+		if replyNoPanic(t, v6, b, 0x0a0b, 3, nonce) {
 			t.Errorf("v6 %v: the request itself is taken for a reply", v6)
 		}
 	}

@@ -11,7 +11,7 @@ import (
 )
 
 // Resolver resolves endpoint host names; *net.Resolver satisfies it. A custom
-// one is needed once the daemon is the system DNS itself (M5).
+// one is needed once the daemon is the system DNS itself.
 type Resolver interface {
 	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
 }

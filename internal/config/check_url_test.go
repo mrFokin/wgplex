@@ -12,7 +12,7 @@ import (
 
 // design 10.1: the password of a check URL never appears in
 // the error text.
-func TestM11CheckURLPasswordHidden(t *testing.T) {
+func TestCheckURLPasswordHidden(t *testing.T) {
 	const secret = "s3cr3tPassw0rd"
 	cases := []struct {
 		name string
@@ -25,7 +25,7 @@ func TestM11CheckURLPasswordHidden(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			errs := mustFail(t, filesOf(m11CheckYAML(c.yaml), m11Confs(t)))
+			errs := mustFail(t, filesOf(checkYAML(c.yaml), checkConfs(t)))
 			text := errs.Error()
 			if strings.Contains(text, secret) {
 				t.Errorf("error text reveals the password:\n%v", text)
@@ -42,7 +42,7 @@ func TestM11CheckURLPasswordHidden(t *testing.T) {
 
 // design 9 "HTTP": a zone in the IPv6 literal host of a check
 // URL is a config error (the check goes through the utun, not a link).
-func TestM11CheckURLIPv6Zone(t *testing.T) {
+func TestCheckURLIPv6Zone(t *testing.T) {
 	cases := []struct {
 		name string
 		yaml string
@@ -52,7 +52,7 @@ func TestM11CheckURLIPv6Zone(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			errs := mustFail(t, filesOf(m11CheckYAML(c.yaml), m11Confs(t)))
+			errs := mustFail(t, filesOf(checkYAML(c.yaml), checkConfs(t)))
 			if missing := errorsMention(errs, "check", "nl"); len(missing) > 0 {
 				t.Errorf("error text does not mention %q:\n%v", missing, errs)
 			}
@@ -63,7 +63,7 @@ func TestM11CheckURLIPv6Zone(t *testing.T) {
 // design 10.1: a password containing '/',
 // '?' or '#' makes the URL split inside the userinfo; neither the whole
 // password nor its distinctive leading part appears in the error text.
-func TestM11CheckURLPasswordWithDelimiters(t *testing.T) {
+func TestCheckURLPasswordWithDelimiters(t *testing.T) {
 	cases := []struct {
 		name, head, sep, tail, rest string
 	}{
@@ -77,7 +77,7 @@ func TestM11CheckURLPasswordWithDelimiters(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			secret := c.head + c.sep + c.tail
 			yaml := `"https://u:` + secret + c.rest + `"`
-			errs := mustFail(t, filesOf(m11CheckYAML(yaml), m11Confs(t)))
+			errs := mustFail(t, filesOf(checkYAML(yaml), checkConfs(t)))
 			text := errs.Error()
 			for _, s := range []string{secret, c.head} {
 				if strings.Contains(text, s) {

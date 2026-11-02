@@ -1037,7 +1037,7 @@ func TestOwnedTo(t *testing.T) {
 		want []int // Seq tags in dump order
 	}{
 		{
-			// manual check on M3: our 0x4807 route and the scoped clone
+			// manual check: our 0x4807 route and the scoped clone
 			name: "our host route and scoped clone of the same dst",
 			msgs: []route.Message{
 				otEntry(1, otOurs, 14, tkV4("203.0.113.5"), gw4, nil),

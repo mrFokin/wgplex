@@ -49,7 +49,7 @@ var errStopping = errors.New("wgplex daemon is stopping")
 //
 // Every endpoint host route of ours is in hosts until DeleteHost; syncNow
 // puts all of them into the table as endpoint routes, so Sync never removes
-// one of a tunnel being brought up or stopped (M4 Sync doc on keep).
+// one of a tunnel being brought up or stopped.
 type daemon struct {
 	opMu     sync.Mutex
 	closed   bool // under opMu: shutdown has begun, mutating calls fail
@@ -263,7 +263,7 @@ func (d *daemon) Apply(files map[string]string) (rpc.ApplyResult, error) {
 	case !hasSystem:
 		d.log.Warn("no system DNS servers: DNS not captured")
 	default:
-		// Also puts the key back if configd lost it (M7 watches for that).
+		// Also puts the key back if configd lost it (the 30 s key check watches for that, design 8).
 		if err := captureDNS(d.log); err != nil {
 			d.log.Error("dns capture", "err", err)
 			w := "DNS capture failed: " + err.Error()

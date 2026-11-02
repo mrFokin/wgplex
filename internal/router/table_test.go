@@ -1011,9 +1011,9 @@ func TestBuildExampleScenarios(t *testing.T) {
 
 // --- design 7.2: IPv6 via a tunnel without IPv6 ----------------
 
-// m4Reject is the reject route an IPv6 tunnel-target prefix becomes when its
+// wantReject is the reject route an IPv6 tunnel-target prefix becomes when its
 // tunnel has no IPv6 address: Tunnel empty, Source and Rule unchanged.
-func m4Reject(p string, src Source, rule int) Route {
+func wantReject(p string, src Source, rule int) Route {
 	return tRuleRoute(p, src, TargetReject, "", rule)
 }
 
@@ -1021,7 +1021,7 @@ func m4Reject(p string, src Source, rule int) Route {
 // CIDR or AllowedIPs of a routes: config tunnel) becomes reject when the
 // tunnel has no IPv6 address in Address; with one it goes via the tunnel.
 // IPv4 prefixes and non-tunnel targets are not affected.
-func TestM4BuildIPv6WithoutAddress(t *testing.T) {
+func TestBuildIPv6WithoutAddress(t *testing.T) {
 	v4only := []string{"10.88.0.2/32"}
 	dual := []string{"10.88.0.2/32", "fd00:88::2/64"}
 	v6only := []string{"fd00:88::2/128"}
@@ -1043,7 +1043,7 @@ func TestM4BuildIPv6WithoutAddress(t *testing.T) {
 			rules:   []RuleState{tOn("nl")},
 			want: Table{
 				tCIDRVia("198.51.100.0/24", "nl", 0),
-				m4Reject("2001:db8:1::/48", SourceRuleCIDR, 0),
+				wantReject("2001:db8:1::/48", SourceRuleCIDR, 0),
 			},
 		},
 		{
@@ -1089,7 +1089,7 @@ func TestM4BuildIPv6WithoutAddress(t *testing.T) {
 			rules:   []RuleState{tOn("nl"), tOn("de")},
 			want: Table{
 				tCIDRVia("2001:db8:a::/48", "nl", 0),
-				m4Reject("2001:db8:b::/48", SourceRuleCIDR, 1),
+				wantReject("2001:db8:b::/48", SourceRuleCIDR, 1),
 			},
 		},
 		{
@@ -1102,8 +1102,8 @@ func TestM4BuildIPv6WithoutAddress(t *testing.T) {
 			tunnels: map[string]TunnelState{"work": tDead},
 			want: Table{
 				tAllowed("10.20.0.0/16", "work"),
-				m4Reject("fd00::/8", SourceAllowedIPs, -1),
-				m4Reject("fd00:20::/48", SourceAllowedIPs, -1),
+				wantReject("fd00::/8", SourceAllowedIPs, -1),
+				wantReject("fd00:20::/48", SourceAllowedIPs, -1),
 			},
 		},
 		{
@@ -1126,7 +1126,7 @@ func TestM4BuildIPv6WithoutAddress(t *testing.T) {
 				tTun("home", config.RoutesConfig, dual, []string{"fd00:20::/48"}),
 			}},
 			tunnels: map[string]TunnelState{"work": tUp, "home": tUp},
-			want:    Table{m4Reject("fd00:20::/48", SourceAllowedIPs, -1)},
+			want:    Table{wantReject("fd00:20::/48", SourceAllowedIPs, -1)},
 		},
 		{
 			name: "equal AllowedIPs, first tunnel with IPv6",
@@ -1164,7 +1164,7 @@ func TestM4BuildIPv6WithoutAddress(t *testing.T) {
 			},
 			tunnels: map[string]TunnelState{"work": tUp, "nl": tUp},
 			rules:   []RuleState{tOn("nl")},
-			want:    Table{m4Reject("fd00:20::/48", SourceRuleCIDR, 0)},
+			want:    Table{wantReject("fd00:20::/48", SourceRuleCIDR, 0)},
 		},
 	}
 	for _, c := range cases {

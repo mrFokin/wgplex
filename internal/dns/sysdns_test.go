@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// m5IsUUID reports whether s is a UUID in the 8-4-4-4-12 hex form.
-func m5IsUUID(s string) bool {
+// isUUID reports whether s is a UUID in the 8-4-4-4-12 hex form.
+func isUUID(s string) bool {
 	parts := strings.Split(s, "-")
 	if len(parts) != 5 {
 		return false
@@ -30,21 +30,21 @@ func m5IsUUID(s string) bool {
 
 // scutil samples, verbatim.
 const (
-	m5ScutilGlobalIPv4 = `<dictionary> {
+	scutilGlobalIPv4 = `<dictionary> {
   PrimaryInterface : en0
   PrimaryService : DB5E9594-52DD-4D6A-888E-8D98A75BEC1B
   Router : 192.168.20.1
 }
 `
-	m5ScutilStateDNS = `<dictionary> {
+	scutilStateDNS = `<dictionary> {
   ServerAddresses : <array> {
     0 : 192.168.20.1
   }
 }
 `
-	m5ScutilNoKey = "  No such key\n"
+	scutilNoKey = "  No such key\n"
 
-	m5ScutilGlobalDNS = `<dictionary> {
+	scutilGlobalDNS = `<dictionary> {
   ServerAddresses : <array> {
     0 : 192.168.20.1
   }
@@ -54,7 +54,7 @@ const (
   __ORDER__ : 0
 }
 `
-	m5ScutilServiceIPv4 = `<dictionary> {
+	scutilServiceIPv4 = `<dictionary> {
   ARPResolvedHardwareAddress : d4:9c:53:27:85:03
   ARPResolvedIPAddress : 192.168.20.1
   AdditionalRoutes : <array> {
@@ -82,7 +82,7 @@ const (
 `
 	// Manual DNS (not on the user's machine; "the same form as State:…/DNS"):
 	// two servers of both families and SearchDomains.
-	m5ScutilSetupDNS = `<dictionary> {
+	scutilSetupDNS = `<dictionary> {
   SearchDomains : <array> {
     0 : corp.example
     1 : example.net
@@ -96,16 +96,16 @@ const (
 `
 )
 
-func m5Parse(t *testing.T, out string) map[string][]string {
+func parseSections(t *testing.T, out string) map[string][]string {
 	t.Helper()
 	var m map[string][]string
-	m5NoPanic(t, "parseScutil", func() { m = parseScutil(out) })
+	noPanic(t, "parseScutil", func() { m = parseScutil(out) })
 	return m
 }
 
-// m5SameMap compares parsed maps; a key listed in want with a nil value must
+// sameMap compares parsed maps; a key listed in want with a nil value must
 // be absent.
-func m5SameMap(t *testing.T, got, want map[string][]string) {
+func sameMap(t *testing.T, got, want map[string][]string) {
 	t.Helper()
 	for k, w := range want {
 		g, ok := got[k]
@@ -126,22 +126,22 @@ func m5SameMap(t *testing.T, got, want map[string][]string) {
 // Scalars as one-element slices, arrays in index order, nested
 // dictionaries skipped (with arrays of them), the value of a scalar is all
 // after the first " : ".
-func TestM5ParseScutil(t *testing.T) {
+func TestParseScutil(t *testing.T) {
 	cases := []struct {
 		name string
 		out  string
 		want map[string][]string
 		size int // exact number of keys; -1: not checked
 	}{
-		{"State:/Network/Global/IPv4", m5ScutilGlobalIPv4, map[string][]string{
+		{"State:/Network/Global/IPv4", scutilGlobalIPv4, map[string][]string{
 			"PrimaryInterface": {"en0"},
 			"PrimaryService":   {"DB5E9594-52DD-4D6A-888E-8D98A75BEC1B"},
 			"Router":           {"192.168.20.1"},
 		}, 3},
-		{"State:/Network/Service/<id>/DNS", m5ScutilStateDNS, map[string][]string{
+		{"State:/Network/Service/<id>/DNS", scutilStateDNS, map[string][]string{
 			"ServerAddresses": {"192.168.20.1"},
 		}, 1},
-		{"State:/Network/Global/DNS", m5ScutilGlobalDNS, map[string][]string{
+		{"State:/Network/Global/DNS", scutilGlobalDNS, map[string][]string{
 			"ServerAddresses":      {"192.168.20.1"},
 			"__CONFIGURATION_ID__": {"Default: DB5E9594-52DD-4D6A-888E-8D98A75BEC1B 0"},
 			"__FLAGS__":            {"2"},
@@ -150,7 +150,7 @@ func TestM5ParseScutil(t *testing.T) {
 		}, 5},
 		// The value of NetworkSignatureHash ("<data> 0x…") is not checked:
 		// how <data> is read is not specified.
-		{"State:/Network/Service/<id>/IPv4", m5ScutilServiceIPv4, map[string][]string{
+		{"State:/Network/Service/<id>/IPv4", scutilServiceIPv4, map[string][]string{
 			"ARPResolvedHardwareAddress": {"d4:9c:53:27:85:03"},
 			"ARPResolvedIPAddress":       {"192.168.20.1"},
 			"Addresses":                  {"192.168.20.135"},
@@ -164,17 +164,17 @@ func TestM5ParseScutil(t *testing.T) {
 			"DestinationAddress": nil,
 			"SubnetMask":         nil,
 		}, -1},
-		{"Setup:/Network/Service/<id>/DNS, manual", m5ScutilSetupDNS, map[string][]string{
+		{"Setup:/Network/Service/<id>/DNS, manual", scutilSetupDNS, map[string][]string{
 			"SearchDomains":   {"corp.example", "example.net"},
 			"ServerAddresses": {"9.9.9.9", "2620:fe::fe", "149.112.112.112"},
 		}, 2},
-		{"No such key", m5ScutilNoKey, map[string][]string{}, 0},
+		{"No such key", scutilNoKey, map[string][]string{}, 0},
 		{"empty output", "", map[string][]string{}, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := m5Parse(t, c.out)
-			m5SameMap(t, got, c.want)
+			got := parseSections(t, c.out)
+			sameMap(t, got, c.want)
 			if c.size >= 0 && len(got) != c.size {
 				t.Errorf("parsed %d keys %q, want %d", len(got), got, c.size)
 			}
@@ -184,7 +184,7 @@ func TestM5ParseScutil(t *testing.T) {
 	// The IPv4 sample has exactly these top-level keys, NetworkSignatureHash
 	// included whatever its value.
 	t.Run("IPv4 keys", func(t *testing.T) {
-		got := m5Parse(t, m5ScutilServiceIPv4)
+		got := parseSections(t, scutilServiceIPv4)
 		var keys []string
 		for k := range got {
 			keys = append(keys, k)
@@ -206,10 +206,10 @@ func TestM5ParseScutil(t *testing.T) {
 
 // design 8 "Остальное": DNS of the primary service, manual (Setup) first,
 // else DHCP (State); invalid addresses are skipped.
-func TestM5SystemServers(t *testing.T) {
-	setup := m5Parse(t, m5ScutilSetupDNS)
-	state := m5Parse(t, m5ScutilStateDNS)
-	none := m5Parse(t, m5ScutilNoKey)
+func TestSystemServers(t *testing.T) {
+	setup := parseSections(t, scutilSetupDNS)
+	state := parseSections(t, scutilStateDNS)
+	none := parseSections(t, scutilNoKey)
 	cases := []struct {
 		why          string
 		setup, state map[string][]string
@@ -230,7 +230,7 @@ func TestM5SystemServers(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.why, func(t *testing.T) {
 			var got []string
-			m5NoPanic(t, "systemServers", func() {
+			noPanic(t, "systemServers", func() {
 				for _, a := range systemServers(c.setup, c.state) {
 					got = append(got, a.String())
 				}
@@ -244,21 +244,21 @@ func TestM5SystemServers(t *testing.T) {
 
 // --- captureScript -----------------------------------------------------------
 
-// design 8, M5 "Модель" (capture): the key State:/Network/Service/<constant
+// design 8 "Точечный захват": the key State:/Network/Service/<constant
 // UUID>/DNS; the script is d.init, d.add of ServerAddresses 127.0.0.1 and
 // SupplementalMatchDomains "" (arrays), set of the key.
-func TestM5CaptureScript(t *testing.T) {
+func TestCaptureScript(t *testing.T) {
 	const prefix, suffix = "State:/Network/Service/", "/DNS"
 	if !strings.HasPrefix(CaptureKey, prefix) || !strings.HasSuffix(CaptureKey, suffix) {
 		t.Fatalf("CaptureKey = %q, want %s<UUID>%s", CaptureKey, prefix, suffix)
 	}
 	id := strings.TrimSuffix(strings.TrimPrefix(CaptureKey, prefix), suffix)
-	if !m5IsUUID(id) {
+	if !isUUID(id) {
 		t.Errorf("CaptureKey UUID %q is not 8-4-4-4-12 hex", id)
 	}
 
 	var script string
-	m5NoPanic(t, "captureScript", func() { script = captureScript() })
+	noPanic(t, "captureScript", func() { script = captureScript() })
 	var lines []string
 	for _, l := range strings.Split(script, "\n") {
 		if l = strings.TrimSpace(l); l != "" {

@@ -17,9 +17,9 @@ import (
 // implementation. The keys are stubs: every key
 // is 32 copies of one byte, never a real key.
 
-// m6IpcGet is the IpcGet sample: the peers are listed
+// ipcGetSample is the IpcGet sample: the peers are listed
 // in the reverse of the .conf order.
-const m6IpcGet = `private_key=0101010101010101010101010101010101010101010101010101010101010101
+const ipcGetSample = `private_key=0101010101010101010101010101010101010101010101010101010101010101
 listen_port=51820
 public_key=0303030303030303030303030303030303030303030303030303030303030303
 preshared_key=0000000000000000000000000000000000000000000000000000000000000000
@@ -44,8 +44,8 @@ allowed_ip=10.0.0.0/8
 allowed_ip=192.168.50.0/24
 `
 
-// m6StubKey is a key of 32 copies of b.
-func m6StubKey(b byte) config.Key {
+// stubKey is a key of 32 copies of b.
+func stubKey(b byte) config.Key {
 	var k config.Key
 	for i := range k {
 		k[i] = b
@@ -53,10 +53,10 @@ func m6StubKey(b byte) config.Key {
 	return k
 }
 
-// m6KeyForms are the hex and base64 forms of every key byte of m6IpcGet
+// keyForms are the hex and base64 forms of every key byte of ipcGetSample
 // (private 0x01, public 0x02 and 0x03, preshared 0x04) and of the extra
 // .conf peer 0x05.
-func m6KeyForms() []string {
+func stubKeyForms() []string {
 	var out []string
 	for _, b := range []byte{0x01, 0x02, 0x03, 0x04, 0x05} {
 		raw := bytes.Repeat([]byte{b}, 32)
@@ -65,7 +65,7 @@ func m6KeyForms() []string {
 	return out
 }
 
-func m6ParseStats(t *testing.T, uapi string, peers []config.Peer) (got []PeerStats) {
+func parseStatsOf(t *testing.T, uapi string, peers []config.Peer) (got []PeerStats) {
 	t.Helper()
 	defer func() {
 		if r := recover(); r != nil {
@@ -77,12 +77,12 @@ func m6ParseStats(t *testing.T, uapi string, peers []config.Peer) (got []PeerSta
 
 // Peers are matched by public_key whatever the IpcGet order;
 // handshake 0 is "never" (zero time); sec+nsec make the handshake time.
-func TestM6ParseStatsSample(t *testing.T) {
+func TestParseStatsSample(t *testing.T) {
 	peers := []config.Peer{
-		{PublicKey: m6StubKey(0x02), Endpoint: "203.0.113.5:51820"},
-		{PublicKey: m6StubKey(0x03), Endpoint: "198.51.100.7:51820"},
+		{PublicKey: stubKey(0x02), Endpoint: "203.0.113.5:51820"},
+		{PublicKey: stubKey(0x03), Endpoint: "198.51.100.7:51820"},
 	}
-	got := m6ParseStats(t, m6IpcGet, peers)
+	got := parseStatsOf(t, ipcGetSample, peers)
 	if len(got) != 2 {
 		t.Fatalf("len = %d, want 2 (index = peer index)", len(got))
 	}
@@ -104,12 +104,12 @@ func TestM6ParseStatsSample(t *testing.T) {
 }
 
 // Matching by public_key does not depend on the .conf order either.
-func TestM6ParseStatsConfOrder(t *testing.T) {
+func TestParseStatsConfOrder(t *testing.T) {
 	peers := []config.Peer{
-		{PublicKey: m6StubKey(0x03)},
-		{PublicKey: m6StubKey(0x02)},
+		{PublicKey: stubKey(0x03)},
+		{PublicKey: stubKey(0x02)},
 	}
-	got := m6ParseStats(t, m6IpcGet, peers)
+	got := parseStatsOf(t, ipcGetSample, peers)
 	if len(got) != 2 {
 		t.Fatalf("len = %d, want 2", len(got))
 	}
@@ -122,13 +122,13 @@ func TestM6ParseStatsConfOrder(t *testing.T) {
 }
 
 // A .conf peer the device does not list gets zero stats.
-func TestM6ParseStatsMissingPeer(t *testing.T) {
+func TestParseStatsMissingPeer(t *testing.T) {
 	peers := []config.Peer{
-		{PublicKey: m6StubKey(0x02)},
-		{PublicKey: m6StubKey(0x05)}, // not in IpcGet
-		{PublicKey: m6StubKey(0x03)},
+		{PublicKey: stubKey(0x02)},
+		{PublicKey: stubKey(0x05)}, // not in IpcGet
+		{PublicKey: stubKey(0x03)},
 	}
-	got := m6ParseStats(t, m6IpcGet, peers)
+	got := parseStatsOf(t, ipcGetSample, peers)
 	if len(got) != 3 {
 		t.Fatalf("len = %d, want 3", len(got))
 	}
@@ -145,27 +145,27 @@ func TestM6ParseStatsMissingPeer(t *testing.T) {
 
 // Empty IpcGet (or one without peers): every peer gets zero stats; no peers:
 // an empty result.
-func TestM6ParseStatsEmpty(t *testing.T) {
-	peers := []config.Peer{{PublicKey: m6StubKey(0x02)}}
+func TestParseStatsEmpty(t *testing.T) {
+	peers := []config.Peer{{PublicKey: stubKey(0x02)}}
 	for _, uapi := range []string{"", "private_key=0101010101010101010101010101010101010101010101010101010101010101\nlisten_port=51820\n"} {
-		got := m6ParseStats(t, uapi, peers)
+		got := parseStatsOf(t, uapi, peers)
 		if len(got) != 1 || got[0] != (PeerStats{}) {
 			t.Errorf("parseStats(%q) = %+v, want one zero PeerStats", uapi, got)
 		}
 	}
-	if got := m6ParseStats(t, m6IpcGet, nil); len(got) != 0 {
+	if got := parseStatsOf(t, ipcGetSample, nil); len(got) != 0 {
 		t.Errorf("no peers: got %+v, want empty", got)
 	}
 }
 
 // design 10.1 Keys: the result carries no key in any form, %#v or JSON.
-func TestM6ParseStatsNoKeys(t *testing.T) {
+func TestParseStatsNoKeys(t *testing.T) {
 	peers := []config.Peer{
-		{PublicKey: m6StubKey(0x02), PresharedKey: m6StubKey(0x04)},
-		{PublicKey: m6StubKey(0x03)},
-		{PublicKey: m6StubKey(0x05)},
+		{PublicKey: stubKey(0x02), PresharedKey: stubKey(0x04)},
+		{PublicKey: stubKey(0x03)},
+		{PublicKey: stubKey(0x05)},
 	}
-	got := m6ParseStats(t, m6IpcGet, peers)
+	got := parseStatsOf(t, ipcGetSample, peers)
 	js, err := json.Marshal(got)
 	if err != nil {
 		t.Fatal(err)
@@ -176,7 +176,7 @@ func TestM6ParseStatsNoKeys(t *testing.T) {
 		"JSON": string(js),
 	}
 	for how, out := range outs {
-		for _, k := range m6KeyForms() {
+		for _, k := range stubKeyForms() {
 			if strings.Contains(out, k) {
 				t.Errorf("%s of the result contains a key: %s", how, out)
 			}

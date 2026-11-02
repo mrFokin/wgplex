@@ -264,7 +264,7 @@ func dumpRoutes(af int) ([]route.Message, error) {
 // Flags and Index copied from m, ID = pid, Seq = seq, Addrs with only
 // RTAX_DST and (when m has one) RTAX_NETMASK copied from m — no gateway.
 //
-// The copied flags and index keep RTF_IFSCOPE routes (M4) addressable.
+// The copied flags and index keep RTF_IFSCOPE routes addressable.
 func deleteMsgFrom(m *route.RouteMessage, seq int) *route.RouteMessage {
 	addrs := make([]route.Addr, unix.RTAX_NETMASK+1)
 	if len(m.Addrs) > unix.RTAX_DST {

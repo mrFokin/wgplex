@@ -208,8 +208,8 @@ func matchDomain(t *testing.T, cfg *Config, name string) (rule int, ok bool) {
 
 // --- MatchDomainFunc -----------------------------------------
 
-// m5NoPanicMatch calls MatchDomainFunc and turns a panic into a test failure.
-func m5NoPanicMatch(t *testing.T, cfg *Config, name string, use func(int) bool) (rule int, ok bool) {
+// matchNoPanic calls MatchDomainFunc and turns a panic into a test failure.
+func matchNoPanic(t *testing.T, cfg *Config, name string, use func(int) bool) (rule int, ok bool) {
 	t.Helper()
 	defer func() {
 		if r := recover(); r != nil {
@@ -219,8 +219,8 @@ func m5NoPanicMatch(t *testing.T, cfg *Config, name string, use func(int) bool) 
 	return cfg.MatchDomainFunc(name, use)
 }
 
-// m5Skip returns a use func that leaves out the listed rules.
-func m5Skip(skip ...int) func(int) bool {
+// skipRules returns a use func that leaves out the listed rules.
+func skipRules(skip ...int) func(int) bool {
 	return func(i int) bool {
 		for _, s := range skip {
 			if i == s {
@@ -233,7 +233,7 @@ func m5Skip(skip ...int) func(int) bool {
 
 // design 7.4: a nil use means every rule, the result is
 // that of MatchDomain.
-func TestM5MatchDomainFuncNilIsMatchDomain(t *testing.T) {
+func TestMatchDomainFuncNilIsMatchDomain(t *testing.T) {
 	cfg := matchConfig()
 	names := []string{
 		"youtube.com", "www.youtube.com", "notyoutube.com", "google.com",
@@ -244,7 +244,7 @@ func TestM5MatchDomainFuncNilIsMatchDomain(t *testing.T) {
 	}
 	for _, name := range names {
 		wantRule, wantOK := matchDomain(t, cfg, name)
-		gotRule, gotOK := m5NoPanicMatch(t, cfg, name, nil)
+		gotRule, gotOK := matchNoPanic(t, cfg, name, nil)
 		if gotOK != wantOK || (wantOK && gotRule != wantRule) {
 			t.Errorf("MatchDomainFunc(%q, nil) = %d, %v; MatchDomain = %d, %v", name, gotRule, gotOK, wantRule, wantOK)
 		}
@@ -254,7 +254,7 @@ func TestM5MatchDomainFuncNilIsMatchDomain(t *testing.T) {
 // design 7.4 (fallback: default does not take part), 8 step 1:
 // a skipped rule gives the name to the next matching rule by the same order
 // of specificity; among the remaining rules ties go by rule order.
-func TestM5MatchDomainFunc(t *testing.T) {
+func TestMatchDomainFunc(t *testing.T) {
 	const none = -1
 	cfg := &Config{
 		Services: map[string]Service{
@@ -297,7 +297,7 @@ func TestM5MatchDomainFunc(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.why, func(t *testing.T) {
-			got, ok := m5NoPanicMatch(t, cfg, c.name, m5Skip(c.skip...))
+			got, ok := matchNoPanic(t, cfg, c.name, skipRules(c.skip...))
 			if c.want == none {
 				if ok {
 					t.Errorf("MatchDomainFunc(%q, skip %v) = %d, want no match", c.name, c.skip, got)
@@ -312,7 +312,7 @@ func TestM5MatchDomainFunc(t *testing.T) {
 
 	// A use that rejects every rule: nothing matches.
 	for _, name := range []string{"www.example.org", "youtube.com", "only.example"} {
-		if got, ok := m5NoPanicMatch(t, cfg, name, func(int) bool { return false }); ok {
+		if got, ok := matchNoPanic(t, cfg, name, func(int) bool { return false }); ok {
 			t.Errorf("MatchDomainFunc(%q, none used) = %d, want no match", name, got)
 		}
 	}

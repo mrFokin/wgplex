@@ -21,8 +21,8 @@ import (
 
 // --- helpers ---------------------------------------------------------------
 
-// m6Key returns the base64 of a fresh random key.
-func m6Key(t *testing.T) string {
+// genKey returns the base64 of a fresh random key.
+func genKey(t *testing.T) string {
 	t.Helper()
 	var k [32]byte
 	if _, err := rand.Read(k[:]); err != nil {
@@ -31,21 +31,21 @@ func m6Key(t *testing.T) string {
 	return base64.StdEncoding.EncodeToString(k[:])
 }
 
-// m6Conf is a .conf with fixed generated keys; Text renders it with extra
+// confFile is a .conf with fixed generated keys; Text renders it with extra
 // [Interface] lines (MTU, DNS) so that a test can change one field and keep
 // the keys.
-type m6Conf struct {
+type confFile struct {
 	priv, pub string
 	address   string
 	endpoint  string
 	allowed   string
 }
 
-func m6NewConf(t *testing.T, address, endpoint, allowed string) m6Conf {
-	return m6Conf{priv: m6Key(t), pub: m6Key(t), address: address, endpoint: endpoint, allowed: allowed}
+func newConfFile(t *testing.T, address, endpoint, allowed string) confFile {
+	return confFile{priv: genKey(t), pub: genKey(t), address: address, endpoint: endpoint, allowed: allowed}
 }
 
-func (c m6Conf) Text(iface ...string) string {
+func (c confFile) Text(iface ...string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[Interface]\nPrivateKey = %s\nAddress = %s\n", c.priv, c.address)
 	for _, l := range iface {
@@ -55,8 +55,8 @@ func (c m6Conf) Text(iface ...string) string {
 	return b.String()
 }
 
-// m6Load loads wgplex.yaml and the .conf texts; a config error fails the test.
-func m6Load(t *testing.T, yaml string, confs map[string]string) *config.Config {
+// loadConfig loads wgplex.yaml and the .conf texts; a config error fails the test.
+func loadConfig(t *testing.T, yaml string, confs map[string]string) *config.Config {
 	t.Helper()
 	files := map[string][]byte{"wgplex.yaml": []byte(yaml)}
 	for name, text := range confs {
@@ -69,8 +69,8 @@ func m6Load(t *testing.T, yaml string, confs map[string]string) *config.Config {
 	return cfg
 }
 
-// m6TunnelYAML renders one tunnel of wgplex.yaml; extra lines are indented.
-func m6TunnelYAML(name, routes string, autostart bool, extra ...string) string {
+// tunnelYAML renders one tunnel of wgplex.yaml; extra lines are indented.
+func tunnelYAML(name, routes string, autostart bool, extra ...string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "  - name: %s\n    conf: %s.conf\n    routes: %s\n    autostart: %v\n", name, name, routes, autostart)
 	for _, l := range extra {
@@ -79,23 +79,23 @@ func m6TunnelYAML(name, routes string, autostart bool, extra ...string) string {
 	return b.String()
 }
 
-// m6Confs are the .conf files of the planApply fixture, one per tunnel.
-type m6Confs map[string]m6Conf
+// confFiles are the .conf files of the planApply fixture, one per tunnel.
+type confFiles map[string]confFile
 
-func m6NewConfs(t *testing.T) m6Confs {
-	return m6Confs{
-		"work": m6NewConf(t, "10.0.0.2/32", "203.0.113.1:51820", "10.0.0.0/8"),
-		"home": m6NewConf(t, "10.3.0.2/32", "203.0.113.3:51820", "192.168.50.0/24"),
-		"de":   m6NewConf(t, "10.1.0.2/32", "203.0.113.5:51820", "0.0.0.0/0"),
-		"fi":   m6NewConf(t, "10.2.0.2/32", "203.0.113.7:51820", "0.0.0.0/0"),
-		"nl":   m6NewConf(t, "10.5.0.2/32", "203.0.113.9:51820", "0.0.0.0/0"),
-		"lab":  m6NewConf(t, "10.6.0.2/32", "203.0.113.11:51820", "172.16.0.0/12"),
+func newConfFiles(t *testing.T) confFiles {
+	return confFiles{
+		"work": newConfFile(t, "10.0.0.2/32", "203.0.113.1:51820", "10.0.0.0/8"),
+		"home": newConfFile(t, "10.3.0.2/32", "203.0.113.3:51820", "192.168.50.0/24"),
+		"de":   newConfFile(t, "10.1.0.2/32", "203.0.113.5:51820", "0.0.0.0/0"),
+		"fi":   newConfFile(t, "10.2.0.2/32", "203.0.113.7:51820", "0.0.0.0/0"),
+		"nl":   newConfFile(t, "10.5.0.2/32", "203.0.113.9:51820", "0.0.0.0/0"),
+		"lab":  newConfFile(t, "10.6.0.2/32", "203.0.113.11:51820", "172.16.0.0/12"),
 	}
 }
 
 // texts renders every conf with the same [Interface] DNS line (dns_domains
 // needs DNS, design 10.1); changed overrides the text of some confs.
-func (cs m6Confs) texts(changed map[string]string) map[string]string {
+func (cs confFiles) texts(changed map[string]string) map[string]string {
 	out := map[string]string{}
 	for name, c := range cs {
 		out[name+".conf"] = c.Text("DNS = 10.9.9.9")
@@ -106,9 +106,9 @@ func (cs m6Confs) texts(changed map[string]string) map[string]string {
 	return out
 }
 
-// m6BaseYAML: work (autostart), home (no autostart), de (autostart),
+// baseYAML: work (autostart), home (no autostart), de (autostart),
 // fi (autostart); a rule so that no service is unused.
-func m6BaseYAML(tunnels ...string) string {
+func baseYAML(tunnels ...string) string {
 	return "tunnels:\n" + strings.Join(tunnels, "") + `services:
   s:
     domains: [example.com]
@@ -118,16 +118,16 @@ rules:
 `
 }
 
-func m6BaseTunnels() []string {
+func baseTunnels() []string {
 	return []string{
-		m6TunnelYAML("work", "config", true, "dns_domains: [corp.example]"),
-		m6TunnelYAML("home", "config", false),
-		m6TunnelYAML("de", "rules", true),
-		m6TunnelYAML("fi", "rules", true),
+		tunnelYAML("work", "config", true, "dns_domains: [corp.example]"),
+		tunnelYAML("home", "config", false),
+		tunnelYAML("de", "rules", true),
+		tunnelYAML("fi", "rules", true),
 	}
 }
 
-func m6Set(names ...string) map[string]bool {
+func boolSet(names ...string) map[string]bool {
 	m := map[string]bool{}
 	for _, n := range names {
 		m[n] = true
@@ -135,8 +135,8 @@ func m6Set(names ...string) map[string]bool {
 	return m
 }
 
-// m6Trues lists the keys with a true value, sorted.
-func m6Trues(m map[string]bool) []string {
+// trueKeys lists the keys with a true value, sorted.
+func trueKeys(m map[string]bool) []string {
 	var out []string
 	for k, v := range m {
 		if v {
@@ -147,7 +147,7 @@ func m6Trues(m map[string]bool) []string {
 	return out
 }
 
-func m6Plan(t *testing.T, cur, next *config.Config, enabled, running map[string]bool) (nextEnabled map[string]bool, stop, start []string) {
+func planApplyOf(t *testing.T, cur, next *config.Config, enabled, running map[string]bool) (nextEnabled map[string]bool, stop, start []string) {
 	t.Helper()
 	defer func() {
 		if r := recover(); r != nil {
@@ -157,22 +157,22 @@ func m6Plan(t *testing.T, cur, next *config.Config, enabled, running map[string]
 	return planApply(cur, next, enabled, running)
 }
 
-func m6Eq(a, b []string) bool { return len(a) == 0 && len(b) == 0 || slices.Equal(a, b) }
+func sameStrings(a, b []string) bool { return len(a) == 0 && len(b) == 0 || slices.Equal(a, b) }
 
-type m6PlanWant struct {
+type planWant struct {
 	enabled, stop, start []string // enabled: sorted; stop, start: in order
 }
 
-func m6CheckPlan(t *testing.T, name string, cur, next *config.Config, enabled, running map[string]bool, want m6PlanWant) {
+func checkPlan(t *testing.T, name string, cur, next *config.Config, enabled, running map[string]bool, want planWant) {
 	t.Helper()
-	ne, stop, start := m6Plan(t, cur, next, enabled, running)
-	if got := m6Trues(ne); !m6Eq(got, want.enabled) {
+	ne, stop, start := planApplyOf(t, cur, next, enabled, running)
+	if got := trueKeys(ne); !sameStrings(got, want.enabled) {
 		t.Errorf("%s: nextEnabled = %v, want %v", name, got, want.enabled)
 	}
-	if !m6Eq(stop, want.stop) {
+	if !sameStrings(stop, want.stop) {
 		t.Errorf("%s: stop = %v, want %v", name, stop, want.stop)
 	}
-	if !m6Eq(start, want.start) {
+	if !sameStrings(start, want.start) {
 		t.Errorf("%s: start = %v, want %v", name, start, want.start)
 	}
 }
@@ -181,14 +181,14 @@ func m6CheckPlan(t *testing.T, name string, cur, next *config.Config, enabled, r
 
 // design 10.2: the first apply after start enables and starts the
 // autostart tunnels, in config order.
-func TestM6PlanApplyFirst(t *testing.T) {
-	cs := m6NewConfs(t)
-	next := m6Load(t, m6BaseYAML(m6BaseTunnels()...), cs.texts(nil))
-	m6CheckPlan(t, "nil maps", nil, next, nil, nil, m6PlanWant{
+func TestPlanApplyFirst(t *testing.T) {
+	cs := newConfFiles(t)
+	next := loadConfig(t, baseYAML(baseTunnels()...), cs.texts(nil))
+	checkPlan(t, "nil maps", nil, next, nil, nil, planWant{
 		enabled: []string{"de", "fi", "work"},
 		start:   []string{"work", "de", "fi"},
 	})
-	m6CheckPlan(t, "empty maps", nil, next, map[string]bool{}, map[string]bool{}, m6PlanWant{
+	checkPlan(t, "empty maps", nil, next, map[string]bool{}, map[string]bool{}, planWant{
 		enabled: []string{"de", "fi", "work"},
 		start:   []string{"work", "de", "fi"},
 	})
@@ -196,37 +196,37 @@ func TestM6PlanApplyFirst(t *testing.T) {
 
 // design 10.2: a repeated apply of the same config keeps the
 // user's toggles (de turned off, home turned on) and changes nothing.
-func TestM6PlanApplyKeepsToggles(t *testing.T) {
-	cs := m6NewConfs(t)
-	yaml := m6BaseYAML(m6BaseTunnels()...)
-	cur := m6Load(t, yaml, cs.texts(nil))
-	next := m6Load(t, yaml, cs.texts(nil))
-	on := m6Set("work", "home", "fi")
-	m6CheckPlan(t, "same config", cur, next, on, m6Set("work", "home", "fi"), m6PlanWant{
+func TestPlanApplyKeepsToggles(t *testing.T) {
+	cs := newConfFiles(t)
+	yaml := baseYAML(baseTunnels()...)
+	cur := loadConfig(t, yaml, cs.texts(nil))
+	next := loadConfig(t, yaml, cs.texts(nil))
+	on := boolSet("work", "home", "fi")
+	checkPlan(t, "same config", cur, next, on, boolSet("work", "home", "fi"), planWant{
 		enabled: []string{"fi", "home", "work"},
 	})
 
 	// Everything turned off by the user (tunnel.disableAll): autostart does
 	// not bring tunnels back.
-	m6CheckPlan(t, "all off", cur, next, map[string]bool{}, map[string]bool{}, m6PlanWant{})
+	checkPlan(t, "all off", cur, next, map[string]bool{}, map[string]bool{}, planWant{})
 }
 
 // design 10.2: a new tunnel is enabled by its autostart, a removed one is
 // stopped and gone.
-func TestM6PlanApplyAddRemove(t *testing.T) {
-	cs := m6NewConfs(t)
-	cur := m6Load(t, m6BaseYAML(m6BaseTunnels()...), cs.texts(nil))
-	next := m6Load(t, m6BaseYAML(
-		m6TunnelYAML("work", "config", true, "dns_domains: [corp.example]"),
-		m6TunnelYAML("nl", "rules", true),     // new, autostart
-		m6TunnelYAML("home", "config", false), // kept
-		m6TunnelYAML("lab", "config", false),  // new, no autostart
-		m6TunnelYAML("fi", "rules", true),     // kept
+func TestPlanApplyAddRemove(t *testing.T) {
+	cs := newConfFiles(t)
+	cur := loadConfig(t, baseYAML(baseTunnels()...), cs.texts(nil))
+	next := loadConfig(t, baseYAML(
+		tunnelYAML("work", "config", true, "dns_domains: [corp.example]"),
+		tunnelYAML("nl", "rules", true),     // new, autostart
+		tunnelYAML("home", "config", false), // kept
+		tunnelYAML("lab", "config", false),  // new, no autostart
+		tunnelYAML("fi", "rules", true),     // kept
 		// de removed
 	), cs.texts(nil))
 
-	on := m6Set("work", "de", "fi")
-	m6CheckPlan(t, "add and remove", cur, next, on, on, m6PlanWant{
+	on := boolSet("work", "de", "fi")
+	checkPlan(t, "add and remove", cur, next, on, on, planWant{
 		enabled: []string{"fi", "nl", "work"},
 		stop:    []string{"de"},
 		start:   []string{"nl"},
@@ -234,7 +234,7 @@ func TestM6PlanApplyAddRemove(t *testing.T) {
 
 	// A removed tunnel that is enabled but not running (failed to start) is
 	// just gone: nothing to stop.
-	m6CheckPlan(t, "removed with error", cur, next, on, m6Set("work", "fi"), m6PlanWant{
+	checkPlan(t, "removed with error", cur, next, on, boolSet("work", "fi"), planWant{
 		enabled: []string{"fi", "nl", "work"},
 		start:   []string{"nl"},
 	})
@@ -242,15 +242,15 @@ func TestM6PlanApplyAddRemove(t *testing.T) {
 
 // design 10.2: a running tunnel whose .conf changed is restarted: stop and
 // start; the others are left alone.
-func TestM6PlanApplyConfChanged(t *testing.T) {
-	cs := m6NewConfs(t)
-	yaml := m6BaseYAML(m6BaseTunnels()...)
-	cur := m6Load(t, yaml, cs.texts(nil))
-	next := m6Load(t, yaml, cs.texts(map[string]string{
+func TestPlanApplyConfChanged(t *testing.T) {
+	cs := newConfFiles(t)
+	yaml := baseYAML(baseTunnels()...)
+	cur := loadConfig(t, yaml, cs.texts(nil))
+	next := loadConfig(t, yaml, cs.texts(map[string]string{
 		"fi": cs["fi"].Text("DNS = 10.9.9.9", "MTU = 1380"),
 	}))
-	on := m6Set("work", "de", "fi")
-	m6CheckPlan(t, "MTU of fi", cur, next, on, on, m6PlanWant{
+	on := boolSet("work", "de", "fi")
+	checkPlan(t, "MTU of fi", cur, next, on, on, planWant{
 		enabled: []string{"de", "fi", "work"},
 		stop:    []string{"fi"},
 		start:   []string{"fi"},
@@ -259,8 +259,8 @@ func TestM6PlanApplyConfChanged(t *testing.T) {
 	// A changed peer (AllowedIPs) is a changed .conf too.
 	changed := cs["work"]
 	changed.allowed = "10.0.0.0/8, 172.20.0.0/16"
-	next2 := m6Load(t, yaml, cs.texts(map[string]string{"work": changed.Text("DNS = 10.9.9.9")}))
-	m6CheckPlan(t, "AllowedIPs of work", cur, next2, on, on, m6PlanWant{
+	next2 := loadConfig(t, yaml, cs.texts(map[string]string{"work": changed.Text("DNS = 10.9.9.9")}))
+	checkPlan(t, "AllowedIPs of work", cur, next2, on, on, planWant{
 		enabled: []string{"de", "fi", "work"},
 		stop:    []string{"work"},
 		start:   []string{"work"},
@@ -269,14 +269,14 @@ func TestM6PlanApplyConfChanged(t *testing.T) {
 
 // design 10.2: changes of wgplex.yaml alone (routes, dns_domains, check,
 // services, rules) do not restart running tunnels.
-func TestM6PlanApplyYAMLOnly(t *testing.T) {
-	cs := m6NewConfs(t)
-	cur := m6Load(t, m6BaseYAML(m6BaseTunnels()...), cs.texts(nil))
-	next := m6Load(t, "tunnels:\n"+strings.Join([]string{
-		m6TunnelYAML("work", "rules", true, "dns_domains: [corp.example, lab.example]", "check: 10.0.0.1"),
-		m6TunnelYAML("home", "config", false, "dns_domains: [home.example]"),
-		m6TunnelYAML("de", "rules", true, "check: 1.1.1.1"),
-		m6TunnelYAML("fi", "rules", true),
+func TestPlanApplyYAMLOnly(t *testing.T) {
+	cs := newConfFiles(t)
+	cur := loadConfig(t, baseYAML(baseTunnels()...), cs.texts(nil))
+	next := loadConfig(t, "tunnels:\n"+strings.Join([]string{
+		tunnelYAML("work", "rules", true, "dns_domains: [corp.example, lab.example]", "check: 10.0.0.1"),
+		tunnelYAML("home", "config", false, "dns_domains: [home.example]"),
+		tunnelYAML("de", "rules", true, "check: 1.1.1.1"),
+		tunnelYAML("fi", "rules", true),
 	}, "")+`services:
   s:
     domains: [example.com, example.net]
@@ -289,25 +289,25 @@ rules:
   - services: [s]
     via: [fi]
 `, cs.texts(nil))
-	on := m6Set("work", "de", "fi")
-	m6CheckPlan(t, "YAML only", cur, next, on, on, m6PlanWant{
+	on := boolSet("work", "de", "fi")
+	checkPlan(t, "YAML only", cur, next, on, on, planWant{
 		enabled: []string{"de", "fi", "work"},
 	})
 }
 
 // An enabled tunnel that failed to start (enabled, not running)
 // is started again by config.apply; its changed .conf does not matter.
-func TestM6PlanApplyRetryFailed(t *testing.T) {
-	cs := m6NewConfs(t)
-	yaml := m6BaseYAML(m6BaseTunnels()...)
-	cur := m6Load(t, yaml, cs.texts(nil))
-	next := m6Load(t, yaml, cs.texts(map[string]string{
+func TestPlanApplyRetryFailed(t *testing.T) {
+	cs := newConfFiles(t)
+	yaml := baseYAML(baseTunnels()...)
+	cur := loadConfig(t, yaml, cs.texts(nil))
+	next := loadConfig(t, yaml, cs.texts(map[string]string{
 		"de": cs["de"].Text("DNS = 10.9.9.9", "MTU = 1380"),
 	}))
-	on := m6Set("work", "de", "fi")
-	running := m6Set("work", "fi")
+	on := boolSet("work", "de", "fi")
+	running := boolSet("work", "fi")
 	for name, n := range map[string]*config.Config{"same": cur, "de changed": next} {
-		m6CheckPlan(t, name, cur, n, on, running, m6PlanWant{
+		checkPlan(t, name, cur, n, on, running, planWant{
 			enabled: []string{"de", "fi", "work"},
 			start:   []string{"de"},
 		})
@@ -316,24 +316,24 @@ func TestM6PlanApplyRetryFailed(t *testing.T) {
 
 // A tunnel turned off by the user whose .conf changed stays off: nothing to
 // stop or start.
-func TestM6PlanApplyDisabledChanged(t *testing.T) {
-	cs := m6NewConfs(t)
-	yaml := m6BaseYAML(m6BaseTunnels()...)
-	cur := m6Load(t, yaml, cs.texts(nil))
-	next := m6Load(t, yaml, cs.texts(map[string]string{
+func TestPlanApplyDisabledChanged(t *testing.T) {
+	cs := newConfFiles(t)
+	yaml := baseYAML(baseTunnels()...)
+	cur := loadConfig(t, yaml, cs.texts(nil))
+	next := loadConfig(t, yaml, cs.texts(map[string]string{
 		"de":   cs["de"].Text("DNS = 10.9.9.9", "MTU = 1380"),
 		"home": cs["home"].Text("DNS = 10.9.9.9", "MTU = 1380"),
 	}))
-	on := m6Set("work", "fi")
-	m6CheckPlan(t, "disabled, changed", cur, next, on, on, m6PlanWant{
+	on := boolSet("work", "fi")
+	checkPlan(t, "disabled, changed", cur, next, on, on, planWant{
 		enabled: []string{"fi", "work"},
 	})
 }
 
 // Stop in cur's tunnel order, start in next's tunnel order.
-func TestM6PlanApplyOrder(t *testing.T) {
-	cs := m6NewConfs(t)
-	cur := m6Load(t, m6BaseYAML(m6BaseTunnels()...), cs.texts(nil))
+func TestPlanApplyOrder(t *testing.T) {
+	cs := newConfFiles(t)
+	cur := loadConfig(t, baseYAML(baseTunnels()...), cs.texts(nil))
 	// next: tunnels reordered fi, de, work, home; plus new nl, lab with
 	// autostart; all three running ones changed.
 	nextConfs := cs.texts(map[string]string{
@@ -341,16 +341,16 @@ func TestM6PlanApplyOrder(t *testing.T) {
 		"de":   cs["de"].Text("DNS = 10.9.9.9", "MTU = 1380"),
 		"fi":   cs["fi"].Text("DNS = 10.9.9.9", "MTU = 1380"),
 	})
-	next := m6Load(t, m6BaseYAML(
-		m6TunnelYAML("lab", "config", true),
-		m6TunnelYAML("fi", "rules", true),
-		m6TunnelYAML("de", "rules", true),
-		m6TunnelYAML("nl", "rules", true),
-		m6TunnelYAML("work", "config", true, "dns_domains: [corp.example]"),
-		m6TunnelYAML("home", "config", false),
+	next := loadConfig(t, baseYAML(
+		tunnelYAML("lab", "config", true),
+		tunnelYAML("fi", "rules", true),
+		tunnelYAML("de", "rules", true),
+		tunnelYAML("nl", "rules", true),
+		tunnelYAML("work", "config", true, "dns_domains: [corp.example]"),
+		tunnelYAML("home", "config", false),
 	), nextConfs)
-	on := m6Set("work", "de", "fi")
-	m6CheckPlan(t, "order", cur, next, on, on, m6PlanWant{
+	on := boolSet("work", "de", "fi")
+	checkPlan(t, "order", cur, next, on, on, planWant{
 		enabled: []string{"de", "fi", "lab", "nl", "work"},
 		stop:    []string{"work", "de", "fi"},
 		start:   []string{"lab", "fi", "de", "nl", "work"},
@@ -359,7 +359,7 @@ func TestM6PlanApplyOrder(t *testing.T) {
 
 // --- blockedDNSWarnings -----------------------------------------------------
 
-func m6Blocked(t *testing.T, cfg *config.Config) (got []string) {
+func blockedWarnings(t *testing.T, cfg *config.Config) (got []string) {
 	t.Helper()
 	defer func() {
 		if r := recover(); r != nil {
@@ -373,19 +373,19 @@ func m6Blocked(t *testing.T, cfg *config.Config) (got []string) {
 // 1.1.1.1, design 8) inside a CIDR of a service of a rule with fallback:
 // block gets a warning naming the server and the tunnel; fallback: default
 // and an empty via do not.
-func TestM6BlockedDNSWarnings(t *testing.T) {
-	dnsde := m6NewConf(t, "10.1.0.2/32", "203.0.113.5:51820", "0.0.0.0/0")
-	nodns := m6NewConf(t, "10.2.0.2/32", "203.0.113.7:51820", "0.0.0.0/0")
-	corp := m6NewConf(t, "10.0.0.2/32", "203.0.113.1:51820", "10.0.0.0/8")
+func TestBlockedDNSWarnings(t *testing.T) {
+	dnsde := newConfFile(t, "10.1.0.2/32", "203.0.113.5:51820", "0.0.0.0/0")
+	nodns := newConfFile(t, "10.2.0.2/32", "203.0.113.7:51820", "0.0.0.0/0")
+	corp := newConfFile(t, "10.0.0.2/32", "203.0.113.1:51820", "10.0.0.0/8")
 	confs := map[string]string{
 		"dnsde.conf": dnsde.Text("DNS = 1.0.0.1"),
 		"nodns.conf": nodns.Text(),
 		"corp.conf":  corp.Text("DNS = 10.0.0.53"),
 	}
 	tunnels := "tunnels:\n" +
-		m6TunnelYAML("dnsde", "rules", true) +
-		m6TunnelYAML("nodns", "rules", true) +
-		m6TunnelYAML("corp", "config", true)
+		tunnelYAML("dnsde", "rules", true) +
+		tunnelYAML("nodns", "rules", true) +
+		tunnelYAML("corp", "config", true)
 
 	cases := []struct {
 		name  string
@@ -478,8 +478,8 @@ rules:
 		},
 	}
 	for _, c := range cases {
-		cfg := m6Load(t, tunnels+c.rules, confs)
-		got := m6Blocked(t, cfg)
+		cfg := loadConfig(t, tunnels+c.rules, confs)
+		got := blockedWarnings(t, cfg)
 		if len(got) != len(c.want) {
 			t.Errorf("%s: warnings = %q, want %d", c.name, got, len(c.want))
 			continue
@@ -501,9 +501,9 @@ rules:
 }
 
 // design 10.1 Keys: warnings carry no key.
-func TestM6BlockedDNSWarningsNoKeys(t *testing.T) {
-	c := m6NewConf(t, "10.1.0.2/32", "203.0.113.5:51820", "0.0.0.0/0")
-	cfg := m6Load(t, "tunnels:\n"+m6TunnelYAML("de", "rules", true)+`services:
+func TestBlockedDNSWarningsNoKeys(t *testing.T) {
+	c := newConfFile(t, "10.1.0.2/32", "203.0.113.5:51820", "0.0.0.0/0")
+	cfg := loadConfig(t, "tunnels:\n"+tunnelYAML("de", "rules", true)+`services:
   cf:
     cidrs: [1.0.0.0/24]
 rules:
@@ -511,7 +511,7 @@ rules:
     via: [de]
     fallback: block
 `, map[string]string{"de.conf": c.Text("DNS = 1.0.0.1")})
-	got := strings.Join(m6Blocked(t, cfg), "\n")
+	got := strings.Join(blockedWarnings(t, cfg), "\n")
 	if got == "" {
 		t.Fatal("no warning for 1.0.0.1 under a block CIDR")
 	}
@@ -522,13 +522,13 @@ rules:
 	}
 }
 
-// --- checkWarnings (M7) -----------------------------------------------------
+// --- checkWarnings -----------------------------------------------------
 
 // Tests below follow design 9 "Ping": a check
 // of a family the tunnel has no Address of is not pinged; config.apply warns
 // about it, the config stays valid.
 
-func m7CheckWarnings(t *testing.T, cfg *config.Config) (got []string) {
+func checkWarningsOf(t *testing.T, cfg *config.Config) (got []string) {
 	t.Helper()
 	defer func() {
 		if r := recover(); r != nil {
@@ -538,31 +538,31 @@ func m7CheckWarnings(t *testing.T, cfg *config.Config) (got []string) {
 	return checkWarnings(cfg)
 }
 
-func TestM7CheckWarnings(t *testing.T) {
-	confs := map[string]m6Conf{
-		"alpha": m6NewConf(t, "10.1.0.2/32", "203.0.113.5:51820", "0.0.0.0/0"),              // IPv4, IPv6 check: warn
-		"fi":    m6NewConf(t, "10.2.0.2/32", "203.0.113.7:51820", "0.0.0.0/0"),              // IPv4, IPv4 check
-		"work":  m6NewConf(t, "10.0.0.2/32", "203.0.113.1:51820", "10.0.0.0/8"),             // no check
-		"nl":    m6NewConf(t, "10.5.0.2/32, fd00::5/128", "203.0.113.9:51820", "0.0.0.0/0"), // dual, IPv4 check
-		"lab":   m6NewConf(t, "10.6.0.2/32, fd00::6/128", "203.0.113.11:51820", "::/0"),     // dual, IPv6 check
-		"omega": m6NewConf(t, "fd00::7/128", "203.0.113.13:51820", "::/0"),                  // IPv6 only, IPv4 check: warn
-		"v6ok":  m6NewConf(t, "fd00::8/128", "203.0.113.15:51820", "::/0"),                  // IPv6 only, IPv6 check
+func TestCheckWarnings(t *testing.T) {
+	confs := map[string]confFile{
+		"alpha": newConfFile(t, "10.1.0.2/32", "203.0.113.5:51820", "0.0.0.0/0"),              // IPv4, IPv6 check: warn
+		"fi":    newConfFile(t, "10.2.0.2/32", "203.0.113.7:51820", "0.0.0.0/0"),              // IPv4, IPv4 check
+		"work":  newConfFile(t, "10.0.0.2/32", "203.0.113.1:51820", "10.0.0.0/8"),             // no check
+		"nl":    newConfFile(t, "10.5.0.2/32, fd00::5/128", "203.0.113.9:51820", "0.0.0.0/0"), // dual, IPv4 check
+		"lab":   newConfFile(t, "10.6.0.2/32, fd00::6/128", "203.0.113.11:51820", "::/0"),     // dual, IPv6 check
+		"omega": newConfFile(t, "fd00::7/128", "203.0.113.13:51820", "::/0"),                  // IPv6 only, IPv4 check: warn
+		"v6ok":  newConfFile(t, "fd00::8/128", "203.0.113.15:51820", "::/0"),                  // IPv6 only, IPv6 check
 	}
 	texts := map[string]string{}
 	for name, c := range confs {
 		texts[name+".conf"] = c.Text()
 	}
-	yaml := m6BaseYAML(
-		m6TunnelYAML("alpha", "rules", true, "check: 2606:4700:4700::1111"),
-		m6TunnelYAML("fi", "rules", true, "check: 1.1.1.1"),
-		m6TunnelYAML("work", "config", true),
-		m6TunnelYAML("nl", "rules", true, "check: 1.1.1.1"),
-		m6TunnelYAML("lab", "rules", true, "check: 2001:4860:4860::8888"),
-		m6TunnelYAML("omega", "rules", true, "check: 9.9.9.9"),
-		m6TunnelYAML("v6ok", "rules", true, "check: 2620:fe::fe"),
+	yaml := baseYAML(
+		tunnelYAML("alpha", "rules", true, "check: 2606:4700:4700::1111"),
+		tunnelYAML("fi", "rules", true, "check: 1.1.1.1"),
+		tunnelYAML("work", "config", true),
+		tunnelYAML("nl", "rules", true, "check: 1.1.1.1"),
+		tunnelYAML("lab", "rules", true, "check: 2001:4860:4860::8888"),
+		tunnelYAML("omega", "rules", true, "check: 9.9.9.9"),
+		tunnelYAML("v6ok", "rules", true, "check: 2620:fe::fe"),
 	)
-	cfg := m6Load(t, yaml, texts)
-	got := m7CheckWarnings(t, cfg)
+	cfg := loadConfig(t, yaml, texts)
+	got := checkWarningsOf(t, cfg)
 	if len(got) != 2 {
 		t.Fatalf("checkWarnings = %q, want 2 warnings (alpha, omega)", got)
 	}
@@ -581,9 +581,9 @@ func TestM7CheckWarnings(t *testing.T) {
 	}
 
 	// No tunnel with a check: no warnings.
-	cfg = m6Load(t, m6BaseYAML(m6TunnelYAML("work", "config", true)),
+	cfg = loadConfig(t, baseYAML(tunnelYAML("work", "config", true)),
 		map[string]string{"work.conf": confs["work"].Text()})
-	if got := m7CheckWarnings(t, cfg); len(got) != 0 {
+	if got := checkWarningsOf(t, cfg); len(got) != 0 {
 		t.Errorf("no check: warnings %q, want none", got)
 	}
 }
