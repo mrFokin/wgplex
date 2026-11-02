@@ -66,10 +66,10 @@ func parseArgs(args []string, def paths) (command, error) {
 		if cmd.Arg == "" {
 			return command{}, fmt.Errorf("%w: %s: empty argument", errUsage, cmd.Name)
 		}
-		// A flag of a later stage (down -all, explicit before its name was a
-		// tunnel) is not an argument of the command.
+		// An argument starting with "-" is a flag (down -all of a later
+		// stage), not a tunnel name or a query.
 		if strings.HasPrefix(cmd.Arg, "-") {
-			return command{}, fmt.Errorf("%w: %s: unexpected flag %q", errUsage, cmd.Name, cmd.Arg)
+			return command{}, fmt.Errorf("%w: %s: flags go before the command or after its argument (got %q)", errUsage, cmd.Name, cmd.Arg)
 		}
 	}
 	// Flags after the command and its argument.

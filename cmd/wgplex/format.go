@@ -40,7 +40,7 @@ func printStatus(w io.Writer, s rpc.Status, now time.Time) {
 		fmt.Fprintf(w, "warning: %s\n", x)
 	}
 	if !s.Configured {
-		fmt.Fprintln(w, "no config applied (wgplex reload)")
+		fmt.Fprintln(w, "no config applied (sudo wgplex reload)")
 		return
 	}
 

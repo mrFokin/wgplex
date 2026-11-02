@@ -307,7 +307,7 @@ func TestM6PrintStatusNoConfig(t *testing.T) {
 		printStatus(w, rpc.Status{Configured: false, Icon: "off"}, m6Now)
 	})
 	m6WantRow(t, "icon", out, "icon: off")
-	m6WantRow(t, "hint", out, "no config applied (wgplex reload)")
+	m6WantRow(t, "hint", out, "no config applied (sudo wgplex reload)")
 	if strings.Contains(out, "config error") {
 		t.Errorf("config error shown without errors:\n%s", out)
 	}

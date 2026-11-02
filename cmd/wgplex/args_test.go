@@ -150,6 +150,13 @@ func TestParseArgsUsage(t *testing.T) {
 		{"json not in M1", []string{"status", "-json"}},
 		// design 13: -all is a flag of down, not a tunnel name; not in M1.
 		{"down all not in M1", []string{"down", "-all"}},
+		{"up all not in M1", []string{"up", "-all"}},
+		// an argument is never a flag: -socket between command and argument
+		// is a usage error (the contract: before the command or after it
+		// and its argument).
+		{"up flag before arg", []string{"up", "-socket", "/x.sock", "de"}},
+		{"explain flag before arg", []string{"explain", "-socket", "/x.sock", "a.com"}},
+		{"explain dash", []string{"explain", "-x"}},
 		{"daemon state is M2", []string{"daemon", "-state", "/s.json"}},
 		{"daemon log is M2", []string{"daemon", "-log", "/l.log"}},
 
