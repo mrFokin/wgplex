@@ -11,14 +11,14 @@ import (
 	"strings"
 )
 
-// mainFile is the main config file name (design 10.2).
+// mainFile is the main config file name (design 10.1).
 const mainFile = "wgplex.yaml"
 
 // Load parses and validates the config. files maps a base file name
 // ("wgplex.yaml", "work.conf") to its content, as sent by the client (design 10.2).
 // On failure err is Errors with every problem found.
 //
-// Other *.yaml files besides wgplex.yaml are ignored with a warning (design 10.2).
+// Other *.yaml files besides wgplex.yaml are ignored with a warning (design 10.1).
 // Normalizations that keep the config usable (non-canonical CIDRs, services unused
 // by any rule, ignored wg-quick fields, non-IP DNS values) are reported in warnings
 // (design 6, 10.1). On error cfg is nil.
