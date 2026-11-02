@@ -25,10 +25,10 @@ import (
 const (
 	// resolveTimeout bounds resolving the endpoints of all the tunnels one
 	// call brings up: they are resolved in parallel, well within the 60 s
-	// of the CLI (M6 review note 6).
+	// of the CLI.
 	resolveTimeout = 10 * time.Second
 	expireEvery    = time.Minute    // how often expired dynamic addresses are dropped
-	dnsAddr        = "127.0.0.1:53" // the resolver of the daemon (design 7)
+	dnsAddr        = "127.0.0.1:53" // the resolver of the daemon (design 8)
 )
 
 // errStopping is the error of a mutating call after shutdown has begun; the
@@ -45,7 +45,7 @@ var errStopping = errors.New("wgplex daemon is stopping")
 // A tunnel is enabled when it is in tunnels: running (tun set), being
 // brought up (starting) or failed (err set). A tunnel that is not running is
 // Up but not Alive for the router: its AllowedIPs become reject and rules
-// pass it over (decisions 6, 14).
+// pass it over.
 //
 // Every endpoint host route of ours is in hosts until DeleteHost; syncNow
 // puts all of them into the table as endpoint routes, so Sync never removes
@@ -68,7 +68,7 @@ type daemon struct {
 	hosts     map[netip.Addr]*hostRoute
 	gws       map[bool]router.Gateway // by ipv6, cached once looked up without error
 	system    []netip.Addr            // the system DNS servers last read without error
-	primary   string                  // the primary service last read without error (decision 12)
+	primary   string                  // the primary service last read without error
 	rules     []router.RuleState
 	env       router.Env
 	table     router.Table // the last synced table
@@ -82,15 +82,15 @@ type daemon struct {
 type runTunnel struct {
 	name      string
 	tun       *tunnel.Tunnel   // nil: not running
-	starting  bool             // tun nil: being brought up (decision 14)
+	starting  bool             // tun nil: being brought up
 	err       string           // tun nil, not starting: why it failed to start
 	endpoints []netip.AddrPort // resolved, index = peer index
 	addrs     []netip.Addr     // valid endpoint addresses, each with a host route in hosts
 	index     int              // utun interface index; 0: unknown
-	health    health.Health    // tun set: the verdict (design 8)
+	health    health.Health    // tun set: the verdict (design 9)
 	check     string           // tun set: the check made (activeCheck), address or URL; "": none
 	checker   health.Checker   // of check; nil: none or failed to open
-	// resolvedAt: tun set, the endpoints were last resolved (design 5: a
+	// resolvedAt: tun set, the endpoints were last resolved (design 6: a
 	// dead tunnel resolves its host names again reresolveEvery after it).
 	resolvedAt time.Time
 	failedAt   time.Time // err set: when it failed (retryEvery)
@@ -161,7 +161,7 @@ func (d *daemon) locked(f func()) {
 	f()
 }
 
-// Apply is config.apply (decision 1, M6 plan "config.apply").
+// Apply is config.apply.
 func (d *daemon) Apply(files map[string]string) (rpc.ApplyResult, error) {
 	d.opMu.Lock()
 	defer d.opMu.Unlock()
@@ -192,9 +192,9 @@ func (d *daemon) Apply(files map[string]string) (rpc.ApplyResult, error) {
 	}
 	d.log.Info("config apply", "tunnels", len(next.Tunnels), "rules", len(next.Rules))
 
-	// The network may have changed since the last apply (decision 11).
+	// The network may have changed since the last apply.
 	// Reading the new values would hide the change from the Network event
-	// to come (re-review note 1), so a changed network gets the reaction of
+	// to come, so a changed network gets the reaction of
 	// onNetwork here: renetwork, which also reads them; the failed tunnels
 	// are brought up and the rules selected by the apply itself. The first
 	// apply has nothing running to react with.
@@ -209,8 +209,7 @@ func (d *daemon) Apply(files map[string]string) (rpc.ApplyResult, error) {
 	d.locked(func() { hasSystem = len(d.system) > 0 })
 
 	// The endpoints are resolved before replan: a tunnel to be restarted
-	// keeps running meanwhile instead of standing in starting (M7
-	// accumulated task 6).
+	// keeps running meanwhile instead of standing in starting.
 	planned := d.toStart(next)
 	endpoints, errs := d.resolve(planned)
 	start := d.replan(next, warnings)
@@ -233,7 +232,7 @@ func (d *daemon) Apply(files map[string]string) (rpc.ApplyResult, error) {
 				if activeCheck(&t) != rt.check {
 					// The check changed without a restart: its verdict
 					// starts over. The scoped route to the old check stays
-					// until the tunnel stops (review note 5, accepted):
+					// until the tunnel stops:
 					// the utun is ours, the route harms nothing.
 					rt.health = health.New(time.Now())
 					d.setChecker(&t, rt)
@@ -244,8 +243,8 @@ func (d *daemon) Apply(files map[string]string) (rpc.ApplyResult, error) {
 		d.logOverlaps()
 	})
 
-	// The system DNS is captured only when the config has domains (M10
-	// decision 11); a capture left from a previous config is released.
+	// The system DNS is captured only when the config has domains;
+	// a capture left from a previous config is released.
 	switch {
 	case !next.NeedsDNS():
 		if d.captured {
@@ -352,7 +351,7 @@ func (d *daemon) SetEnabled(name string, enabled bool) error {
 	if err != nil {
 		return err
 	}
-	// t stays enabled even when it fails to come up (design 10).
+	// t stays enabled even when it fails to come up (design 10.2).
 	if t == nil {
 		return nil
 	}
@@ -397,7 +396,7 @@ func (d *daemon) toggle(name string, enabled bool) (*config.Tunnel, error) {
 }
 
 // DisableAll is tunnel.disableAll: SetEnabled false for every enabled tunnel
-// with one Sync; the DNS capture stays (decision 2).
+// with one Sync; the DNS capture stays.
 func (d *daemon) DisableAll() error {
 	d.opMu.Lock()
 	defer d.opMu.Unlock()
@@ -530,7 +529,7 @@ func (d *daemon) resolve(ts []*config.Tunnel) ([][]netip.AddrPort, []error) {
 	d.locked(func() {
 		if len(d.system) > 0 {
 			servers = d.system
-			resolver = dns.SystemResolver(servers) // past our own resolver (design 5)
+			resolver = dns.SystemResolver(servers) // past our own resolver (design 6)
 		}
 	})
 	ctx, cancel := context.WithTimeout(d.ctx, resolveTimeout)
@@ -554,7 +553,7 @@ func (d *daemon) resolve(ts []*config.Tunnel) ([][]netip.AddrPort, []error) {
 // up brings t up with its resolved endpoints (rerr: resolving failed): adds
 // the host routes, starts t and adds the scoped routes to its DNS servers.
 // The starting entry of t in tunnels becomes the running tunnel or gets the
-// error; t stays enabled either way (decision 6). Then the rules are
+// error; t stays enabled either way. Then the rules are
 // selected again (keepRules: from the current ones, else from scratch) and
 // the table is synced, so t gets its Ifaces and rules at once. Takes mu.
 func (d *daemon) up(t *config.Tunnel, endpoints []netip.AddrPort, rerr error, keepRules bool) error {
@@ -676,7 +675,7 @@ func (d *daemon) releaseHosts(addrs []netip.Addr) {
 }
 
 // reendpoint switches the running rt to the endpoints resolved again for
-// its tunnel t (design 5, DDNS): for every peer whose endpoint differs, a
+// its tunnel t (design 6, DDNS): for every peer whose endpoint differs, a
 // host route to the new address (addHost), the endpoint of the device
 // (SetEndpoint), the host route to the old address released when no other
 // peer of rt uses it; rt.endpoints and rt.addrs follow. A failure of addHost
@@ -722,7 +721,7 @@ func (d *daemon) reendpoint(t *config.Tunnel, rt *runTunnel, endpoints []netip.A
 }
 
 // rehost moves the endpoint host routes whose gateway has changed and tries
-// again the ones that failed before (M7 accumulated task 2). mu is held.
+// again the ones that failed before. mu is held.
 func (d *daemon) rehost() {
 	for a, h := range d.hosts {
 		gw, err := d.gateway(a.Is6())
@@ -767,7 +766,7 @@ func (d *daemon) states() map[string]router.TunnelState {
 	return st
 }
 
-// reselect selects the rules again (prev nil: from scratch, design 6.3),
+// reselect selects the rules again (prev nil: from scratch, design 7.3),
 // passes the state to the resolver and syncs the table. mu is held, cfg set.
 func (d *daemon) reselect(prev []router.RuleState) {
 	d.rules = router.SelectRules(d.cfg, d.states(), prev)
@@ -781,7 +780,7 @@ func (d *daemon) reselect(prev []router.RuleState) {
 		gw, err := d.gateway(ipv6)
 		if err != nil {
 			// The previous gateway stays: a zero one would make Sync
-			// remove the direct routes (M7 accumulated task 1).
+			// remove the direct routes.
 			d.log.Warn("default gateway: keeping the previous one", "ipv6", ipv6, "err", err)
 			gw = d.env.GW4
 			if ipv6 {
@@ -800,8 +799,7 @@ func (d *daemon) reselect(prev []router.RuleState) {
 }
 
 // sync is syncNow for every caller but the resolver: a failed Sync makes the
-// resolver sync again before its next answer with rule addresses (M7
-// accumulated task 5). mu is held.
+// resolver sync again before its next answer with rule addresses. mu is held.
 func (d *daemon) sync() {
 	if err := d.syncNow(); err != nil {
 		d.srv.Invalidate()
@@ -839,7 +837,7 @@ func (d *daemon) syncTable(t router.Table, env router.Env) error {
 }
 
 // logOverlaps warns about routes of the table overlapping local networks
-// (design 16). mu is held.
+// (design 18). mu is held.
 func (d *daemon) logOverlaps() {
 	local, err := router.LocalNets()
 	if err != nil {
@@ -852,7 +850,7 @@ func (d *daemon) logOverlaps() {
 
 // withEndpoints returns t with an endpoint route (direct) to every address
 // of hosts that t does not already have as one, replacing a route of t on
-// the same prefix as Build does (endpoint wins, design 6.2).
+// the same prefix as Build does (endpoint wins, design 7.2).
 func withEndpoints(t router.Table, hosts map[netip.Addr]*hostRoute) router.Table {
 	have := map[netip.Prefix]int{}
 	for i, r := range t {
@@ -910,7 +908,7 @@ func errorList(err error) []string {
 
 // addScoped adds scoped host routes via the utun index to the DNS servers of
 // t (dns.Servers) and to its check address, of the families t has in
-// Address: a socket bound to the utun reaches them only so (design 7, 8).
+// Address: a socket bound to the utun reaches them only so (design 8, 9).
 // A check address that is also a DNS server gets one route. A check URL gets
 // none here: HTTPChecker adds the route to its address before each request.
 // Errors are logged: queries through t then get SERVFAIL, pings fail. Index

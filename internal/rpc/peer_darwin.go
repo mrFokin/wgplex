@@ -42,7 +42,7 @@ func Listen(path string) (net.Listener, error) {
 		return nil, err
 	}
 	// connect(2) needs write permission on the socket file; the uid check
-	// limits access (decision 8).
+	// limits access.
 	if err := os.Chmod(path, 0o666); err != nil {
 		ln.Close()
 		return nil, err

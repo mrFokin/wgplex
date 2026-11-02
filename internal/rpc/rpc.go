@@ -1,8 +1,8 @@
-// Package rpc is the JSON-RPC 2.0 interface of the wgplex daemon (design 13): wire
+// Package rpc is the JSON-RPC 2.0 interface of the wgplex daemon (design 14): wire
 // types, the server over the unix socket with the peer uid check, and the
 // pure builders of status.get and diag.* replies from a daemon snapshot.
 //
-// No reply type carries a key, public ones included (design 9.4).
+// No reply type carries a key, public ones included (design 10.1 Keys).
 package rpc
 
 import "time"
@@ -10,7 +10,7 @@ import "time"
 const (
 	Path = "/rpc" // the JSON-RPC endpoint
 
-	// JSON-RPC error codes of the daemon (decision 5).
+	// JSON-RPC error codes of the daemon.
 	CodeConfigInvalid = 1 // config.apply: config.Load failed; data: ConfigErrorData
 	CodeNoConfig      = 2 // tunnel.setEnabled before the first successful config.apply
 	CodeUnknownTunnel = 3 // the tunnel name is not in the config
@@ -19,7 +19,7 @@ const (
 
 // ApplyParams are the params of config.apply.
 type ApplyParams struct {
-	Files map[string]string `json:"files"` // base name → content (design 9.3)
+	Files map[string]string `json:"files"` // base name → content (design 10.2)
 }
 
 // ApplyResult is the result of config.apply.
@@ -50,7 +50,7 @@ type SetEnabledParams struct {
 // Status is the result of status.get (no params).
 type Status struct {
 	Configured   bool           `json:"configured"`              // a config has been applied
-	Icon         string         `json:"icon"`                    // "off" | "on" | "warn" (decision 4)
+	Icon         string         `json:"icon"`                    // "off" | "on" | "warn"
 	ConfigErrors []string       `json:"config_errors,omitempty"` // last failed config.apply; cleared by a successful one
 	Warnings     []string       `json:"warnings,omitempty"`      // of the applied config
 	Tunnels      []TunnelStatus `json:"tunnels"`                 // config order
@@ -97,7 +97,7 @@ type RuleStatus struct {
 	Fallback   string   `json:"fallback"`         // configured: "default" | "block"
 	Tunnel     string   `json:"tunnel,omitempty"` // serving tunnel; "": direct or in fallback
 	InFallback bool     `json:"in_fallback"`
-	Degraded   bool     `json:"degraded"` // via non-empty and not on via[0] (design 11)
+	Degraded   bool     `json:"degraded"` // via non-empty and not on via[0] (design 14)
 }
 
 // ExplainParams are the params of diag.explain.
@@ -110,9 +110,9 @@ type Explanation struct {
 	Query string `json:"query"` // normalized: lowercase, no trailing dot; IP unmapped
 	Kind  string `json:"kind"`  // "domain" | "ip"
 
-	// Kind "domain": dns.Choose (design 6.4, 7).
+	// Kind "domain": dns.Choose (design 7.4, 8).
 	Rule     *RuleStatus `json:"rule,omitempty"`     // the matched rule (Choice.Rule)
-	Skipped  *RuleStatus `json:"skipped,omitempty"`  // MatchDomain winner in fallback: default, passed over (M5 decision 1)
+	Skipped  *RuleStatus `json:"skipped,omitempty"`  // MatchDomain winner in fallback: default, passed over
 	Upstream string      `json:"upstream,omitempty"` // tunnel name, "system" or "block"
 	Zone     string      `json:"zone,omitempty"`     // dns_domains zone that chose the tunnel
 	Servers  []string    `json:"servers,omitempty"`  // DNS servers of the tunnel upstream

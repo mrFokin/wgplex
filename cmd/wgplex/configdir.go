@@ -6,7 +6,7 @@ import (
 )
 
 // readConfigDir reads every *.yaml and *.conf in dir, following symlinks,
-// keyed by base name (design 9.3).
+// keyed by base name (design 10.2).
 func readConfigDir(dir string) (map[string]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

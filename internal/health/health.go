@@ -1,4 +1,4 @@
-// Package health decides whether a tunnel is alive (design 8): an active
+// Package health decides whether a tunnel is alive (design 9): an active
 // check (ping of the check address through the tunnel) and a passive one
 // (handshake age and tx/rx growth). Health is a pure value; the pings are
 // made by Pinger (ping_darwin.go).
@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	Interval         = 10 * time.Second  // design 8
+	Interval         = 10 * time.Second  // design 9
 	FailsToDead      = 3                 // consecutive ping failures
-	HandshakeTimeout = 180 * time.Second // design 8 "~3 minutes"
+	HandshakeTimeout = 180 * time.Second // design 9 "~3 minutes"
 	PingTimeout      = 3 * time.Second
-	HTTPTimeout      = 5 * time.Second  // the whole HTTP check (design 8)
+	HTTPTimeout      = 5 * time.Second  // the whole HTTP check (design 9)
 	PokeEvery        = 30 * time.Second // handshake attempts of a dead tunnel
 	StrikesToDead    = 2                // passive: polls in a row sending without receiving
 )
@@ -56,14 +56,14 @@ type Sample struct {
 	URL       string     // the HTTP check URL, for Reason; "" for ping
 }
 
-// Health is the verdict on one tunnel (decision 1); a value, Observe and
+// Health is the verdict on one tunnel; a value, Observe and
 // Reset return the next one.
 //
 // The active verdict comes from pings: OK makes it Alive and zeroes Fails,
 // FailsToDead failures in a row make it Dead. With URL set the reason is
 // "http <url>: N failures" plus " (<Err>)" when Err is not empty; otherwise
 // "ping <check>: N failures". The passive verdict comes from
-// the sample (decision 11): Alive when rx grew since the last poll or the
+// the sample: Alive when rx grew since the last poll or the
 // handshake is at most HandshakeTimeout old; Dead when on StrikesToDead
 // polls in a row tx grew and rx did not, and At − ref > HandshakeTimeout on
 // the current poll, where ref = max(handshake, since); otherwise unchanged.

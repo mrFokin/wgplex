@@ -6,7 +6,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/config"
 )
 
-// SelectRules picks a tunnel for every rule (design 6.3, 8): the first tunnel
+// SelectRules picks a tunnel for every rule (design 7.3, 9): the first tunnel
 // from via that is Up and Alive; a rule keeps its previous tunnel while that
 // tunnel stays usable (no return to a higher-priority one). tunnels is keyed by
 // tunnel name, a missing entry means down. prev is the previous result for the

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Tests follow design 8 "Ping" and the M7 plan (fact 6, decision 8): echo
+// Tests follow design 9 "Ping": echo
 // request and reply by RFC 792 (ICMPv4) and RFC 4443 (ICMPv6), the ICMPv4
 // checksum by RFC 1071, replies matched by id, seq and nonce because every
 // ICMP socket of the process gets every reply. Packets are built by hand
@@ -111,7 +111,7 @@ func TestM7EchoRequestV4(t *testing.T) {
 }
 
 // ICMPv6 echo request: type 128, code 0, id, seq, nonce; the checksum is
-// the kernel's (fact 6), left zero.
+// the kernel's, left zero.
 func TestM7EchoRequestV6(t *testing.T) {
 	b := m7EchoRequest(t, true, 0x4321, 9, m7Nonce)
 	want := m7Echo(true, m7EchoRequestV6, 0x4321, 9, m7Nonce)

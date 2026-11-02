@@ -31,10 +31,10 @@ type State struct {
 type TunnelRuntime struct {
 	Interface string
 	Err       string
-	Starting  bool               // being brought up: Up, not Alive, no utun yet (decision 14)
+	Starting  bool               // being brought up: Up, not Alive, no utun yet
 	Endpoints []netip.AddrPort   // index = peer index
 	Peers     []tunnel.PeerStats // index = peer index; nil when not running
-	Dead      bool               // running, but health says Dead (design 8)
+	Dead      bool               // running, but health says Dead (design 9)
 	Reason    string             // Dead: why
 	Check     *CheckStatus       // check set and running; nil otherwise
 }
@@ -53,7 +53,7 @@ const (
 // (no Error), "error" when its Err is set, "dead" (with Reason) when running
 // but Dead, "up" otherwise; Check comes with "up" and "dead". RouteCount
 // counts the TargetTunnel routes of s.Table via the tunnel, whatever its
-// state. Icon (decisions 4, 14; M7 decision 10): "warn" when there are
+// state. Icon: "warn" when there are
 // config errors or an enabled tunnel is in "error" or "dead" ("starting" is
 // not); else "on" when some tunnel is up; else "off".
 func StatusOf(s *State) Status {
@@ -161,7 +161,7 @@ func ruleStatus(cfg *config.Config, rules []router.RuleState, i int) RuleStatus 
 }
 
 // Explain explains q (a domain or an IP); an invalid q is a jrpc Invalid params error.
-// A domain goes through dns.Choose with s.Rules and s.Ifaces (design 6.4, 7),
+// A domain goes through dns.Choose with s.Rules and s.Ifaces (design 7.4, 8),
 // its Addrs come from s.Pairs. An IP gets the longest-prefix route of s.Table,
 // with Skipped from s.Skips and, for a dynamic route, Names from s.Pairs; a
 // tunnel route without a utun is shown as "reject", as in RoutesOf.
@@ -195,7 +195,7 @@ func explainDomain(s *State, name string) Explanation {
 		e.Rule = &rs
 	}
 	// The best match by domain alone, passed over by Choose because it is
-	// in fallback: default (M5 decision 1).
+	// in fallback: default.
 	if i, ok := cfg.MatchDomain(name); ok && i != c.Rule && i < len(s.Rules) &&
 		s.Rules[i].Fallback && cfg.Rules[i].Fallback == config.FallbackDefault {
 		rs := ruleStatus(cfg, s.Rules, i)
@@ -246,7 +246,7 @@ func explainIP(s *State, a netip.Addr) Explanation {
 // routes from s.Pairs, Skipped from s.Skips, SyncError from s.SyncErr. A
 // TargetTunnel route of a tunnel without a utun index in s.Ifaces (starting
 // or failed) is shown as Target "reject" with its Tunnel kept: so it is in
-// the kernel (decision 15). Explain shows an IP route the same way.
+// the kernel. Explain shows an IP route the same way.
 func RoutesOf(s *State) Routes {
 	res := Routes{Routes: make([]RouteInfo, 0, len(s.Table))}
 	for _, r := range s.Table {
@@ -268,7 +268,7 @@ func routeInfo(s *State, r router.Route) RouteInfo {
 		Rule:   r.Rule,
 	}
 	if r.Target == router.TargetTunnel && s.Ifaces[r.Tunnel] <= 0 {
-		ri.Target = string(router.TargetReject) // decision 15
+		ri.Target = string(router.TargetReject)
 	}
 	if r.Source == router.SourceDynamic && r.Prefix.IsSingleIP() {
 		for _, p := range s.Pairs {

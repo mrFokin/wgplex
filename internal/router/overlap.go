@@ -4,7 +4,7 @@ import "net/netip"
 
 // Overlaps returns the routes of t whose prefix overlaps one of local (the
 // subnets of physical interfaces, LocalNets), in t's order. Endpoint routes
-// are not reported. The daemon logs them as warnings (design 16).
+// are not reported. The daemon logs them as warnings (design 18).
 func Overlaps(t Table, local []netip.Prefix) []Route {
 	var res []Route
 	for _, r := range t {

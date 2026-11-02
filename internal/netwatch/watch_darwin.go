@@ -16,7 +16,7 @@ const (
 	quiet       = 500 * time.Millisecond // debounce: quiet after the last event
 	maxDelay    = 3 * time.Second        // debounce: at most after the first event
 	sleepTick   = 2 * time.Second        // how often a sleep is looked for
-	resyncEvery = 30 * time.Second       // periodic Resync (design 7)
+	resyncEvery = 30 * time.Second       // periodic Resync (design 8)
 	minBackoff  = time.Second            // before restarting scutil
 	maxBackoff  = 30 * time.Second
 )

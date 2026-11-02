@@ -1,7 +1,7 @@
 package router
 
 // System layer over PF_ROUTE: syncing the computed Table with the kernel
-// (design 6.2). Sync keeps no state: each call reads our routes (RTF_PROTO2)
+// (design 7.2). Sync keeps no state: each call reads our routes (RTF_PROTO2)
 // from a dump of the kernel table, compares them with the wanted ones and
 // applies the difference. The pure parts (wanted, owned, diff, routeMsg) are
 // tested without root; the helpers of kernel_darwin.go are reused.
@@ -122,7 +122,7 @@ type Skip struct {
 //
 // Scoped routes (RTF_IFSCOPE) are not ours for Sync: owned skips them, so
 // scoped host routes of ours to the DNS servers of tunnels (AddScoped,
-// design 6.2, 7) are never changed or deleted here; they go away with their
+// design 7.2, 8) are never changed or deleted here; they go away with their
 // utun, and DeleteOwned removes leftovers.
 //
 // keep comes from t alone: our host route to an endpoint that t lacks is
@@ -258,7 +258,7 @@ func LocalNets() ([]netip.Prefix, error) {
 // env.Ifaces[r.Tunnel]; TargetDirect → KindGateway via GW4/GW6 by family;
 // TargetReject → KindReject. SourceEndpoint entries go to keep, not to want.
 // A tunnel without a utun (missing from Ifaces or a non-positive index) gets
-// KindReject, so its traffic does not go direct (design 6.2); a direct route
+// KindReject, so its traffic does not go direct (design 7.2); a direct route
 // without a gateway of its family goes to skipped.
 func wanted(t Table, env Env) (want []KernelRoute, keep map[netip.Prefix]bool, skipped []Skip) {
 	keep = map[netip.Prefix]bool{}

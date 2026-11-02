@@ -8,27 +8,27 @@ import (
 	"github.com/mrFokin/wgplex/internal/config"
 )
 
-// Build computes the routing table (design 6.1, 6.2) from the config, tunnel
+// Build computes the routing table (design 7.1, 7.2) from the config, tunnel
 // states, rule decisions made by SelectRules and the current dynamic addresses.
 //
 // Candidates by source:
 //  1. endpoints of every Up tunnel: /32 or /128, TargetDirect;
 //  2. AllowedIPs of every [Peer] of an Up tunnel with routes: config:
-//     TargetTunnel, whether the tunnel is alive or not (design 6.2);
+//     TargetTunnel, whether the tunnel is alive or not (design 7.2);
 //  3. per rule, the CIDRs of its services and its Dynamic addresses:
 //     rule on a tunnel: TargetTunnel; empty via: TargetDirect;
 //     Fallback with block: TargetReject; Fallback with default: no routes
-//     (design 6.3). A /128 from Dynamic is dropped when the rule's tunnel has
-//     no IPv6 address in Address (design 6.1 item 4). A Dynamic with a rule
+//     (design 7.3). A /128 from Dynamic is dropped when the rule's tunnel has
+//     no IPv6 address in Address (design 7.1 item 4). A Dynamic with a rule
 //     index out of range is ignored.
 //
 // An IPv6 prefix with TargetTunnel (a service CIDR or AllowedIPs) of a tunnel
 // without an IPv6 address in Address becomes TargetReject with an empty
-// Tunnel, Source and Rule unchanged (design 6.2): the kernel does not accept
+// Tunnel, Source and Rule unchanged (design 7.2): the kernel does not accept
 // an IPv6 route to an interface without an IPv6 address, and the traffic must
 // not go directly.
 //
-// Equal prefixes from several candidates (design 6.2): endpoint > rules
+// Equal prefixes from several candidates (design 7.2): endpoint > rules
 // (earlier rule wins) > AllowedIPs (earlier tunnel wins). Different prefixes
 // are neither merged nor collapsed: longest-prefix match is left to the kernel.
 //
@@ -41,7 +41,7 @@ func Build(cfg *config.Config, tunnels map[string]TunnelState, rules []RuleState
 	var t Table
 	seen := map[netip.Prefix]bool{}
 	// add keeps the first candidate for a prefix: callers add candidates in
-	// priority order (design 6.2).
+	// priority order (design 7.2).
 	add := func(r Route) {
 		if !r.Prefix.IsValid() || seen[r.Prefix] {
 			return
@@ -144,7 +144,7 @@ func hostPrefix(a netip.Addr) netip.Prefix {
 }
 
 // hasIPv6 reports whether the named tunnel has an IPv6 address in its .conf
-// Address (design 6.1 item 4).
+// Address (design 7.1 item 4).
 func hasIPv6(cfg *config.Config, name string) bool {
 	for _, tun := range cfg.Tunnels {
 		if tun.Name != name {

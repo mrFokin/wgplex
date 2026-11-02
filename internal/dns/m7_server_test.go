@@ -12,9 +12,9 @@ import (
 	"github.com/mrFokin/wgplex/internal/router"
 )
 
-// Tests follow design 7 ("Домены из правил": SERVFAIL only when the route of
-// an address of this answer did not go in) and the M7 plan (accumulated
-// tasks 4, 5; decision 9; Server.Invalidate), not the implementation. The Server and
+// Tests follow design 8 ("Домены из правил": SERVFAIL only when the route of
+// an address of this answer did not go in; Server.Invalidate),
+// not the implementation. The Server and
 // the fake upstream are those of server_test.go (m5StartServer: rule
 // ifconfig.me via de, icanhazip.com direct, example.com in fallback: block;
 // system upstream 127.0.0.1).
@@ -51,7 +51,7 @@ func m7Call(t *testing.T, what string, f func()) {
 	}
 }
 
-// Decision 9, accumulated task 4: a *router.SyncError gives SERVFAIL only
+// A *router.SyncError gives SERVFAIL only
 // when its failed prefixes hold the /32 (/128) of an address of this answer;
 // any other error is SERVFAIL as before.
 func TestM7ServerSyncErrorPrefixes(t *testing.T) {
@@ -126,7 +126,7 @@ func TestM7ServerSyncErrorPrefixes(t *testing.T) {
 	}
 }
 
-// M7 plan "internal/dns": after a SyncError that did not touch this answer
+// After a SyncError that did not touch this answer
 // the answer goes, but the sync is not counted as done: the next answer of
 // the same pair calls Sync again; after a successful Sync it does not.
 func TestM7ServerSyncErrorNotSynced(t *testing.T) {

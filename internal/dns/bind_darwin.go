@@ -17,7 +17,7 @@ import (
 // boundDialer returns a dialer whose sockets are bound to the interface
 // (IP_BOUND_IF or IPV6_BOUND_IF by the address family); index 0: unbound.
 // Binding alone needs a scoped route to the server (router.AddScoped,
-// design 7).
+// design 8).
 func boundDialer(index int) *net.Dialer {
 	d := &net.Dialer{}
 	if index <= 0 {
@@ -42,7 +42,7 @@ func boundDialer(index int) *net.Dialer {
 }
 
 // TunnelResolver resolves via servers through the interface index (sockets
-// bound by boundDialer): for the HTTP check host (design 8). The servers are
+// bound by boundDialer): for the HTTP check host (design 9). The servers are
 // tried in order: successive dials take them in turn, so the resolver's
 // retries reach the next server. Scoped routes to them are the caller's. No
 // servers: every lookup fails.

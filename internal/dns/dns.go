@@ -1,4 +1,4 @@
-// Package dns is the resolver of the daemon on 127.0.0.1:53 (design 7): it
+// Package dns is the resolver of the daemon on 127.0.0.1:53 (design 8): it
 // picks the upstream for each query by the rules and dns_domains, sends rule
 // domains through their tunnel, records the answered addresses as dynamic
 // routes before replying, and makes itself the system resolver.

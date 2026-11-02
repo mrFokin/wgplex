@@ -1,6 +1,6 @@
 package router
 
-// System layer over PF_ROUTE: host routes to tunnel endpoints (design 5).
+// System layer over PF_ROUTE: host routes to tunnel endpoints (design 6).
 // Syncing router.Table with the kernel is in sync_darwin.go.
 
 import (
@@ -61,7 +61,7 @@ func DefaultGateway(ipv6 bool) (Gateway, error) {
 }
 
 // AddHost adds a host route to dst via gw, marked RTF_PROTO2; a blackhole
-// route when gw has no Addr (design 5). In order:
+// route when gw has no Addr (design 6). In order:
 //   - our unscoped host routes to dst (RTF_PROTO2, not RTF_IFSCOPE) are found
 //     in a dump of the routing table (ownedTo) and removed as DeleteHost does (an error if one is still
 //     there afterwards). The dump, not RTM_GET, is used because RTM_GET may
@@ -134,7 +134,7 @@ func DeleteHost(dst netip.Addr) error {
 
 // AddScoped adds our scoped host route (RTF_IFSCOPE|RTF_PROTO2) to dst via the
 // interface index: sockets bound to it (IP_BOUND_IF) reach dst through it
-// whatever the unscoped table says (design 7). An existing scoped route of
+// whatever the unscoped table says (design 8). An existing scoped route of
 // ours to dst on that interface is replaced (found with ownedTo, which
 // returns scoped routes too). Removed with the interface; DeleteOwned removes
 // leftovers; AddHost and DeleteHost leave it alone.
@@ -383,7 +383,7 @@ func maskBits(m *route.RouteMessage) int {
 }
 
 // physical reports whether ifname names a physical interface: not empty and
-// not utun*, ipsec* (IKEv2), ppp* (L2TP, PPPoE) or lo* (design 5).
+// not utun*, ipsec* (IKEv2), ppp* (L2TP, PPPoE) or lo* (design 6).
 func physical(ifname string) bool {
 	if ifname == "" {
 		return false

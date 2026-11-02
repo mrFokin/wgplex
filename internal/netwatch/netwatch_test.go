@@ -6,8 +6,7 @@ import (
 	"time"
 )
 
-// Tests follow design 5, 7, 10 and the M7 plan ("Модель → Netwatch",
-// decisions 2, 4; facts 2–5), not the implementation. Time is passed
+// Tests follow design 6, 8, not the implementation. Time is passed
 // explicitly.
 
 var m7T0 = time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
@@ -15,7 +14,7 @@ var m7T0 = time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 // m7CaptureKey has the form of dns.CaptureKey: a service DNS key.
 const m7CaptureKey = "State:/Network/Service/50054742-C5CE-4C74-866E-FBD7AC0A16AE/DNS"
 
-// The debounce of the plan: 500 ms of quiet, at most 3 s from the first event.
+// The debounce: 500 ms of quiet, at most 3 s from the first event.
 const (
 	m7Quiet = 500 * time.Millisecond
 	m7Max   = 3 * time.Second
@@ -32,7 +31,7 @@ func m7NoPanic(t *testing.T) {
 
 // --- parseChangedKey ---------------------------------------------------------------
 
-// Fact 2: n.watch prints `  14:36:45.351 (+0.000) changedKey [1] = <key>`;
+// n.watch prints `  14:36:45.351 (+0.000) changedKey [1] = <key>`;
 // the key is taken exactly, a trailing space kept.
 func TestM7ParseChangedKey(t *testing.T) {
 	defer m7NoPanic(t)
@@ -67,9 +66,9 @@ func TestM7ParseChangedKey(t *testing.T) {
 
 // --- classify ---------------------------------------------------------------------
 
-// M7 plan "Netwatch": global and service keys → Network, the capture key →
+// Global and service keys → Network, the capture key →
 // Capture (only: its own write must not look like a network change);
-// AirPort, the user keys (not watched, design 4.1) and the rest are not
+// AirPort, other keys (not watched) and the rest are not
 // ours.
 func TestM7Classify(t *testing.T) {
 	defer m7NoPanic(t)
@@ -110,7 +109,7 @@ func TestM7Classify(t *testing.T) {
 
 // --- debouncer --------------------------------------------------------------------
 
-// Decision 2: nothing pending — nothing due, nothing to wait for.
+// Nothing pending — nothing due, nothing to wait for.
 func TestM7DebouncerEmpty(t *testing.T) {
 	defer m7NoPanic(t)
 	d := newDebouncer(m7Quiet, m7Max)
@@ -119,7 +118,7 @@ func TestM7DebouncerEmpty(t *testing.T) {
 	}
 }
 
-// Fact 2, decision 2: a burst of keys within 50 ms is one event after 500 ms
+// A burst of keys within 50 ms is one event after 500 ms
 // of quiet, the masks merged by OR; then nothing is pending.
 func TestM7DebouncerBurst(t *testing.T) {
 	defer m7NoPanic(t)
@@ -160,7 +159,7 @@ func TestM7DebouncerBurst(t *testing.T) {
 	}
 }
 
-// Decision 2: a steady stream (every 100 ms, never 500 ms of quiet) is
+// A steady stream (every 100 ms, never 500 ms of quiet) is
 // delivered not later than 3 s after its first event.
 func TestM7DebouncerStream(t *testing.T) {
 	defer m7NoPanic(t)
@@ -192,7 +191,7 @@ func TestM7DebouncerStream(t *testing.T) {
 	}
 }
 
-// Decision 2: the quiet boundary is inclusive: due exactly 500 ms after the
+// The quiet boundary is inclusive: due exactly 500 ms after the
 // last event.
 func TestM7DebouncerQuietBoundary(t *testing.T) {
 	defer m7NoPanic(t)
@@ -208,7 +207,7 @@ func TestM7DebouncerQuietBoundary(t *testing.T) {
 
 // --- slept ------------------------------------------------------------------------
 
-// Fact 5, decision 2: a sleep is wall − mono > 5 s between two ticks.
+// A sleep is wall − mono > 5 s between two ticks.
 func TestM7Slept(t *testing.T) {
 	defer m7NoPanic(t)
 	s := time.Second

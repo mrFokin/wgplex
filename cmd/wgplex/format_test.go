@@ -23,8 +23,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/rpc"
 )
 
-// Tests follow design 11, 12 and the M6 plan ("Вывод wf", decisions 4, 9,
-// 10), not the implementation. Lines are compared by fields
+// Tests follow design 14, 13, not the implementation. Lines are compared by fields
 // (strings.Fields), never by spacing: columns come from text/tabwriter.
 
 var m6Now = time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
@@ -55,7 +54,7 @@ func m6Rows(out string) [][]string {
 	return rows
 }
 
-// m6F is the fields of a line as written in the plan.
+// m6F is the fields of a line as written in the sample output.
 func m6F(line string) []string { return strings.Fields(line) }
 
 // m6HasRow reports whether out has a line with exactly these fields.
@@ -119,7 +118,7 @@ func TestM6FormatBytes(t *testing.T) {
 		{1024, "1.0 KiB"},
 		{1536, "1.5 KiB"},
 		{1 << 20, "1.0 MiB"},
-		{1258291, "1.2 MiB"}, // 1.2 MiB of the plan sample
+		{1258291, "1.2 MiB"}, // 1.2 MiB
 		{3355443, "3.2 MiB"},
 		{1 << 30, "1.0 GiB"},
 		{3 << 29, "1.5 GiB"},
@@ -173,7 +172,7 @@ func TestM6FormatAgo(t *testing.T) {
 
 // --- printStatus --------------------------------------------------------------
 
-// m6Status is the "wgplex status" sample of the M6 plan.
+// m6Status is the "wgplex status" sample.
 func m6Status() rpc.Status {
 	return rpc.Status{
 		Configured:   true,
@@ -260,7 +259,7 @@ func TestM6PrintStatus(t *testing.T) {
 	}
 }
 
-// M6 plan: with several peers, HANDSHAKE is the latest handshake and RX, TX
+// With several peers, HANDSHAKE is the latest handshake and RX, TX
 // are the sums.
 func TestM6PrintStatusSeveralPeers(t *testing.T) {
 	s := rpc.Status{
@@ -301,7 +300,7 @@ func TestM6PrintStatusNoHandshake(t *testing.T) {
 	m6WantRow(t, "fresh", out, "fresh up utun3 never - 0 B 0 B 0")
 }
 
-// M6 plan: without a config, "icon: off" and a hint; no tables.
+// Without a config, "icon: off" and a hint; no tables.
 func TestM6PrintStatusNoConfig(t *testing.T) {
 	out := m6Out(t, "printStatus", func(w io.Writer) {
 		printStatus(w, rpc.Status{Configured: false, Icon: "off"}, m6Now)
@@ -417,7 +416,7 @@ func TestM6PrintExplainDomainVariants(t *testing.T) {
 }
 
 func TestM6PrintExplainIP(t *testing.T) {
-	// The plan sample: a dynamic route of a rule.
+	// A dynamic route of a rule.
 	e := rpc.Explanation{
 		Query: "34.160.111.145", Kind: "ip",
 		Rule: m6Rule(0, []string{"t-tun"}, []string{"de", "fi"}, "de"),
@@ -557,7 +556,7 @@ func m6WireError(t *testing.T, code int, message string, data any) *jrpc.JRPCErr
 	return &e
 }
 
-// design 12, M6 plan: config errors one per line under "config error:",
+// design 13: config errors one per line under "config error:",
 // then the warnings.
 func TestM6PrintErrorConfigInvalid(t *testing.T) {
 	e := m6WireError(t, rpc.CodeConfigInvalid, "config is invalid", rpc.ConfigErrorData{
@@ -600,7 +599,7 @@ func TestM6PrintErrorCodes(t *testing.T) {
 	}
 }
 
-// design 13, M6 plan: HTTP 403 is "permission denied: ...".
+// design 14: HTTP 403 is "permission denied: ...".
 func TestM6PrintErrorForbidden(t *testing.T) {
 	for _, err := range []error{
 		&httpError{Code: http.StatusForbidden, Body: "forbidden"},
@@ -619,7 +618,7 @@ func TestM6PrintErrorForbidden(t *testing.T) {
 	}
 }
 
-// M6 plan: no socket file is "wgplex daemon is not running": the bare dial error
+// No socket file is "wgplex daemon is not running": the bare dial error
 // and the same error through an HTTP client over the unix socket.
 func TestM6PrintErrorNotRunning(t *testing.T) {
 	dir, err := os.MkdirTemp("", "wgp")
@@ -651,7 +650,7 @@ func TestM6PrintErrorNotRunning(t *testing.T) {
 	}
 }
 
-// M6 plan (printError): a socket file nobody listens on (stale after a
+// printError: a socket file nobody listens on (stale after a
 // crash) gives ECONNREFUSED on dial: "wgplex daemon is not running" too.
 func TestM6PrintErrorConnRefused(t *testing.T) {
 	dir, err := os.MkdirTemp("", "wgp")
@@ -689,7 +688,7 @@ func TestM6PrintErrorConnRefused(t *testing.T) {
 	}
 }
 
-// M6 plan (printError, review step 3): "wgplex daemon is not running" is only
+// printError: "wgplex daemon is not running" is only
 // for the socket. ENOENT of something else (wgplex -config /nonexistent reload)
 // prints the error itself.
 func TestM6PrintErrorNotSocketENOENT(t *testing.T) {
@@ -710,8 +709,8 @@ func TestM6PrintErrorNotSocketENOENT(t *testing.T) {
 
 // --- M7: PING, dead -------------------------------------------------------------
 
-// Tests below follow design 11, 12 and the M7 plan ("Статус", "cmd/wf",
-// decision 10): the PING (CHECK since M11) column between HANDSHAKE and RX, state "dead" with
+// Tests below follow design 14, 13: the PING (CHECK since M11) column between
+// HANDSHAKE and RX, state "dead" with
 // its reason at the end of the line, as the error of "error".
 
 // m7WantOff checks the line of an off tunnel: its name, "off", and no data
@@ -731,7 +730,7 @@ func m7WantOff(t *testing.T, out, name string) {
 	}
 }
 
-// m7Status is the "wgplex status" sample of the M7 plan and the other PING
+// m7Status is the "wgplex status" sample and the other PING
 // forms: "-" without check, "<RTT>ms" with Fails 0 and a LastOK, "fail N"
 // with Fails > 0, "?" before the first ping.
 func m7Status() rpc.Status {
@@ -781,7 +780,7 @@ func TestM7PrintStatusPing(t *testing.T) {
 	out := m6Out(t, "printStatus", func(w io.Writer) { printStatus(w, m7Status(), m6Now) })
 
 	m6WantRow(t, "tunnel header", out, "TUNNEL STATE IFACE HANDSHAKE CHECK RX TX ROUTES")
-	// The plan sample.
+	// The sample.
 	m6WantRow(t, "work", out, "work up utun5 12s ago - 1.2 MiB 300.0 KiB 214")
 	m6WantRow(t, "de", out, "de dead utun6 4m 2s ago fail 3 0 B 92 B 3 ping 1.1.1.1: 3 failures")
 	m6WantRow(t, "fi", out, "fi up utun7 8s ago 34ms 5.0 KiB 2.0 KiB 3")
@@ -798,7 +797,7 @@ func TestM7PrintStatusPing(t *testing.T) {
 
 // --- M11: CHECK with a URL ---------------------------------------------------
 
-// design 12, M11 plan ("internal/rpc, cmd/wf"): the column is CHECK, its
+// design 13: the column is CHECK, its
 // values are as of PING (RTT, "fail N", "?", "-") also for an HTTP check;
 // CheckStatus.Addr (here a URL) is not in the column; the reason of a dead
 // HTTP check is at the end of the line.

@@ -12,11 +12,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Tests follow design 5 and 6.2 (sync of the computed table with the kernel:
+// Tests follow design 6 and 7.2 (sync of the computed table with the kernel:
 // only the difference, RTF_PROTO2 marks our routes, RTM_CHANGE for another
 // utun or gateway, delete + add for another kind, foreign routes and endpoint
-// host routes left alone) and the M4 plan ("Факты spike", "Модель",
-// "Решения" 1, 3, 6, 7, 10, 11) with the doc comments of wanted, owned, diff and
+// host routes left alone) with the doc comments of wanted, owned, diff and
 // routeMsg — not the implementation.
 
 // --- helpers ---------------------------------------------------------------
@@ -51,7 +50,7 @@ func m4Add(r KernelRoute) Op    { return Op{Type: OpAdd, Route: r} }
 func m4Change(r KernelRoute) Op { return Op{Type: OpChange, Route: r} }
 func m4Del(r KernelRoute) Op    { return Op{Type: OpDelete, Route: r} }
 
-// m4Norm keeps what the plan prescribes for a kernel route: for reject and
+// m4Norm keeps what the model keeps of a kernel route: for reject and
 // blackhole routes only Prefix and Kind (the interface is lo0, the gateway a
 // loopback address, neither is part of the model), the same for a route of
 // unknown kind (Kind 0: what else owned keeps of it is not specified); the
@@ -180,11 +179,11 @@ func m4Env() Env {
 	}
 }
 
-// design 6.2, plan "Модель" 1, decisions 1, 3, 6: tunnel → route on the
+// design 7.2: tunnel → route on the
 // tunnel's utun; direct → via the physical gateway of its family; reject →
 // RTF_REJECT; endpoint host routes go to keep; a direct route without a
 // gateway of its family is skipped; a tunnel without a utun is reject
-// (decision 10).
+// .
 func TestM4Wanted(t *testing.T) {
 	const noGW = "no physical gateway"
 	direct4 := tRuleRoute("9.9.9.9/32", SourceRuleCIDR, TargetDirect, "", 1)
@@ -226,7 +225,7 @@ func TestM4Wanted(t *testing.T) {
 				m4Rej("2001:db8:7::/48"),
 				m4Iface("fd00:20::/48", 9),
 			}},
-		// decision 6: endpoint routes are AddHost's; they go to keep only,
+		// Endpoint routes are AddHost's; they go to keep only,
 		// with or without a gateway.
 		{name: "endpoints go to keep", env: m4Env(),
 			tbl: Table{
@@ -239,7 +238,7 @@ func TestM4Wanted(t *testing.T) {
 		{name: "endpoints without any gateway: keep, not skipped", env: Env{},
 			tbl:  Table{tEndpoint("203.0.113.1/32"), tEndpoint("2001:db8::1/128")},
 			keep: []string{"203.0.113.1/32", "2001:db8::1/128"}},
-		// decision 3: no gateway of its family → skipped; the other family
+		// No gateway of its family → skipped; the other family
 		// and other targets are unaffected.
 		{name: "no IPv4 gateway",
 			env: Env{Ifaces: map[string]int{"nl": 7}, GW6: Gateway{Addr: tA("fe80::1"), Index: 4}},
@@ -266,7 +265,7 @@ func TestM4Wanted(t *testing.T) {
 			},
 			want: []KernelRoute{m4Iface("192.0.2.10/32", 7), m4Rej("192.0.2.20/32")},
 			skip: []skip{{direct4, noGW}, {direct6, noGW}}},
-		// design 6.2, decision 10: a tunnel without an entry in Ifaces (on,
+		// design 7.2: a tunnel without an entry in Ifaces (on,
 		// but its utun is being recreated) gets reject, not a skip: the
 		// traffic must not leave directly.
 		{name: "tunnel without utun: reject", env: m4Env(),
@@ -282,7 +281,7 @@ func TestM4Wanted(t *testing.T) {
 				m4Rej("198.18.0.0/15"),
 				m4Rej("fd00:30::/48"),
 			}},
-		// design 6.2, decision 10, boundary: an entry with a non-positive
+		// design 7.2, boundary: an entry with a non-positive
 		// index means no utun, the same as a missing entry.
 		{name: "tunnel with index 0: reject",
 			env: Env{Ifaces: map[string]int{"nl": 7, "de": 0}, GW4: Gateway{Addr: tA("192.168.20.1"), Index: 4}},
@@ -364,7 +363,7 @@ func TestM4Wanted(t *testing.T) {
 // --- owned -------------------------------------------------------------------
 
 // m4Entry builds a dump entry for r with routeMsg and sets rtm_index as the
-// kernel reports it in a dump (fact 1: the utun for a route on an interface;
+// kernel reports it in a dump (the utun for a route on an interface;
 // the gateway's interface; lo0 for reject).
 func m4Entry(r KernelRoute) *route.RouteMessage {
 	m := routeMsg(unix.RTM_ADD, r, 1)
@@ -389,7 +388,7 @@ func m4HostEntry(dst string, gw Gateway) *route.RouteMessage {
 	return m
 }
 
-// design 5, 6.2, plan "Модель" 2: owned reads our routes (RTF_PROTO2) back
+// design 6, 7.2: owned reads our routes (RTF_PROTO2) back
 // from a dump — every kind, host and network, IPv4 and IPv6 — and leaves out
 // foreign routes, entries without RTAX_DST and messages of other types.
 func TestM4Owned(t *testing.T) {
@@ -480,7 +479,7 @@ func TestM4OwnedEach(t *testing.T) {
 	}
 }
 
-// design 6.2, fact 1: in a dump a reject or blackhole route carries lo0's
+// design 7.2: in a dump a reject or blackhole route carries lo0's
 // index; owned still reports its kind (only Prefix and Kind are compared).
 func TestM4OwnedLo0(t *testing.T) {
 	for _, r := range []KernelRoute{
@@ -550,7 +549,7 @@ func TestM4OwnedNothing(t *testing.T) {
 
 // --- diff --------------------------------------------------------------------
 
-// design 6.2, plan "Модель" 3, decisions 6, 7: the ops that turn have into
+// design 7.2: the ops that turn have into
 // want — RTM_CHANGE for another utun or gateway of the same kind, delete +
 // add for another kind, adds before deletes, keep left alone.
 func TestM4Diff(t *testing.T) {
@@ -591,12 +590,12 @@ func TestM4Diff(t *testing.T) {
 				m4Del(m4Iface("10.20.0.0/16", 9)),
 				m4Del(m4Rej("198.51.100.0/24")),
 			}},
-		// decision 7: utun → utun is an RTM_CHANGE (failover nl → de).
+		// Utun → utun is an RTM_CHANGE (failover nl → de).
 		{name: "change utun",
 			want: []KernelRoute{m4Iface("198.51.100.0/24", 8)},
 			have: []KernelRoute{m4Iface("198.51.100.0/24", 7)},
 			ops:  []Op{m4Change(m4Iface("198.51.100.0/24", 8))}},
-		// decision 7: gateway → gateway of a network is an RTM_CHANGE
+		// Gateway → gateway of a network is an RTM_CHANGE
 		// (network switch).
 		{name: "change gateway address of a network",
 			want: []KernelRoute{m4GW("9.9.0.0/16", "10.0.1.1", 4)},
@@ -606,7 +605,7 @@ func TestM4Diff(t *testing.T) {
 			want: []KernelRoute{m4GW("9.9.0.0/16", "192.168.20.1", 5)},
 			have: []KernelRoute{m4GW("9.9.0.0/16", "192.168.20.1", 4)},
 			ops:  []Op{m4Change(m4GW("9.9.0.0/16", "192.168.20.1", 5))}},
-		// design 6.2, decision 11: a host route (/32, /128) never gets an
+		// design 7.2: a host route (/32, /128) never gets an
 		// RTM_CHANGE — another gateway, interface or utun is delete + add.
 		{name: "host: change gateway address → delete + add",
 			want: []KernelRoute{m4GW("9.9.9.9/32", "10.0.1.1", 4)},
@@ -632,7 +631,7 @@ func TestM4Diff(t *testing.T) {
 		{name: "host: equal",
 			want: []KernelRoute{m4GW("9.9.9.9/32", "192.168.20.1", 4), m4Iface("192.0.2.10/32", 7)},
 			have: []KernelRoute{m4Iface("192.0.2.10/32", 7), m4GW("9.9.9.9/32", "192.168.20.1", 4)}},
-		// decision 11: a host delete + add goes to the group of kind
+		// A host delete + add goes to the group of kind
 		// changes, in prefix order with them, before the RTM_CHANGEs.
 		{name: "host delete + add in the kind change group",
 			want: []KernelRoute{
@@ -656,7 +655,7 @@ func TestM4Diff(t *testing.T) {
 				m4Add(m4GW("10.10.10.10/32", "192.168.20.1", 4)),
 				m4Change(m4Iface("10.0.0.0/16", 8)),
 			}},
-		// decision 7: another kind is delete of the old and add of the new,
+		// Another kind is delete of the old and add of the new,
 		// adjacent.
 		{name: "kind change iface → gateway",
 			want: []KernelRoute{m4GW("9.9.9.0/24", "192.168.20.1", 4)},
@@ -670,7 +669,7 @@ func TestM4Diff(t *testing.T) {
 			want: []KernelRoute{m4Iface("9.9.9.0/24", 7)},
 			have: []KernelRoute{m4Rej("9.9.9.0/24")},
 			ops:  []Op{m4Del(m4Rej("9.9.9.0/24")), m4Add(m4Iface("9.9.9.0/24", 7))}},
-		// decision 6: our endpoint host routes (via a gateway or blackhole)
+		// Our endpoint host routes (via a gateway or blackhole)
 		// are in keep: neither deleted nor changed.
 		{name: "keep not deleted",
 			want: []KernelRoute{m4Iface("10.20.0.0/16", 9)},
@@ -683,7 +682,7 @@ func TestM4Diff(t *testing.T) {
 		// A keep entry absent from the kernel is not added either.
 		{name: "keep not in have: nothing",
 			keep: []string{"203.0.113.1/32"}},
-		// decision 6 and the doc of diff: a route of want whose prefix is in
+		// The doc of diff: a route of want whose prefix is in
 		// keep is ignored — neither added nor changing the kept route.
 		{name: "prefix in want and keep, kept route in have: nothing",
 			want: []KernelRoute{m4Iface("203.0.113.1/32", 7), m4Iface("10.20.0.0/16", 9)},
@@ -751,7 +750,7 @@ func TestM4Diff(t *testing.T) {
 				m4Add(m4Iface("fd00:20::/48", 9)),
 				m4Del(m4GW("2001:db8:9::/48", "fe80::1", 4)),
 			}},
-		// plan "Модель" 3: kind changes, changes, adds, deletes; prefix order
+		// Kind changes, changes, adds, deletes; prefix order
 		// within each group. Prefixes are chosen so that the group order
 		// differs from the overall prefix order; have is not sorted.
 		{name: "group order and prefix order",
@@ -790,7 +789,7 @@ func TestM4Diff(t *testing.T) {
 				m4Del(m4Iface("fd00:1::/48", 7)),
 			}},
 		// Replacing a /16 by /24s: the adds come before the delete, so the
-		// traffic never leaves the tunnel (plan "Модель" 3).
+		// traffic never leaves the tunnel.
 		{name: "split a prefix: adds before delete",
 			want: []KernelRoute{m4Iface("10.20.1.0/24", 9), m4Iface("10.20.2.0/24", 9)},
 			have: []KernelRoute{m4Iface("10.20.0.0/16", 9)},
@@ -824,7 +823,7 @@ func TestM4Diff(t *testing.T) {
 
 // --- routeMsg ----------------------------------------------------------------
 
-// Fact 1, 3, 5, decision 1 and the doc of routeMsg: flags, destination,
+// The doc of routeMsg: flags, destination,
 // netmask and gateway of the RTM_ADD / RTM_CHANGE message for each kind.
 func TestM4RouteMsg(t *testing.T) {
 	const always = unix.RTF_UP | unix.RTF_STATIC | unix.RTF_PROTO2
@@ -878,8 +877,8 @@ func TestM4RouteMsg(t *testing.T) {
 					clear = unix.RTF_REJECT | unix.RTF_BLACKHOLE
 				case KindReject:
 					want |= unix.RTF_REJECT
-					// Fact 3: the gateway is lo0's address, without RTF_GATEWAY;
-					// decision 1: reject, not blackhole.
+					// The gateway is lo0's address, without RTF_GATEWAY;
+					// Reject, not blackhole.
 					clear = unix.RTF_GATEWAY | unix.RTF_BLACKHOLE
 				}
 				if !host {
@@ -903,7 +902,7 @@ func TestM4RouteMsg(t *testing.T) {
 				}
 
 				// RTAX_NETMASK: absent for a host route, the prefix mask
-				// otherwise (fact 5: RTM_CHANGE always carries it).
+				// otherwise (RTM_CHANGE always carries it).
 				hasMask := len(got.Addrs) > unix.RTAX_NETMASK && got.Addrs[unix.RTAX_NETMASK] != nil
 				switch {
 				case host && hasMask:
@@ -923,7 +922,7 @@ func TestM4RouteMsg(t *testing.T) {
 				gwAddr := got.Addrs[unix.RTAX_GATEWAY]
 				switch c.r.Kind {
 				case KindIface:
-					// Fact 1: sockaddr_dl with the utun's index.
+					// sockaddr_dl with the utun's index.
 					la, ok := gwAddr.(*route.LinkAddr)
 					if !ok {
 						t.Fatalf("RTAX_GATEWAY is %T, want *route.LinkAddr", gwAddr)
@@ -953,7 +952,7 @@ func TestM4RouteMsg(t *testing.T) {
 						}
 					}
 				case KindReject:
-					// Fact 3: to lo0 — the loopback address of the family.
+					// To lo0 — the loopback address of the family.
 					loop := tA("127.0.0.1")
 					if c.r.Prefix.Addr().Is6() {
 						loop = tA("::1")
@@ -1000,8 +999,8 @@ func m4KEntry(p string, flags, index int, gw route.Addr) *route.RouteMessage {
 	}
 }
 
-// Flags of our routes as the kernel holds them: fact 1 (RTF_PRCLONING set by
-// the kernel on a route to an interface), fact 3 (reject to lo0).
+// Flags of our routes as the kernel holds them: RTF_PRCLONING is set by
+// the kernel on a route to an interface (reject to lo0).
 const (
 	m4KIface   = unix.RTF_UP | unix.RTF_STATIC | unix.RTF_PRCLONING | unix.RTF_PROTO2
 	m4KGateway = unix.RTF_UP | unix.RTF_STATIC | unix.RTF_GATEWAY | unix.RTF_PROTO2
@@ -1023,7 +1022,7 @@ func m4KScoped(a string, index int) route.Addr {
 	return &route.Inet6Addr{IP: ip}
 }
 
-// design 6.2 "only the difference", plan "Модель", decisions 1, 6, 10, 11 and
+// design 7.2 "only the difference" and
 // the ruling of step 3: a table applied once and read back from a dump as the
 // kernel reports it gives no ops on the next Sync. The dump entries are made
 // by hand with what the kernel adds (RTF_PRCLONING, LinkAddr with a name,
@@ -1042,7 +1041,7 @@ func TestM4IdempotentKernelDump(t *testing.T) {
 		tAllowed("10.20.0.0/16", "work"),
 		tDynVia("192.0.2.10/32", "nl", 0),
 		tRuleRoute("192.0.2.20/32", SourceDynamic, TargetReject, "", 2),
-		tCIDRVia("198.18.0.0/15", "de", 0), // decision 10: no utun → reject
+		tCIDRVia("198.18.0.0/15", "de", 0), // no utun → reject
 		tRuleRoute("198.51.100.0/24", SourceRuleCIDR, TargetReject, "", 2),
 		tEndpoint("203.0.113.1/32"),
 		tRuleRoute("2001:db8:5::/48", SourceRuleCIDR, TargetDirect, "", 1),
@@ -1064,7 +1063,7 @@ func TestM4IdempotentKernelDump(t *testing.T) {
 		m4KEntry("2001:db8:6::9/128", m4KGateway, en0, m4KScoped("fe80::1", en0)),
 		m4KEntry("2001:db8:7::/48", m4KReject, m4Lo0, m4KAddr(tA("::1"))),
 		m4KEntry("fd00:20::/48", m4KIface, utun6, m4KLink(utun6, "utun6")),
-		// A clone of 9.9.9.0/24 inherits RTF_PROTO2 (fact 4): not ours to
+		// A clone of 9.9.9.0/24 inherits RTF_PROTO2: not ours to
 		// manage, no op.
 		m4KEntry("9.9.9.10/32", unix.RTF_UP|unix.RTF_PROTO2|unix.RTF_WASCLONED, utun5, m4KLink(utun5, "utun5")),
 		// A foreign route.
@@ -1181,7 +1180,7 @@ func TestM4RouteMsgIndex(t *testing.T) {
 // --- M5: scoped host routes to the DNS servers of tunnels --------------------
 
 // m5Scoped is a scoped host route of ours to a DNS server of a tunnel
-// (AddScoped, M5 plan "Модель"): RTF_HOST|RTF_IFSCOPE|RTF_PROTO2, gateway
+// (AddScoped): RTF_HOST|RTF_IFSCOPE|RTF_PROTO2, gateway
 // LinkAddr{Index} and rtm_index of the utun, as a dump gives it.
 func m5Scoped(dst string, index int, name string) *route.RouteMessage {
 	a := tA(dst)
@@ -1189,7 +1188,7 @@ func m5Scoped(dst string, index int, name string) *route.RouteMessage {
 		unix.RTF_UP|unix.RTF_STATIC|unix.RTF_IFSCOPE|unix.RTF_PROTO2, index, m4KLink(index, name))
 }
 
-// design 6.2 (scoped routes are left alone by sync), 7, M5 fact 4, decision 3:
+// design 7.2 (scoped routes are left alone by sync), 8:
 // owned skips entries with RTF_IFSCOPE, so Sync does not see our scoped host
 // routes; the unscoped routes of ours in the same dump are still read.
 func TestM5OwnedSkipsScoped(t *testing.T) {
@@ -1251,7 +1250,7 @@ func TestM5OwnedSkipsScoped(t *testing.T) {
 	})
 }
 
-// design 6.2, 7, M5 facts 3, 4: a dump with our scoped host routes gives no
+// design 7.2, 8: a dump with our scoped host routes gives no
 // op that deletes or changes them; a dynamic /32 to the same address
 // (another tunnel, the same utun or direct) is an unscoped route of its own
 // and is added.

@@ -10,8 +10,8 @@ import (
 	"github.com/miekg/dns"
 )
 
-// Tests follow design 6.3 (NODATA), 7 (IPv6 filter, HTTPS/SVCB hints) and the
-// M5 plan ("Модель" query steps 4, 5; decision 8), not the implementation.
+// Tests follow design 7.3 (NODATA), 8 (IPv6 filter, HTTPS/SVCB hints; query
+// steps 4, 5), not the implementation.
 
 // --- helpers ---------------------------------------------------------------
 
@@ -102,7 +102,7 @@ func m5Filter(t *testing.T, m *dns.Msg, c Choice) {
 
 // --- Filter ------------------------------------------------------------------
 
-// design 7 "IPv6", M5 "Модель" query step 4: with DropAAAA the AAAA records
+// design 8 "IPv6", M5 "Модель" query step 4: with DropAAAA the AAAA records
 // and their RRSIGs go; A, CNAME and other RRSIGs stay.
 func TestM5FilterDropAAAA(t *testing.T) {
 	answer := func() []dns.RR {
@@ -152,7 +152,7 @@ func TestM5FilterDropAAAA(t *testing.T) {
 	})
 }
 
-// M5 decision 8: ipv4hint and ipv6hint are removed from HTTPS and SVCB for a
+// ipv4hint and ipv6hint are removed from HTTPS and SVCB for a
 // rule domain only; alpn stays.
 func TestM5FilterHints(t *testing.T) {
 	cases := []struct {
@@ -256,7 +256,7 @@ func TestM5Addrs(t *testing.T) {
 
 // --- NoData ------------------------------------------------------------------
 
-// design 6.3 (fallback: block → NODATA), M5 "Модель" query step 2: NOERROR,
+// design 7.3 (fallback: block → NODATA), M5 "Модель" query step 2: NOERROR,
 // the id and question of the request, empty answer, a SOA in authority with
 // the TTL noDataTTL (30 s).
 func TestM5NoData(t *testing.T) {

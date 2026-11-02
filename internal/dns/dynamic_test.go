@@ -11,11 +11,11 @@ import (
 	"github.com/mrFokin/wgplex/internal/router"
 )
 
-// Tests follow design 6.2 (one address of several rules), 6.4, 7 (deadline
+// Tests follow design 7.2 (one address of several rules), 7.4, 8 (deadline
 // per name–address pair: TTL + 1 h, extended by every answer; a shared
 // address lives until the latest deadline; at most 4096 pairs, the earliest
-// evicted; the rule found by name at every recalculation) and the M5 plan
-// ("Модель", decisions 1, 4), not the implementation.
+// evicted; the rule found by name at every recalculation), not the
+// implementation.
 
 var m5T0 = time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
 
@@ -92,10 +92,10 @@ func m5SameDyn(t *testing.T, what string, got, want []router.Dynamic) {
 
 func TestM5DynamicsConsts(t *testing.T) {
 	if dynamicKeep != time.Hour {
-		t.Errorf("dynamicKeep = %v, want 1h (design 7)", dynamicKeep)
+		t.Errorf("dynamicKeep = %v, want 1h (design 8)", dynamicKeep)
 	}
 	if dynamicLimit != 4096 {
-		t.Errorf("dynamicLimit = %d, want 4096 (design 7)", dynamicLimit)
+		t.Errorf("dynamicLimit = %d, want 4096 (design 8)", dynamicLimit)
 	}
 }
 
@@ -129,7 +129,7 @@ func TestM5DynamicsAdd(t *testing.T) {
 
 // --- deadlines and Expire ----------------------------------------------------
 
-// design 7, decision 4: deadline = max(old, now + TTL + 1 h); Expire drops
+// design 8: deadline = max(old, now + TTL + 1 h); Expire drops
 // pairs with deadline <= now.
 func TestM5DynamicsDeadline(t *testing.T) {
 	cfg, rules := m5DynCfg(), m5DynRules(false)
@@ -207,7 +207,7 @@ func TestM5DynamicsDeadline(t *testing.T) {
 	})
 }
 
-// design 7, decision 4: an address shared by several names lives until the
+// design 8: an address shared by several names lives until the
 // latest of their deadlines.
 func TestM5DynamicsSharedAddr(t *testing.T) {
 	cfg, rules := m5DynCfg(), m5DynRules(false)
@@ -228,7 +228,7 @@ func TestM5DynamicsSharedAddr(t *testing.T) {
 
 // --- the limit ---------------------------------------------------------------
 
-// design 7, decision 4: at most dynamicLimit pairs; a new pair over the limit
+// design 8: at most dynamicLimit pairs; a new pair over the limit
 // evicts the pair with the earliest deadline.
 func TestM5DynamicsLimit(t *testing.T) {
 	cfg, rules := m5DynCfg(), m5DynRules(false)
@@ -298,8 +298,8 @@ func TestM5DynamicsLimit(t *testing.T) {
 
 // --- List --------------------------------------------------------------------
 
-// design 6.2 (shared address: one entry per rule), 6.4, 7 (the rule by name
-// at every recalculation), decision 1: sorted by address then rule, one entry
+// design 7.2 (shared address: one entry per rule), 7.4, 8 (the rule by name
+// at every recalculation): sorted by address then rule, one entry
 // per (address, rule), names without a rule left out.
 func TestM5DynamicsList(t *testing.T) {
 	cfg := m5DynCfg()
@@ -326,7 +326,7 @@ func TestM5DynamicsList(t *testing.T) {
 			m5Dyn("2001:db8::1", 3),
 		})
 	})
-	// Decision 1: rule 1 in fallback: default — its name goes to rule 2.
+	// Rule 1 in fallback: default — its name goes to rule 2.
 	t.Run("home down: the name moves to the lower rule", func(t *testing.T) {
 		m5SameDyn(t, "List", m5List(t, &d, cfg, m5DynRules(true)), []router.Dynamic{
 			m5Dyn("10.9.9.9", 3),
@@ -347,7 +347,7 @@ func TestM5DynamicsList(t *testing.T) {
 		}
 	})
 	// A config without the rule (config.apply): the name has no rule, its
-	// address is left out; the pair itself is not dropped (design 7).
+	// address is left out; the pair itself is not dropped (design 8).
 	t.Run("config without the youtube rule", func(t *testing.T) {
 		cfg2 := m5DynCfg()
 		cfg2.Rules = cfg2.Rules[1:3] // def, org

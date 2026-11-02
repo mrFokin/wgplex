@@ -19,8 +19,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/rpc"
 )
 
-// The print functions are pure: w gets the text (see "Вывод wf" of the M6
-// plan), now is for "12s ago". Rule numbers are printed from 1.
+// The print functions are pure: w gets the text now is for "12s ago". Rule numbers are printed from 1.
 
 // newTable returns a tabwriter for the column output of the CLI.
 func newTable(w io.Writer) *tabwriter.Writer {

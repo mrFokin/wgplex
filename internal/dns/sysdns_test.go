@@ -25,11 +25,10 @@ func m5IsUUID(s string) bool {
 	return true
 }
 
-// Tests follow design 7 (the capture key, the original system DNS: manual,
-// else DHCP) and the M5 plan ("Модель": capture, the original servers;
-// appendix: scutil samples, verbatim), not the implementation.
+// Tests follow design 8 (the capture key, the original system DNS: manual,
+// else DHCP; scutil samples, verbatim), not the implementation.
 
-// Samples from the appendix of the M5 plan, verbatim.
+// scutil samples, verbatim.
 const (
 	m5ScutilGlobalIPv4 = `<dictionary> {
   PrimaryInterface : en0
@@ -81,8 +80,8 @@ const (
   }
 }
 `
-	// Manual DNS (not on the user's machine; "the same form as State:…/DNS"
-	// per the appendix): two servers of both families and SearchDomains.
+	// Manual DNS (not on the user's machine; "the same form as State:…/DNS"):
+	// two servers of both families and SearchDomains.
 	m5ScutilSetupDNS = `<dictionary> {
   SearchDomains : <array> {
     0 : corp.example
@@ -124,7 +123,7 @@ func m5SameMap(t *testing.T, got, want map[string][]string) {
 
 // --- parseScutil -------------------------------------------------------------
 
-// M5 appendix: scalars as one-element slices, arrays in index order, nested
+// Scalars as one-element slices, arrays in index order, nested
 // dictionaries skipped (with arrays of them), the value of a scalar is all
 // after the first " : ".
 func TestM5ParseScutil(t *testing.T) {
@@ -150,7 +149,7 @@ func TestM5ParseScutil(t *testing.T) {
 			"__ORDER__":            {"0"},
 		}, 5},
 		// The value of NetworkSignatureHash ("<data> 0x…") is not checked:
-		// the plan does not say how <data> is read.
+		// how <data> is read is not specified.
 		{"State:/Network/Service/<id>/IPv4", m5ScutilServiceIPv4, map[string][]string{
 			"ARPResolvedHardwareAddress": {"d4:9c:53:27:85:03"},
 			"ARPResolvedIPAddress":       {"192.168.20.1"},
@@ -205,7 +204,7 @@ func TestM5ParseScutil(t *testing.T) {
 
 // --- systemServers -----------------------------------------------------------
 
-// design 7 "Остальное": DNS of the primary service, manual (Setup) first,
+// design 8 "Остальное": DNS of the primary service, manual (Setup) first,
 // else DHCP (State); invalid addresses are skipped.
 func TestM5SystemServers(t *testing.T) {
 	setup := m5Parse(t, m5ScutilSetupDNS)
@@ -245,7 +244,7 @@ func TestM5SystemServers(t *testing.T) {
 
 // --- captureScript -----------------------------------------------------------
 
-// design 7, M5 "Модель" (capture): the key State:/Network/Service/<constant
+// design 8, M5 "Модель" (capture): the key State:/Network/Service/<constant
 // UUID>/DNS; the script is d.init, d.add of ServerAddresses 127.0.0.1 and
 // SupplementalMatchDomains "" (arrays), set of the key.
 func TestM5CaptureScript(t *testing.T) {
