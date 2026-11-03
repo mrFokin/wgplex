@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -37,8 +38,8 @@ const (
 var errStopping = errors.New("wgplex daemon is stopping")
 
 // daemon is the state of the wgplex daemon and the system calls on it (manual check
-// only). opMu orders the mutating calls (apply, SetEnabled, DisableAll,
-// expire, the health tick, netwatch events, shutdown); mu guards the state
+// only). opMu orders the mutating calls (apply, Enable, Disable, DisableAll,
+// Pause, Resume, expire, the health tick, netwatch events, shutdown); mu guards the state
 // and Sync, which the resolver calls too (Server.Sync). Lock order: opMu → mu → Server.mu. Endpoints are
 // resolved under opMu without mu, so DNS answers do not wait for them. mu is
 // always released by defer, so a panic under it does not hang the daemon.
@@ -55,15 +56,19 @@ type daemon struct {
 	opMu     sync.Mutex
 	closed   bool // under opMu: shutdown has begun, mutating calls fail
 	captured bool // under opMu: the DNS capture succeeded and is not released
-	// toggles (under opMu) are the explicit tunnel toggles of state.json
-	// (design 11), written to statePath.
+	// toggles is state.json (design 11): the explicit tunnel toggles, the
+	// pause and the block snapshot, written to statePath. Changed under opMu
+	// and mu, read under either: snapshot reads it under mu alone.
 	toggles state.State
 	// stateDirty (under opMu): the last write of toggles failed, so the
 	// next toggle writes even when unchanged, and the warning stateWarning
 	// stays in warnings (across replan too) until a write succeeds.
 	stateDirty   bool
 	stateWarning string
-	mu           sync.Mutex
+	// gid (under opMu) is the group of state.json: control_group of the
+	// applied config, admin before one (design 15); < 0: not set.
+	gid int
+	mu  sync.Mutex
 
 	ctx       context.Context // done at stop: endpoint resolving gives up
 	srv       *dns.Server
@@ -73,9 +78,14 @@ type daemon struct {
 	logFile   *rotatingFile // nil: not logging to a file; its group follows control_group
 
 	// Under mu.
-	cfg       *config.Config // nil: no config applied yet
-	warnings  []string       // of cfg
-	cfgErrs   []string       // of the last failed apply; nil after a successful one
+	cfg *config.Config // nil: no config applied yet
+	// blockCfg is the synthetic config of the block snapshot (blockConfig),
+	// set by a start with an invalid config and used by effectiveCfg while
+	// cfg is nil; the first successful apply drops it (design 9.1).
+	blockCfg  *config.Config
+	dnsErr    string   // the last DNS capture failed: why; "": fine (status.get icon)
+	warnings  []string // of cfg
+	cfgErrs   []string // of the last failed apply; nil after a successful one
 	tunnels   map[string]*runTunnel
 	hosts     map[netip.Addr]*hostRoute
 	gws       map[bool]router.Gateway // by ipv6, cached once looked up without error
@@ -124,9 +134,11 @@ var _ rpc.Daemon = (*daemon)(nil)
 
 // newDaemon returns a daemon with no config; srv is the resolver, its Sync
 // is set here. dir is the config directory, statePath the state.json the
-// toggles were loaded from, logFile the log (nil: none).
+// toggles were loaded from, logFile the log (nil: none). state.json gets no
+// group until the caller sets gid or a config is applied.
 func newDaemon(ctx context.Context, srv *dns.Server, log *slog.Logger, dir, statePath string, toggles state.State, logFile *rotatingFile) *daemon {
 	d := &daemon{
+		gid:       -1,
 		ctx:       ctx,
 		srv:       srv,
 		log:       log,
@@ -190,24 +202,61 @@ func (d *daemon) Reload() (rpc.ApplyResult, error) {
 }
 
 // startup applies the config at start, before the RPC (design 4.1, 10.2).
-// With an invalid config the daemon runs without tunnels: the table is synced
-// empty, so the routes of the previous run go away, and the DNS capture key
-// of the previous run is released. Nothing is removed beforehand: a valid
-// config replaces the leftovers by its own sync.
+// With an invalid config the daemon runs without tunnels on the block
+// snapshot of state.json (design 9.1): the table holds its reject routes
+// (empty without a snapshot, so the routes of the previous run go away) and
+// the system DNS is captured when the snapshot has domains, released
+// otherwise. Nothing is removed beforehand: a valid config replaces the
+// leftovers by its own sync.
 func (d *daemon) startup() {
 	d.opMu.Lock()
 	defer d.opMu.Unlock()
 	if _, err := d.apply(); err == nil {
 		return
 	}
-	d.locked(d.sync)
-	if err := releaseDNS(d.log); err != nil {
-		// As if captured: the next apply without domains retries.
-		d.addWarning("DNS release failed: " + err.Error())
-		d.captured = true
-	} else {
-		d.captured = false
+	var needsDNS, hasSystem bool
+	d.locked(func() {
+		d.blockCfg, _ = blockConfig(d.toggles.Block)
+		if d.blockCfg != nil {
+			d.log.Info("config not applied: block snapshot in force",
+				"cidrs", len(d.toggles.Block.CIDRs), "domains", len(d.toggles.Block.Domains))
+			d.reselect(nil) // syncs
+		} else {
+			d.sync()
+		}
+		needsDNS, hasSystem = d.blockCfg.NeedsDNS(), len(d.system) > 0
+	})
+	switch {
+	case !needsDNS:
+		if err := releaseDNS(d.log); err != nil {
+			// As if captured: the next apply without domains retries.
+			d.addWarning("DNS release failed: " + err.Error())
+			d.captured = true
+		} else {
+			d.captured = false
+			d.locked(func() { d.dnsErr = "" })
+		}
+	case !hasSystem:
+		d.log.Warn("no system DNS servers: DNS not captured")
+	default:
+		d.capture()
 	}
+}
+
+// capture captures the system DNS (captureDNS) and records the outcome:
+// captured, or the error for status.get (icon warn, a warning). Returns the
+// warning of a failure ("": captured). opMu is held.
+func (d *daemon) capture() string {
+	if err := captureDNS(d.log); err != nil {
+		d.log.Error("dns capture", "err", err)
+		w := "DNS capture failed: " + err.Error()
+		d.locked(func() { d.dnsErr = err.Error() })
+		d.addWarning(w) // shown by status.get too
+		return w
+	}
+	d.locked(func() { d.dnsErr = "" })
+	d.captured = true
+	return ""
 }
 
 // apply reads the config directory (config.LoadDir) and applies it. An
@@ -258,10 +307,16 @@ func (d *daemon) apply() (rpc.ApplyResult, error) {
 	planned := d.toStart(next)
 	endpoints, errs := d.resolve(planned)
 	// The config is applied (nothing below fails): the toggles of tunnels
-	// gone from it are dropped (design 11). Before replan: they do not
-	// change its plan, and a toggle write still failing keeps its warning in
-	// the new warnings.
-	if d.toggles.Prune(tunnelNames(next)) || d.stateDirty {
+	// gone from it are dropped (design 11), the block snapshot follows it
+	// (design 9.1) and state.json and the log get its control_group (design
+	// 15). Before replan: they do not change its plan, and a write of
+	// state.json still failing keeps its warning in the new warnings.
+	var pruned, blockChanged bool
+	d.locked(func() {
+		pruned = d.toggles.Prune(tunnelNames(next))
+		blockChanged = d.setBlock(next)
+	})
+	if d.setGroup(next.ControlGroup) || pruned || blockChanged || d.stateDirty {
 		d.saveToggles()
 	}
 	warnings = d.withStateWarning(warnings)
@@ -270,7 +325,6 @@ func (d *daemon) apply() (rpc.ApplyResult, error) {
 		endpoints, errs = d.resolve(start)
 	}
 	res := rpc.ApplyResult{Warnings: slices.Clone(warnings)} // d.warnings is shared with State
-	d.setLogGroup(next.ControlGroup)
 	started := map[string]bool{}
 	for i, t := range start {
 		started[t.Name] = true
@@ -304,6 +358,7 @@ func (d *daemon) apply() (rpc.ApplyResult, error) {
 	// on every reload.
 	switch {
 	case !next.NeedsDNS():
+		d.locked(func() { d.dnsErr = "" }) // nothing to capture
 		if !d.captured {
 			present, err := dns.Captured()
 			if err == nil && !present {
@@ -322,18 +377,14 @@ func (d *daemon) apply() (rpc.ApplyResult, error) {
 			d.addWarning(w)
 		} else {
 			d.captured = false
+			d.locked(func() { d.dnsErr = "" })
 		}
 	case !hasSystem:
 		d.log.Warn("no system DNS servers: DNS not captured")
 	default:
 		// Also puts the key back if configd lost it (the 30 s key check watches for that, design 8).
-		if err := captureDNS(d.log); err != nil {
-			d.log.Error("dns capture", "err", err)
-			w := "DNS capture failed: " + err.Error()
+		if w := d.capture(); w != "" {
 			res.Warnings = append(res.Warnings, w)
-			d.addWarning(w) // shown by status.get too
-		} else {
-			d.captured = true
 		}
 	}
 	return res, nil
@@ -376,10 +427,12 @@ func (d *daemon) setToggle(name string, on bool) string {
 	if v, ok := d.toggles.Tunnels[name]; ok && v == on && !d.stateDirty {
 		return ""
 	}
-	if d.toggles.Tunnels == nil {
-		d.toggles.Tunnels = map[string]bool{}
-	}
-	d.toggles.Tunnels[name] = on
+	d.locked(func() {
+		if d.toggles.Tunnels == nil {
+			d.toggles.Tunnels = map[string]bool{}
+		}
+		d.toggles.Tunnels[name] = on
+	})
 	return d.saveToggles()
 }
 
@@ -387,7 +440,7 @@ func (d *daemon) setToggle(name string, on bool) string {
 // warning in the log and in status.get, returned ("": saved), and sets
 // stateDirty; a successful write clears it and its warning. opMu is held.
 func (d *daemon) saveToggles() string {
-	err := d.toggles.Save(d.statePath, -1)
+	err := d.toggles.Save(d.statePath, d.gid)
 	if err == nil {
 		if d.stateDirty {
 			d.removeWarning(d.stateWarning)
@@ -405,19 +458,75 @@ func (d *daemon) saveToggles() string {
 	return w
 }
 
-// setLogGroup gives the log file the group control_group of the applied
-// config (design 15); a failure is a warning in the log. opMu is held.
-func (d *daemon) setLogGroup(group string) {
-	if d.logFile == nil {
-		return
-	}
+// setGroup gives the log file the group control_group of the applied config
+// and makes it the group of state.json (design 15); a failure to find the
+// group or to change the log is a warning in the log, the group of
+// state.json then stays. Reports whether the group of state.json changed:
+// the caller writes it again. opMu is held.
+func (d *daemon) setGroup(group string) bool {
 	gid, err := groupID(group)
-	if err == nil {
-		err = d.logFile.SetGroup(gid)
-	}
 	if err != nil {
-		d.log.Warn("log group", "group", group, "err", err)
+		d.log.Warn("control_group", "group", group, "err", err)
+		return false
 	}
+	if d.logFile != nil {
+		if err := d.logFile.SetGroup(gid); err != nil {
+			d.log.Warn("log group", "group", group, "err", err)
+		}
+	}
+	if gid == d.gid {
+		return false
+	}
+	d.gid = gid
+	return true
+}
+
+// setBlock makes the block snapshot of state.json that of cfg (blockOf) and
+// reports whether it changed: the caller writes state.json. opMu and mu are
+// held.
+func (d *daemon) setBlock(cfg *config.Config) bool {
+	b := blockOf(cfg)
+	cur := d.toggles.Block
+	if b == nil && cur == nil || b != nil && cur != nil &&
+		slices.Equal(b.CIDRs, cur.CIDRs) && slices.Equal(b.Domains, cur.Domains) {
+		return false
+	}
+	d.toggles.Block = b
+	return true
+}
+
+// blockOf returns the block snapshot of cfg (design 9.1): the CIDRs and the
+// domains of the services of its rules with fallback: block, each once, in
+// rule and service order; an exact domain keeps its "=". nil: no such rule,
+// or its services have neither.
+func blockOf(cfg *config.Config) *state.Block {
+	var b state.Block
+	for _, r := range cfg.Rules {
+		if r.Fallback != config.FallbackBlock {
+			continue
+		}
+		for _, name := range r.Services {
+			svc := cfg.Services[name]
+			for _, p := range svc.CIDRs {
+				if s := p.String(); !slices.Contains(b.CIDRs, s) {
+					b.CIDRs = append(b.CIDRs, s)
+				}
+			}
+			for _, dm := range svc.Domains {
+				s := dm.Name
+				if dm.Exact {
+					s = "=" + s
+				}
+				if !slices.Contains(b.Domains, s) {
+					b.Domains = append(b.Domains, s)
+				}
+			}
+		}
+	}
+	if len(b.CIDRs) == 0 && len(b.Domains) == 0 {
+		return nil
+	}
+	return &b
 }
 
 // tunnelNames returns the names of the tunnels of cfg.
@@ -430,10 +539,13 @@ func tunnelNames(cfg *config.Config) []string {
 }
 
 // toStart returns the tunnels replan would start for next now (planApply
-// under mu), in next's order. opMu is held.
+// under mu; none on pause), in next's order. opMu is held.
 func (d *daemon) toStart(next *config.Config) []*config.Tunnel {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.toggles.Paused {
+		return nil
+	}
 	_, _, start := planApply(d.cfg, next, d.toggles.Tunnels, d.running())
 	var ts []*config.Tunnel
 	for _, name := range start {
@@ -459,14 +571,19 @@ func sameTunnels(a, b []*config.Tunnel) bool {
 
 // replan switches the state to next (planApply): stops the tunnels it
 // stops, drops the failed ones it disables, marks the ones it starts as
-// starting, selects the rules from scratch and syncs. Returns the tunnels
-// to start, in next's order. opMu is held.
+// starting, selects the rules from scratch and syncs. On pause nothing
+// runs and nothing is started (design 12). The block snapshot config goes:
+// next replaces it. Returns the tunnels to start, in next's order. opMu is
+// held.
 func (d *daemon) replan(next *config.Config, warnings []string) []*config.Tunnel {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	clear(d.gws)
 	d.rehost()
 	nextEnabled, stop, start := planApply(d.cfg, next, d.toggles.Tunnels, d.running())
+	if d.toggles.Paused {
+		start = nil
+	}
 	var stopped []*runTunnel
 	for _, name := range stop {
 		stopped = append(stopped, d.tunnels[name])
@@ -482,34 +599,10 @@ func (d *daemon) replan(next *config.Config, warnings []string) []*config.Tunnel
 		d.tunnels[name] = &runTunnel{name: name, starting: true}
 		ts = append(ts, findTunnel(next, name))
 	}
-	d.cfg, d.warnings, d.cfgErrs = next, warnings, nil
+	d.cfg, d.warnings, d.cfgErrs, d.blockCfg = next, warnings, nil, nil
 	d.reselect(nil)
 	d.closeTunnels(stopped)
 	return ts
-}
-
-// SetEnabled is tunnel.setEnabled.
-func (d *daemon) SetEnabled(name string, enabled bool) error {
-	d.opMu.Lock()
-	defer d.opMu.Unlock()
-	if d.closed {
-		return errStopping
-	}
-	t, err := d.toggle(name, enabled)
-	if err != nil {
-		return err
-	}
-	// Remembered across restarts even if t fails to come up (design 11).
-	d.setToggle(name, enabled)
-	// t stays enabled even when it fails to come up (design 10.2).
-	if t == nil {
-		return nil
-	}
-	endpoints, errs := d.resolve([]*config.Tunnel{t})
-	if err := d.up(t, endpoints[0], errs[0], true); err != nil {
-		return jrpc.NewError(rpc.CodeTunnelStart, fmt.Sprintf("tunnel %s: %v", name, err), nil)
-	}
-	return nil
 }
 
 // Enable is tunnel.enable (design 12, 14): the toggle on in state.json, the
@@ -518,27 +611,131 @@ func (d *daemon) SetEnabled(name string, enabled bool) error {
 // CodeNoConfig; unknown name: CodeUnknownTunnel; failed to start:
 // CodeTunnelStart.
 func (d *daemon) Enable(name string) (rpc.EnableResult, error) {
-	panic("not implemented")
+	d.opMu.Lock()
+	defer d.opMu.Unlock()
+	if d.closed {
+		return rpc.EnableResult{}, errStopping
+	}
+	t, err := d.toggle(name, true)
+	if err != nil {
+		return rpc.EnableResult{}, err
+	}
+	// Remembered across restarts even if t fails to come up (design 11).
+	d.setToggle(name, true)
+	if d.toggles.Paused {
+		return rpc.EnableResult{StartsOnResume: true}, nil
+	}
+	// t stays enabled even when it fails to come up (design 10.2).
+	if t == nil {
+		return rpc.EnableResult{}, nil
+	}
+	endpoints, errs := d.resolve([]*config.Tunnel{t})
+	if err := d.up(t, endpoints[0], errs[0], true); err != nil {
+		return rpc.EnableResult{}, jrpc.NewError(rpc.CodeTunnelStart, fmt.Sprintf("tunnel %s: %v", name, err), nil)
+	}
+	return rpc.EnableResult{}, nil
 }
 
 // Disable is tunnel.disable: the toggle off in state.json, the tunnel
 // stopped. Without a config: CodeNoConfig; unknown name: CodeUnknownTunnel.
 func (d *daemon) Disable(name string) error {
-	panic("not implemented")
+	d.opMu.Lock()
+	defer d.opMu.Unlock()
+	if d.closed {
+		return errStopping
+	}
+	if _, err := d.toggle(name, false); err != nil {
+		return err
+	}
+	d.setToggle(name, false)
+	return nil
 }
 
 // Pause is daemon.pause (design 12), idempotent, also without a config:
 // paused in state.json, every tunnel of the config stopped with the toggles
 // kept, the rules reselected (into fallback), one Sync. The DNS capture stays.
 func (d *daemon) Pause() error {
-	panic("not implemented")
+	d.opMu.Lock()
+	defer d.opMu.Unlock()
+	if d.closed {
+		return errStopping
+	}
+	if d.toggles.Paused {
+		if d.stateDirty {
+			d.saveToggles()
+		}
+		return nil
+	}
+	d.locked(func() {
+		d.toggles.Paused = true
+		d.log.Info("paused")
+		d.stopAll()
+	})
+	d.saveToggles() // a failure is a warning: the pause holds in memory
+	return nil
 }
 
 // Resume is daemon.resume (design 12), idempotent, also without a config:
 // paused cleared in state.json, the tunnels brought up by the toggles and
 // autostart, as planApply does.
 func (d *daemon) Resume() error {
-	panic("not implemented")
+	d.opMu.Lock()
+	defer d.opMu.Unlock()
+	if d.closed {
+		return errStopping
+	}
+	if !d.toggles.Paused {
+		if d.stateDirty {
+			d.saveToggles()
+		}
+		return nil
+	}
+	var start []*config.Tunnel
+	d.locked(func() {
+		d.toggles.Paused = false
+		d.log.Info("resumed")
+		if d.cfg == nil {
+			return
+		}
+		// Nothing runs on pause: planApply over the same config starts
+		// every tunnel on by its toggle or autostart.
+		_, _, names := planApply(d.cfg, d.cfg, d.toggles.Tunnels, d.running())
+		for _, name := range names {
+			d.tunnels[name] = &runTunnel{name: name, starting: true}
+			start = append(start, findTunnel(d.cfg, name))
+		}
+		if len(start) > 0 {
+			d.reselect(nil)
+		}
+	})
+	d.saveToggles()
+	if len(start) == 0 {
+		return nil
+	}
+	endpoints, errs := d.resolve(start)
+	for i, t := range start {
+		d.up(t, endpoints[i], errs[i], false) // logs its error; status.get shows it
+	}
+	return nil
+}
+
+// stopAll stops every tunnel of the config (DisableAll, Pause), selects the
+// rules again (into fallback) and syncs once; nothing runs without a config.
+// mu is held.
+func (d *daemon) stopAll() {
+	if d.cfg == nil || len(d.tunnels) == 0 {
+		return
+	}
+	var stopped []*runTunnel
+	for _, t := range d.cfg.Tunnels {
+		if rt := d.tunnels[t.Name]; rt != nil {
+			stopped = append(stopped, rt)
+		}
+	}
+	clear(d.tunnels)
+	d.reselect(d.rules)
+	d.closeTunnels(stopped)
+	d.sync() // the table without their endpoint routes; no ops
 }
 
 // effectiveCfg returns the config the table, the rules and the DNS capture
@@ -547,21 +744,55 @@ func (d *daemon) Resume() error {
 // "no config applied" (toggle, DisableAll, snapshot, planApply, health)
 // keep d.cfg (plan M3, spike facts).
 func (d *daemon) effectiveCfg() *config.Config {
-	panic("not implemented")
+	if d.cfg != nil {
+		return d.cfg
+	}
+	return d.blockCfg
 }
+
+// blockService, blockVia name the service and the via tunnel of the config
+// of blockConfig; the via tunnel does not exist, so the rule is in fallback.
+const (
+	blockService = "block-snapshot"
+	blockVia     = "block-snapshot"
+)
 
 // blockConfig builds from the block snapshot b (design 9.1) a synthetic
 // config without tunnels: one service with the CIDRs and the domains of b,
 // one rule with fallback: block whose via is a tunnel that does not exist, and
 // its RuleState{Fallback: true}. The table then gets reject routes on the
 // CIDRs and the resolver answers NODATA for the domains. b nil or empty: nil, nil.
+// An entry that does not parse (a hand-edited state.json) is skipped.
 func blockConfig(b *state.Block) (*config.Config, []router.RuleState) {
-	panic("not implemented")
+	if b == nil {
+		return nil, nil
+	}
+	var svc config.Service
+	for _, s := range b.CIDRs {
+		if p, err := netip.ParsePrefix(s); err == nil {
+			svc.CIDRs = append(svc.CIDRs, p.Masked())
+		}
+	}
+	for _, s := range b.Domains {
+		exact := strings.HasPrefix(s, "=")
+		name := strings.TrimSuffix(strings.ToLower(strings.TrimPrefix(s, "=")), ".")
+		if name != "" {
+			svc.Domains = append(svc.Domains, config.Domain{Name: name, Exact: exact})
+		}
+	}
+	if len(svc.CIDRs) == 0 && len(svc.Domains) == 0 {
+		return nil, nil
+	}
+	cfg := &config.Config{
+		Services: map[string]config.Service{blockService: svc},
+		Rules:    []config.Rule{{Services: []string{blockService}, Via: []string{blockVia}, Fallback: config.FallbackBlock}},
+	}
+	return cfg, []router.RuleState{{Fallback: true}}
 }
 
-// toggle is the part of SetEnabled under mu: it checks the config and the
-// name, then disables the tunnel, or marks it as starting and returns it to
-// be brought up (nil: nothing more to do).
+// toggle is the part of Enable and Disable under mu: it checks the config
+// and the name, then disables the tunnel, or marks it as starting and
+// returns it to be brought up (nil: nothing more to do; always so on pause).
 func (d *daemon) toggle(name string, enabled bool) (*config.Tunnel, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -583,8 +814,8 @@ func (d *daemon) toggle(name string, enabled bool) (*config.Tunnel, error) {
 		}
 		return nil, nil
 	}
-	if rt != nil && rt.tun != nil {
-		return nil, nil // running
+	if rt != nil && rt.tun != nil || d.toggles.Paused {
+		return nil, nil // running, or paused: comes up on resume
 	}
 	d.log.Info("tunnel enabled", "tunnel", name)
 	d.tunnels[name] = &runTunnel{name: name, starting: true}
@@ -592,49 +823,34 @@ func (d *daemon) toggle(name string, enabled bool) (*config.Tunnel, error) {
 	return t, nil
 }
 
-// DisableAll is tunnel.disableAll: SetEnabled false for every tunnel of the
-// config with one Sync and one write of state.json (design 11, 12); the DNS
-// capture stays. Without a config: CodeNoConfig.
+// DisableAll is tunnel.disableAll: Disable for every tunnel of the config
+// with one Sync and one write of state.json (design 11, 12); the DNS capture
+// stays. Without a config: CodeNoConfig. The right is checked by rpc.Serve.
 func (d *daemon) DisableAll() error {
 	d.opMu.Lock()
 	defer d.opMu.Unlock()
 	if d.closed {
 		return errStopping
 	}
-	var names []string
-	d.locked(func() {
-		if d.cfg == nil {
-			return
-		}
-		names = tunnelNames(d.cfg)
-		if len(d.tunnels) == 0 {
-			return
-		}
-		var stopped []*runTunnel
-		for _, t := range d.cfg.Tunnels {
-			if rt := d.tunnels[t.Name]; rt != nil {
-				stopped = append(stopped, rt)
-			}
-		}
-		clear(d.tunnels)
-		d.log.Info("all tunnels disabled")
-		d.reselect(d.rules)
-		d.closeTunnels(stopped)
-		d.sync() // the table without their endpoint routes; no ops
-	})
-	if names == nil {
+	if d.cfg == nil { // set under opMu
 		return jrpc.NewError(rpc.CodeNoConfig, "no config applied", nil)
 	}
 	changed := false
-	for _, name := range names {
-		if v, ok := d.toggles.Tunnels[name]; !ok || v {
-			changed = true
+	d.locked(func() {
+		if len(d.tunnels) > 0 {
+			d.log.Info("all tunnels disabled")
+			d.stopAll()
 		}
 		if d.toggles.Tunnels == nil {
 			d.toggles.Tunnels = map[string]bool{}
 		}
-		d.toggles.Tunnels[name] = false
-	}
+		for _, name := range tunnelNames(d.cfg) {
+			if v, ok := d.toggles.Tunnels[name]; !ok || v {
+				changed = true
+			}
+			d.toggles.Tunnels[name] = false
+		}
+	})
 	if changed || d.stateDirty {
 		d.saveToggles()
 	}
@@ -662,6 +878,9 @@ func (d *daemon) snapshot() *rpc.State {
 		Skips:        d.skips,
 		SyncErr:      d.syncErr,
 		Ifaces:       maps.Clone(d.env.Ifaces),
+		Paused:       d.toggles.Paused,
+		DNSError:     d.dnsErr,
+		Switches:     d.switches(),
 	}
 	for name, rt := range d.tunnels {
 		tr := rpc.TunnelRuntime{Err: rt.err, Starting: rt.starting, Endpoints: rt.endpoints}
@@ -687,6 +906,25 @@ func (d *daemon) snapshot() *rpc.State {
 		s.Tunnels[name] = tr
 	}
 	return s
+}
+
+// switches returns the effective toggle by tunnel of the applied config
+// (planApply): the toggle of state.json or, without one, autostart (design
+// 11). It is Enabled of status.get, kept on pause; nil without a config. mu
+// is held.
+func (d *daemon) switches() map[string]bool {
+	if d.cfg == nil {
+		return nil
+	}
+	res := make(map[string]bool, len(d.cfg.Tunnels))
+	for _, t := range d.cfg.Tunnels {
+		on, ok := d.toggles.Tunnels[t.Name]
+		if !ok {
+			on = t.Autostart
+		}
+		res[t.Name] = on
+	}
+	return res
 }
 
 // expire drops expired dynamic addresses and syncs when some were dropped.
@@ -986,9 +1224,11 @@ func (d *daemon) states() map[string]router.TunnelState {
 }
 
 // reselect selects the rules again (prev nil: from scratch, design 7.3),
-// passes the state to the resolver and syncs the table. mu is held, cfg set.
+// passes the state to the resolver and syncs the table. mu is held, a config
+// or the block snapshot config is in force (effectiveCfg).
 func (d *daemon) reselect(prev []router.RuleState) {
-	d.rules = router.SelectRules(d.cfg, d.states(), prev)
+	cfg := d.effectiveCfg()
+	d.rules = router.SelectRules(cfg, d.states(), prev)
 	env := router.Env{Ifaces: map[string]int{}}
 	for name, rt := range d.tunnels {
 		if rt.tun != nil && rt.index > 0 {
@@ -1013,7 +1253,7 @@ func (d *daemon) reselect(prev []router.RuleState) {
 		}
 	}
 	d.env = env
-	d.srv.SetState(d.cfg, d.rules, env.Ifaces)
+	d.srv.SetState(cfg, d.rules, env.Ifaces)
 	d.sync()
 }
 
@@ -1028,7 +1268,7 @@ func (d *daemon) sync() {
 // syncNow builds the table with the current dynamic addresses and every
 // endpoint host route of ours (tableFor), and syncs it. mu is held.
 func (d *daemon) syncNow() error {
-	t := tableFor(d.cfg, d.states(), d.rules, d.srv.Dynamic(), d.hosts)
+	t := tableFor(d.effectiveCfg(), d.states(), d.rules, d.srv.Dynamic(), d.hosts)
 	err := d.syncTable(t, d.env)
 	d.table, d.syncErr, d.synced = t, err, true
 	return err
