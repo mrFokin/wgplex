@@ -128,7 +128,7 @@ func (d *daemon) retryFailed(due func(*runTunnel) bool) {
 // resolved again (design 6, DDNS; without mu), the gateways and the endpoint
 // host routes, the new endpoint addresses (reendpoint), rebind, a new
 // handshake, the scoped routes and the health reset of every running
-// tunnel. Apply calls it alone: it brings up the failed tunnels and selects
+// tunnel. apply calls it alone: it brings up the failed tunnels and selects
 // the rules itself. opMu is held.
 func (d *daemon) renetwork(wake bool) {
 	d.log.Info("network change", "wake", wake)
@@ -186,7 +186,7 @@ func (d *daemon) renetwork(wake bool) {
 // checkCapture puts the DNS capture back when it was made and its key is
 // gone (a configd restart, design 8). Our own write of the key also gives a
 // Capture event: the key is there then, nothing is done. Without system DNS
-// servers the capture is not put back, as in Apply: the resolver would have
+// servers the capture is not put back, as in apply: the resolver would have
 // no upstream. Nor is it put back when the config has no domains: captured
 // is then left by a failed release, and the lost key completes
 // that release. opMu is held.

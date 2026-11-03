@@ -305,7 +305,7 @@ func wantRules() []RuleStatus {
 
 // --- StatusOf ------------------------------------------------------------------
 
-// design 4.1: before any config.apply the daemon is empty: not
+// design 4.1: before any applied config the daemon is empty: not
 // configured, icon off, no tunnels or rules.
 func TestStatusNoConfig(t *testing.T) {
 	got := statusOf(t, &State{})
@@ -313,7 +313,7 @@ func TestStatusNoConfig(t *testing.T) {
 		t.Errorf("empty state: %+v, want not configured, icon off, nothing else", got)
 	}
 
-	// The first config.apply failed: still not configured, the errors are
+	// The first apply failed: still not configured, the errors are
 	// shown and the icon is warn.
 	errs := []string{`tunnel "x": conf "x.conf" not found`}
 	got = statusOf(t, &State{ConfigErrors: errs})

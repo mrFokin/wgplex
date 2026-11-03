@@ -12,7 +12,7 @@ import (
 	"github.com/mrFokin/wgplex/internal/config"
 )
 
-// Tests follow design 7.3, 8, 10.2 (config.apply: autostart on the first
+// Tests follow design 7.3, 8, 10.2 (config.reload: autostart on the first
 // apply, toggles kept on a repeated one, restart only on a changed .conf,
 // the warning about a tunnel DNS server under a CIDR of a rule with
 // fallback: block; planApply and blockedDNSWarnings), not the
@@ -147,14 +147,14 @@ func trueKeys(m map[string]bool) []string {
 	return out
 }
 
-func planApplyOf(t *testing.T, cur, next *config.Config, enabled, running map[string]bool) (nextEnabled map[string]bool, stop, start []string) {
+func planApplyOf(t *testing.T, cur, next *config.Config, switches, running map[string]bool) (nextEnabled map[string]bool, stop, start []string) {
 	t.Helper()
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("planApply panicked: %v", r)
 		}
 	}()
-	return planApply(cur, next, enabled, running)
+	return planApply(cur, next, switches, running)
 }
 
 func sameStrings(a, b []string) bool { return len(a) == 0 && len(b) == 0 || slices.Equal(a, b) }
@@ -163,9 +163,9 @@ type planWant struct {
 	enabled, stop, start []string // enabled: sorted; stop, start: in order
 }
 
-func checkPlan(t *testing.T, name string, cur, next *config.Config, enabled, running map[string]bool, want planWant) {
+func checkPlan(t *testing.T, name string, cur, next *config.Config, switches, running map[string]bool, want planWant) {
 	t.Helper()
-	ne, stop, start := planApplyOf(t, cur, next, enabled, running)
+	ne, stop, start := planApplyOf(t, cur, next, switches, running)
 	if got := trueKeys(ne); !sameStrings(got, want.enabled) {
 		t.Errorf("%s: nextEnabled = %v, want %v", name, got, want.enabled)
 	}
@@ -194,21 +194,22 @@ func TestPlanApplyFirst(t *testing.T) {
 	})
 }
 
-// design 10.2: a repeated apply of the same config keeps the
-// user's toggles (de turned off, home turned on) and changes nothing.
+// design 10.2, 11: a repeated apply of the same config keeps the
+// user's explicit toggles (de turned off, home turned on) and changes nothing.
 func TestPlanApplyKeepsToggles(t *testing.T) {
 	cs := newConfFiles(t)
 	yaml := baseYAML(baseTunnels()...)
 	cur := loadConfig(t, yaml, cs.texts(nil))
 	next := loadConfig(t, yaml, cs.texts(nil))
-	on := boolSet("work", "home", "fi")
-	checkPlan(t, "same config", cur, next, on, boolSet("work", "home", "fi"), planWant{
+	switches := map[string]bool{"work": true, "home": true, "fi": true, "de": false}
+	checkPlan(t, "same config", cur, next, switches, boolSet("work", "home", "fi"), planWant{
 		enabled: []string{"fi", "home", "work"},
 	})
 
-	// Everything turned off by the user (tunnel.disableAll): autostart does
-	// not bring tunnels back.
-	checkPlan(t, "all off", cur, next, map[string]bool{}, map[string]bool{}, planWant{})
+	// Everything turned off by the user (tunnel.disableAll writes false for
+	// every tunnel): autostart does not bring tunnels back.
+	off := map[string]bool{"work": false, "home": false, "de": false, "fi": false}
+	checkPlan(t, "all off", cur, next, off, map[string]bool{}, planWant{})
 }
 
 // design 10.2: a new tunnel is enabled by its autostart, a removed one is
@@ -296,7 +297,7 @@ rules:
 }
 
 // An enabled tunnel that failed to start (enabled, not running)
-// is started again by config.apply; its changed .conf does not matter.
+// is started again by config.reload; its changed .conf does not matter.
 func TestPlanApplyRetryFailed(t *testing.T) {
 	cs := newConfFiles(t)
 	yaml := baseYAML(baseTunnels()...)
@@ -325,7 +326,10 @@ func TestPlanApplyDisabledChanged(t *testing.T) {
 		"home": cs["home"].Text("DNS = 10.9.9.9", "MTU = 1380"),
 	}))
 	on := boolSet("work", "fi")
-	checkPlan(t, "disabled, changed", cur, next, on, on, planWant{
+	// A tunnel turned off by the user has an entry; home has none and
+	// autostart false (design 11).
+	switches := map[string]bool{"work": true, "fi": true, "de": false}
+	checkPlan(t, "disabled, changed", cur, next, switches, on, planWant{
 		enabled: []string{"fi", "work"},
 	})
 }
@@ -525,7 +529,7 @@ rules:
 // --- checkWarnings -----------------------------------------------------
 
 // Tests below follow design 9 "Ping": a check
-// of a family the tunnel has no Address of is not pinged; config.apply warns
+// of a family the tunnel has no Address of is not pinged; config.reload warns
 // about it, the config stays valid.
 
 func checkWarningsOf(t *testing.T, cfg *config.Config) (got []string) {

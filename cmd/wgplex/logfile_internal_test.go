@@ -9,14 +9,14 @@ import (
 	"testing"
 )
 
-// implLogDir returns a temp dir and the log path inside it.
-func implLogDir(t *testing.T) (string, string) {
+// internalLogDir returns a temp dir and the log path inside it.
+func internalLogDir(t *testing.T) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
 	return dir, filepath.Join(dir, "wgplex.log")
 }
 
-func implReadFile(t *testing.T, name string) string {
+func internalReadFile(t *testing.T, name string) string {
 	t.Helper()
 	b, err := os.ReadFile(name)
 	if err != nil {
@@ -25,7 +25,7 @@ func implReadFile(t *testing.T, name string) string {
 	return string(b)
 }
 
-func implStat(t *testing.T, name string) *syscall.Stat_t {
+func internalStat(t *testing.T, name string) *syscall.Stat_t {
 	t.Helper()
 	fi, err := os.Stat(name)
 	if err != nil {
@@ -37,7 +37,7 @@ func implStat(t *testing.T, name string) *syscall.Stat_t {
 	return fi.Sys().(*syscall.Stat_t)
 }
 
-func TestImplOpenLogMissingDir(t *testing.T) {
+func TestInternalOpenLogMissingDir(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "log", "wgplex.log")
 	if _, err := openLog(p, -1); err == nil {
@@ -48,8 +48,8 @@ func TestImplOpenLogMissingDir(t *testing.T) {
 	}
 }
 
-func TestImplOpenLogAppendsAndCounts(t *testing.T) {
-	_, p := implLogDir(t)
+func TestInternalOpenLogAppendsAndCounts(t *testing.T) {
+	_, p := internalLogDir(t)
 	if err := os.WriteFile(p, []byte("old\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -64,18 +64,18 @@ func TestImplOpenLogAppendsAndCounts(t *testing.T) {
 	if _, err := l.Write([]byte("new\n")); err != nil {
 		t.Fatal(err)
 	}
-	if got := implReadFile(t, p); got != "old\nnew\n" {
+	if got := internalReadFile(t, p); got != "old\nnew\n" {
 		t.Fatalf("file = %q", got)
 	}
-	if st := implStat(t, p); int(st.Gid) != os.Getgid() {
+	if st := internalStat(t, p); int(st.Gid) != os.Getgid() {
 		t.Fatalf("gid = %d, want %d", st.Gid, os.Getgid())
 	}
 }
 
-func TestImplRotate(t *testing.T) {
+func TestInternalRotate(t *testing.T) {
 	for _, withArchives := range []bool{true, false} {
 		t.Run(map[bool]string{true: "with .1 and .2", false: "no archives"}[withArchives], func(t *testing.T) {
-			_, p := implLogDir(t)
+			_, p := internalLogDir(t)
 			if withArchives {
 				os.WriteFile(p+".1", []byte("one"), 0o640)
 				os.WriteFile(p+".2", []byte("two"), 0o640)
@@ -95,16 +95,16 @@ func TestImplRotate(t *testing.T) {
 			if _, err := l.Write([]byte("after")); err != nil {
 				t.Fatal(err)
 			}
-			if got := implReadFile(t, p); got != "after" {
+			if got := internalReadFile(t, p); got != "after" {
 				t.Fatalf("new file = %q", got)
 			}
-			if got := implReadFile(t, p+".1"); len(got) != logRotateSize || !strings.HasSuffix(got, "xy") {
+			if got := internalReadFile(t, p+".1"); len(got) != logRotateSize || !strings.HasSuffix(got, "xy") {
 				t.Fatalf(".1: %d bytes", len(got))
 			}
-			implStat(t, p)
-			implStat(t, p+".1")
+			internalStat(t, p)
+			internalStat(t, p+".1")
 			if withArchives {
-				if got := implReadFile(t, p+".2"); got != "one" {
+				if got := internalReadFile(t, p+".2"); got != "one" {
 					t.Fatalf(".2 = %q, want the old .1", got)
 				}
 			} else if _, err := os.Stat(p + ".2"); !os.IsNotExist(err) {
@@ -117,10 +117,10 @@ func TestImplRotate(t *testing.T) {
 	}
 }
 
-// TestImplRotateRedup: after a rotation the attached fds point at the new
+// TestInternalRotateRedup: after a rotation the attached fds point at the new
 // file (temporary fds stand in for 1 and 2).
-func TestImplRotateRedup(t *testing.T) {
-	dir, p := implLogDir(t)
+func TestInternalRotateRedup(t *testing.T) {
+	dir, p := internalLogDir(t)
 	var fds []int
 	for i := 0; i < 2; i++ {
 		f, err := os.Create(filepath.Join(dir, "stand-in"))
@@ -139,24 +139,24 @@ func TestImplRotateRedup(t *testing.T) {
 	if err := l.dup2(); err != nil {
 		t.Fatal(err)
 	}
-	implSameFile(t, fds, p)
+	internalSameFile(t, fds, p)
 
 	if _, err := l.Write(bytes.Repeat([]byte("x"), logRotateSize)); err != nil {
 		t.Fatal(err)
 	}
-	implSameFile(t, fds, p)
+	internalSameFile(t, fds, p)
 	// Writing to the fd lands in the current file, as a panic would.
 	if _, err := syscall.Write(fds[1], []byte("panic")); err != nil {
 		t.Fatal(err)
 	}
-	if got := implReadFile(t, p); got != "panic" {
+	if got := internalReadFile(t, p); got != "panic" {
 		t.Fatalf("current file = %q", got)
 	}
 }
 
-func implSameFile(t *testing.T, fds []int, path string) {
+func internalSameFile(t *testing.T, fds []int, path string) {
 	t.Helper()
-	want := implStat(t, path)
+	want := internalStat(t, path)
 	for _, fd := range fds {
 		var st syscall.Stat_t
 		if err := syscall.Fstat(fd, &st); err != nil {
@@ -168,8 +168,8 @@ func implSameFile(t *testing.T, fds []int, path string) {
 	}
 }
 
-func TestImplSetGroup(t *testing.T) {
-	_, p := implLogDir(t)
+func TestInternalSetGroup(t *testing.T) {
+	_, p := internalLogDir(t)
 	gid := os.Getgid()
 	other := gid
 	groups, _ := os.Getgroups()
@@ -189,7 +189,7 @@ func TestImplSetGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{p, p + ".1"} {
-		if st := implStat(t, name); int(st.Gid) != other {
+		if st := internalStat(t, name); int(st.Gid) != other {
 			t.Fatalf("%s: gid %d, want %d", name, st.Gid, other)
 		}
 	}
@@ -201,7 +201,7 @@ func TestImplSetGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{p, p + ".1", p + ".2"} {
-		if st := implStat(t, name); int(st.Gid) != other {
+		if st := internalStat(t, name); int(st.Gid) != other {
 			t.Fatalf("%s: gid %d, want %d", name, st.Gid, other)
 		}
 	}

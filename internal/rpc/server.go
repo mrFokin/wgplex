@@ -14,7 +14,7 @@ import (
 // it, tests use a fake. Errors meant for the client are *jrpc.JRPCError with
 // the codes above; any other error becomes Internal error.
 type Daemon interface {
-	Apply(files map[string]string) (ApplyResult, error)
+	Reload() (ApplyResult, error)
 	SetEnabled(name string, enabled bool) error
 	DisableAll() error
 	State() *State
@@ -58,8 +58,8 @@ func Serve(ctx context.Context, ln net.Listener, d Daemon, allow func(uid uint32
 	}
 
 	j := jrpc.Endpoint(e, Path, check)
-	j.Method("config.apply", func(_ *jrpc.Context, p ApplyParams) (ApplyResult, error) {
-		return d.Apply(p.Files)
+	j.Method("config.reload", func(_ *jrpc.Context, _ struct{}) (ApplyResult, error) {
+		return d.Reload()
 	})
 	j.Method("tunnel.setEnabled", func(_ *jrpc.Context, p SetEnabledParams) (any, error) {
 		if p.Name == "" {

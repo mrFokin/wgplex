@@ -86,14 +86,9 @@ func run(cmd command) error {
 		p := rpc.SetEnabledParams{Name: cmd.Arg, Enabled: cmd.Name == "up"}
 		return call(ctx, sock, "tunnel.setEnabled", p, nil)
 	case "reload":
-		// Until config.reload (plan m2, task C) the client still sends the
-		// default config directory.
-		files, err := readConfigDir(pathsFor(defaultPrefix()).ConfigDir)
-		if err != nil {
-			return fmt.Errorf("read config: %w", err)
-		}
+		// The daemon reads its own config directory (design 10.2).
 		var r rpc.ApplyResult
-		if err := call(ctx, sock, "config.apply", rpc.ApplyParams{Files: files}, &r); err != nil {
+		if err := call(ctx, sock, "config.reload", nil, &r); err != nil {
 			return err
 		}
 		printApply(os.Stdout, r)

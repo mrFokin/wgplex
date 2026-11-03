@@ -200,7 +200,7 @@ func printRoutes(w io.Writer, r rpc.Routes) {
 	}
 }
 
-// printApply prints the reply of config.apply.
+// printApply prints the reply of config.reload.
 func printApply(w io.Writer, r rpc.ApplyResult) {
 	for _, x := range r.Warnings {
 		fmt.Fprintf(w, "warning: %s\n", x)

@@ -24,9 +24,9 @@ import (
 func planApply(cur, next *config.Config, switches, running map[string]bool) (nextEnabled map[string]bool, stop, start []string) {
 	nextEnabled = map[string]bool{}
 	for _, t := range next.Tunnels {
-		on := t.Autostart
-		if cur != nil && findTunnel(cur, t.Name) != nil {
-			on = switches[t.Name]
+		on, ok := switches[t.Name]
+		if !ok {
+			on = t.Autostart
 		}
 		if on {
 			nextEnabled[t.Name] = true
