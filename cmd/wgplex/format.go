@@ -324,3 +324,11 @@ func formatAgo(t, now time.Time) string {
 		return fmt.Sprintf("%dh %dm ago", s/3600, s%3600/60)
 	}
 }
+
+// versionWarning returns the warning for status and version when the version
+// of the daemon differs from the version of the CLI: a "warning: ..." line
+// with "sudo brew services restart --sudo-service-user=root wgplex"; "" when
+// they are the same (design 13, plan M3 decision 11).
+func versionWarning(cli, daemon string) string {
+	panic("not implemented")
+}

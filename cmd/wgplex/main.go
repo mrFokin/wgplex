@@ -83,9 +83,11 @@ func run(cmd command) error {
 			return err
 		}
 		printRoutes(os.Stdout, r)
-	case "up", "down":
-		p := rpc.SetEnabledParams{Name: cmd.Arg, Enabled: cmd.Name == "up"}
-		return call(ctx, sock, "tunnel.setEnabled", p, nil)
+	case "up":
+		var r rpc.EnableResult
+		return call(ctx, sock, "tunnel.enable", rpc.EnableParams{Name: cmd.Arg}, &r)
+	case "down":
+		return call(ctx, sock, "tunnel.disable", rpc.EnableParams{Name: cmd.Arg}, nil)
 	case "reload":
 		// The daemon reads its own config directory (design 10.2).
 		var r rpc.ApplyResult

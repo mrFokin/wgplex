@@ -24,6 +24,12 @@ type State struct {
 	SyncErr      error
 	Pairs        []dns.Pair     // dynamic (name, address) pairs
 	Ifaces       map[string]int // tunnel → utun index, as given to dns.Server
+	Paused       bool           // daemon.pause (design 12): no tunnel is up
+	// Switches is the effective toggle by tunnel of Cfg: the toggle of
+	// state.json or, without one, autostart (design 11). It is Enabled of
+	// status.get, kept on pause; Tunnels is what actually runs.
+	Switches map[string]bool
+	DNSError string // the system DNS capture failed: why; "": fine (icon warn)
 }
 
 // TunnelRuntime is an enabled tunnel: starting (Starting), running
@@ -158,6 +164,15 @@ func ruleStatus(cfg *config.Config, rules []router.RuleState, i int) RuleStatus 
 	}
 	rs.Degraded = len(r.Via) > 0 && rs.Tunnel != r.Via[0]
 	return rs
+}
+
+// ruleReason returns Reason of rule i of s.Cfg (design 14; plan M3,
+// decision 6): "" unless the rule is degraded (in fallback, or with via and
+// not on via[0]). Paused: "paused". Otherwise, among the via tunnels above
+// the serving one (all of via in fallback): one switched on (Switches) but
+// dead, failed or not up gives "dead"; else (all switched off) "disabled".
+func ruleReason(s *State, i int) string {
+	panic("not implemented")
 }
 
 // Explain explains q (a domain or an IP); an invalid q is a jrpc Invalid params error.

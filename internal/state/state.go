@@ -14,14 +14,28 @@ import (
 // fileMode is the mode of state.json (design 11).
 const fileMode = 0o640
 
-// State is the content of state.json (design 11). On M2 it holds the tunnel
-// toggles only; the pause (paused) and the block snapshot (block) are added
-// as fields later.
+// State is the content of state.json (design 11): the tunnel toggles, the
+// pause and the block snapshot.
 type State struct {
-	// Tunnels are the explicit toggles by tunnel name (tunnel.setEnabled,
-	// tunnel.disableAll). A tunnel without an entry follows its autostart
-	// (design 10.2).
+	// Tunnels are the explicit toggles by tunnel name (tunnel.enable,
+	// tunnel.disable, tunnel.disableAll). A tunnel without an entry follows
+	// its autostart (design 10.2). A pause does not change them.
 	Tunnels map[string]bool `json:"tunnels,omitempty"`
+	// Paused is daemon.pause (design 12): no tunnel is brought up, the
+	// toggles are kept.
+	Paused bool `json:"paused,omitempty"`
+	// Block is the block snapshot of the last successful apply (design 9.1):
+	// what a fallback: block rule keeps closed while the daemon has no config
+	// (a broken config at start). None: no snapshot, or a config without
+	// block rules.
+	Block *Block `json:"block,omitempty"`
+}
+
+// Block is the block snapshot (design 9.1): the CIDRs and the domains of the
+// fallback: block rules of the last successfully applied config, without keys.
+type Block struct {
+	CIDRs   []string `json:"cidrs,omitempty"`
+	Domains []string `json:"domains,omitempty"`
 }
 
 // Load reads the state file at path. No file: empty State, nil error.
@@ -47,9 +61,10 @@ func Load(path string) (State, error) {
 }
 
 // Save writes s to path atomically: a temporary file in the directory of path,
-// mode 0640, then rename (design 11). On error no temporary file is left.
-// The directory is not created.
-func (s State) Save(path string) error {
+// mode 0640, group gid given to the temporary file before the rename, then
+// rename (design 11, 15). gid < 0: the group is not set. On error no
+// temporary file is left. The directory is not created.
+func (s State) Save(path string, gid int) error {
 	data, err := json.Marshal(s)
 	if err != nil {
 		return fmt.Errorf("state %s: %w", path, err)
@@ -58,7 +73,7 @@ func (s State) Save(path string) error {
 	if err != nil {
 		return fmt.Errorf("state %s: %w", path, err)
 	}
-	if err := writeTemp(tmp, data, path); err != nil {
+	if err := writeTemp(tmp, data, path, gid); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
@@ -68,9 +83,9 @@ func (s State) Save(path string) error {
 	return nil
 }
 
-// writeTemp fills tmp with data, syncs and closes it; on any error the
-// temporary file is removed.
-func writeTemp(tmp *os.File, data []byte, path string) error {
+// writeTemp fills tmp with data, gives it group gid (gid < 0: not set, owner
+// root), syncs and closes it; on any error the temporary file is removed.
+func writeTemp(tmp *os.File, data []byte, path string, gid int) error {
 	name := tmp.Name()
 	fail := func(err error) error {
 		tmp.Close()
@@ -79,6 +94,11 @@ func writeTemp(tmp *os.File, data []byte, path string) error {
 	}
 	if err := tmp.Chmod(fileMode); err != nil {
 		return fail(err)
+	}
+	if gid >= 0 {
+		if err := tmp.Chown(-1, gid); err != nil {
+			return fail(err)
+		}
 	}
 	if _, err := tmp.Write(data); err != nil {
 		return fail(err)

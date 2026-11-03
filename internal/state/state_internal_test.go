@@ -59,7 +59,7 @@ func TestInternalSaveRenameFails(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(p, "x"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := (State{Tunnels: map[string]bool{"a": true}}).Save(p); err == nil {
+	if err := (State{Tunnels: map[string]bool{"a": true}}).Save(p, -1); err == nil {
 		t.Fatal("Save: no error")
 	}
 	internalOnlyFile(t, dir, "state.json")

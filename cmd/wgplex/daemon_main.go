@@ -138,7 +138,9 @@ func runDaemon(log *slog.Logger, logFile *rotatingFile, cmd command) int {
 
 	served := make(chan error, 1)
 	go func() {
-		served <- rpc.Serve(ctx, ln, d, allow, log)
+		acc := &rpc.Access{} // the funcs come with the daemon part of M3
+		meta := rpc.Meta{Version: version, ConfigDir: cmd.ConfigDir, LogPath: cmd.Log}
+		served <- rpc.Serve(ctx, ln, d, acc, meta, log)
 	}()
 	log.Info("rpc listening", "socket", socket)
 
@@ -197,9 +199,4 @@ func logListenError(log *slog.Logger, socket string, err error) {
 		return
 	}
 	log.Error("rpc socket", "err", err)
-}
-
-// allow lets only root use the RPC (M1: per-method rights come in M3).
-func allow(uid uint32) bool {
-	return uid == 0
 }

@@ -387,7 +387,7 @@ func (d *daemon) setToggle(name string, on bool) string {
 // warning in the log and in status.get, returned ("": saved), and sets
 // stateDirty; a successful write clears it and its warning. opMu is held.
 func (d *daemon) saveToggles() string {
-	err := d.toggles.Save(d.statePath)
+	err := d.toggles.Save(d.statePath, -1)
 	if err == nil {
 		if d.stateDirty {
 			d.removeWarning(d.stateWarning)
@@ -510,6 +510,53 @@ func (d *daemon) SetEnabled(name string, enabled bool) error {
 		return jrpc.NewError(rpc.CodeTunnelStart, fmt.Sprintf("tunnel %s: %v", name, err), nil)
 	}
 	return nil
+}
+
+// Enable is tunnel.enable (design 12, 14): the toggle on in state.json, the
+// tunnel brought up unless paused. A tunnel in "error" is brought up again.
+// Paused: nothing is brought up, StartsOnResume true. Without a config:
+// CodeNoConfig; unknown name: CodeUnknownTunnel; failed to start:
+// CodeTunnelStart.
+func (d *daemon) Enable(name string) (rpc.EnableResult, error) {
+	panic("not implemented")
+}
+
+// Disable is tunnel.disable: the toggle off in state.json, the tunnel
+// stopped. Without a config: CodeNoConfig; unknown name: CodeUnknownTunnel.
+func (d *daemon) Disable(name string) error {
+	panic("not implemented")
+}
+
+// Pause is daemon.pause (design 12), idempotent, also without a config:
+// paused in state.json, every tunnel of the config stopped with the toggles
+// kept, the rules reselected (into fallback), one Sync. The DNS capture stays.
+func (d *daemon) Pause() error {
+	panic("not implemented")
+}
+
+// Resume is daemon.resume (design 12), idempotent, also without a config:
+// paused cleared in state.json, the tunnels brought up by the toggles and
+// autostart, as planApply does.
+func (d *daemon) Resume() error {
+	panic("not implemented")
+}
+
+// effectiveCfg returns the config the table, the rules and the DNS capture
+// work from (mu held): d.cfg or, while it is nil, the synthetic config of
+// the block snapshot (blockConfig); nil: neither. Readers that must see
+// "no config applied" (toggle, DisableAll, snapshot, planApply, health)
+// keep d.cfg (plan M3, spike facts).
+func (d *daemon) effectiveCfg() *config.Config {
+	panic("not implemented")
+}
+
+// blockConfig builds from the block snapshot b (design 9.1) a synthetic
+// config without tunnels: one service with the CIDRs and the domains of b,
+// one rule with fallback: block whose via is a tunnel that does not exist, and
+// its RuleState{Fallback: true}. The table then gets reject routes on the
+// CIDRs and the resolver answers NODATA for the domains. b nil or empty: nil, nil.
+func blockConfig(b *state.Block) (*config.Config, []router.RuleState) {
+	panic("not implemented")
 }
 
 // toggle is the part of SetEnabled under mu: it checks the config and the

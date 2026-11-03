@@ -107,7 +107,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	// design 11: Save then Load gives the same toggles
 	path := filepath.Join(t.TempDir(), "state.json")
 	want := State{Tunnels: map[string]bool{"work": true, "home": false}}
-	if err := want.Save(path); err != nil {
+	if err := want.Save(path, -1); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	got, err := Load(path)
@@ -129,7 +129,7 @@ func TestSaveAtomic(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")
 	s := State{Tunnels: map[string]bool{"t1": true}}
-	if err := s.Save(path); err != nil {
+	if err := s.Save(path, -1); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
@@ -169,10 +169,10 @@ func TestSaveAtomic(t *testing.T) {
 func TestSaveOverwrite(t *testing.T) {
 	// design 11: a later Save replaces the file entirely
 	path := filepath.Join(t.TempDir(), "state.json")
-	if err := (State{Tunnels: map[string]bool{"old": true}}).Save(path); err != nil {
+	if err := (State{Tunnels: map[string]bool{"old": true}}).Save(path, -1); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	if err := (State{Tunnels: map[string]bool{"new": false}}).Save(path); err != nil {
+	if err := (State{Tunnels: map[string]bool{"new": false}}).Save(path, -1); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	got, err := Load(path)
@@ -191,7 +191,7 @@ func TestSaveMissingDir(t *testing.T) {
 	// design 11: Save does not create the directory; the error leaves no file
 	dir := filepath.Join(t.TempDir(), "missing")
 	path := filepath.Join(dir, "state.json")
-	if err := (State{Tunnels: map[string]bool{"t1": true}}).Save(path); err == nil {
+	if err := (State{Tunnels: map[string]bool{"t1": true}}).Save(path, -1); err == nil {
 		t.Fatal("Save: expected an error for a missing directory, got nil")
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {

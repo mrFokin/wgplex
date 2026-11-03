@@ -14,10 +14,20 @@ import (
 // it, tests use a fake. Errors meant for the client are *jrpc.JRPCError with
 // the codes above; any other error becomes Internal error.
 type Daemon interface {
-	Reload() (ApplyResult, error)
-	SetEnabled(name string, enabled bool) error
-	DisableAll() error
+	Reload() (ApplyResult, error)             // config.reload
+	Enable(name string) (EnableResult, error) // tunnel.enable
+	Disable(name string) error                // tunnel.disable
+	DisableAll() error                        // tunnel.disableAll
+	Pause() error                             // daemon.pause; works without a config
+	Resume() error                            // daemon.resume; works without a config
 	State() *State
+}
+
+// Meta are the fields of status.get that do not come from the daemon State.
+type Meta struct {
+	Version   string // of the engine
+	ConfigDir string // the config directory of the daemon
+	LogPath   string // the log file of the daemon
 }
 
 // peerKey is the context key of the peer of a connection.
@@ -29,46 +39,48 @@ type peer struct {
 	err error
 }
 
-// Serve serves the six methods (design 14) at Path on ln until ctx is done,
-// then shuts down gracefully. A connection whose peer uid (LOCAL_PEERCRED)
-// fails allow gets HTTP 403. Returns nil after ctx is done.
+// Serve serves the methods of design 14 at Path on ln until ctx is done,
+// then shuts down gracefully. Returns nil after ctx is done.
 //
-// The uid is taken in http.Server.ConnContext (set in BeforeServeFunc) and
-// checked by an Echo middleware on the jrpc Endpoint.
-func Serve(ctx context.Context, ln net.Listener, d Daemon, allow func(uid uint32) bool, log *slog.Logger) error {
+// Every connection is accepted: the peer uid (LOCAL_PEERCRED) is taken in
+// http.Server.ConnContext (set in BeforeServeFunc) and the handler of each
+// method reads it from the request context (design 5, 14). status.get and
+// diag.* answer everybody, redacted (Redact*) unless acc.CanControl(uid);
+// config.reload, tunnel.* and daemon.* need acc.CanControl(uid), else
+// CodeNoPermission with PermissionData{acc.Group()}. A peer whose uid failed
+// reads as one that cannot control and may not mutate. status.get gets
+// APIVersion, meta, CanControl and ControlGroup (acc.Group()) here.
+//
+// Signatures stage (M3): the rights, meta and the redaction are not wired yet;
+// every method calls d as is.
+func Serve(ctx context.Context, ln net.Listener, d Daemon, acc *Access, meta Meta, log *slog.Logger) error {
 	e := echo.New()
 	e.Logger = log
 
-	// check lets through requests whose connection peer passes allow.
-	check := func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c *echo.Context) error {
-			p, ok := c.Request().Context().Value(peerKey{}).(peer)
-			switch {
-			case !ok:
-				log.Warn("rpc: forbidden: no peer credentials")
-			case p.err != nil:
-				log.Warn("rpc: forbidden", "err", p.err)
-			case !allow(p.uid):
-				log.Warn("rpc: forbidden", "uid", p.uid)
-			default:
-				return next(c)
-			}
-			return c.String(http.StatusForbidden, "forbidden")
-		}
-	}
-
-	j := jrpc.Endpoint(e, Path, check)
+	j := jrpc.Endpoint(e, Path)
 	j.Method("config.reload", func(_ *jrpc.Context, _ struct{}) (ApplyResult, error) {
 		return d.Reload()
 	})
-	j.Method("tunnel.setEnabled", func(_ *jrpc.Context, p SetEnabledParams) (any, error) {
+	j.Method("tunnel.enable", func(_ *jrpc.Context, p EnableParams) (EnableResult, error) {
+		if p.Name == "" {
+			return EnableResult{}, jrpc.NewErrorInvalidParams(nil)
+		}
+		return d.Enable(p.Name)
+	})
+	j.Method("tunnel.disable", func(_ *jrpc.Context, p EnableParams) (any, error) {
 		if p.Name == "" {
 			return nil, jrpc.NewErrorInvalidParams(nil)
 		}
-		return nil, d.SetEnabled(p.Name, p.Enabled)
+		return nil, d.Disable(p.Name)
 	})
 	j.Method("tunnel.disableAll", func(_ *jrpc.Context, _ struct{}) (any, error) {
 		return nil, d.DisableAll()
+	})
+	j.Method("daemon.pause", func(_ *jrpc.Context, _ struct{}) (any, error) {
+		return nil, d.Pause()
+	})
+	j.Method("daemon.resume", func(_ *jrpc.Context, _ struct{}) (any, error) {
+		return nil, d.Resume()
 	})
 	j.Method("status.get", func(_ *jrpc.Context, _ struct{}) (Status, error) {
 		return StatusOf(d.State()), nil
