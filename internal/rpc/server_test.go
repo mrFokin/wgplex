@@ -611,6 +611,71 @@ func TestServeReadsRedacted(t *testing.T) {
 	sameJSON(t, "diag.explain", r.Result, RedactExplanation(e))
 }
 
+// design 5, 14 (plan M3, decision 1): a peer whose uid cannot be taken
+// (peer.err; here the connection is TCP, not a unix socket, so there is no
+// LOCAL_PEERCRED) reads as one that cannot control: reads work, redacted;
+// every mutating method is error 5 over HTTP 200, even under an Access that
+// would let the process control.
+func TestServePeerError(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newFixture(t)
+	st := newState(f)
+	d := &fakeDaemon{state: st}
+	acc := owner()
+	acc.ConfigGroup = func() string { return "wgpctl" }
+	s := serveOn(t, "", ln, d, acc, Meta{})
+	addr := ln.Addr().String()
+	s.client = &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				var nd net.Dialer
+				return nd.DialContext(ctx, "tcp", addr)
+			},
+			DisableKeepAlives: true,
+		},
+	}
+
+	r := s.call(t, "status.get", nil)
+	wantResult(t, "status.get", r)
+	var got Status
+	if err := json.Unmarshal(r.Result, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.CanControl || len(got.Warnings) != 0 || got.ControlGroup != "wgpctl" {
+		t.Errorf("status = %+v, want can_control false, redacted, control_group wgpctl", got)
+	}
+	wantResult(t, "diag.routes", s.call(t, "diag.routes", nil))
+	r = s.call(t, "diag.explain", ExplainParams{Query: "ifconfig.me"})
+	wantResult(t, "diag.explain", r)
+
+	for _, c := range []struct {
+		method string
+		params any
+	}{
+		{"config.reload", nil},
+		{"tunnel.enable", EnableParams{Name: "de"}},
+		{"tunnel.disable", EnableParams{Name: "de"}},
+		{"tunnel.disableAll", nil},
+		{"daemon.pause", nil},
+		{"daemon.resume", nil},
+	} {
+		r := s.call(t, c.method, c.params)
+		wantCode(t, c.method, r, CodeNoPermission)
+		js, _ := json.Marshal(r.Error.Data)
+		var data PermissionData
+		if err := json.Unmarshal(js, &data); err != nil || data.ControlGroup != "wgpctl" {
+			t.Errorf("%s: data %s, want control_group wgpctl", c.method, js)
+		}
+	}
+	if calls := d.mutating(); len(calls) != 0 {
+		t.Errorf("daemon changed for a peer without a uid: %+v", calls)
+	}
+}
+
 // Not JSON is 415.
 func TestServeNotJSON(t *testing.T) {
 	s := startServe(t, &fakeDaemon{}, nil)
