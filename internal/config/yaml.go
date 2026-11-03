@@ -11,10 +11,11 @@ import (
 // rawConfig mirrors wgplex.yaml (design 10.1). Optional fields are pointers
 // so that defaults (design 10.1) can be told apart from explicit values.
 type rawConfig struct {
-	IPv6Filter *bool                 `yaml:"ipv6_filter"`
-	Tunnels    []rawTunnel           `yaml:"tunnels"`
-	Services   map[string]rawService `yaml:"services"`
-	Rules      []rawRule             `yaml:"rules"`
+	ControlGroup string                `yaml:"control_group"`
+	IPv6Filter   *bool                 `yaml:"ipv6_filter"`
+	Tunnels      []rawTunnel           `yaml:"tunnels"`
+	Services     map[string]rawService `yaml:"services"`
+	Rules        []rawRule             `yaml:"rules"`
 }
 
 type rawTunnel struct {
