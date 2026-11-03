@@ -25,8 +25,12 @@ commands:
   routes                current routes: from configs and dynamic
   up <tunnel>           enable a tunnel
   down <tunnel>         disable a tunnel
-  reload [-config dir]  re-read the config (default <prefix>/etc/wgplex)
-  daemon [-v]           run the daemon (as root)
+  reload                the daemon re-reads its config
+  check [-config dir]   check the config without the daemon and root
+                        (default <prefix>/etc/wgplex)
+  daemon [-v]           run the daemon (as root); debug flags:
+                        -config dir, -state path, -log path
+
   version               print the version
 `
 
@@ -42,6 +46,8 @@ func main() {
 	switch cmd.Name {
 	case "daemon":
 		os.Exit(daemonMain(cmd))
+	case "check":
+		os.Exit(checkMain(cmd, os.Stdout, os.Stderr))
 	case "version":
 		fmt.Println("wgplex", version)
 		return
@@ -80,7 +86,9 @@ func run(cmd command) error {
 		p := rpc.SetEnabledParams{Name: cmd.Arg, Enabled: cmd.Name == "up"}
 		return call(ctx, sock, "tunnel.setEnabled", p, nil)
 	case "reload":
-		files, err := readConfigDir(cmd.ConfigDir)
+		// Until config.reload (plan m2, task C) the client still sends the
+		// default config directory.
+		files, err := readConfigDir(pathsFor(defaultPrefix()).ConfigDir)
 		if err != nil {
 			return fmt.Errorf("read config: %w", err)
 		}

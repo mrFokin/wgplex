@@ -12,10 +12,12 @@ import (
 var errUsage = errors.New("usage")
 
 type command struct {
-	Name      string // status | explain | routes | up | down | reload | daemon | version
+	Name      string // status | explain | routes | up | down | reload | check | daemon | version
 	Arg       string // explain: query; up, down: tunnel
-	ConfigDir string // reload: -config or the default (design 3)
-	Socket    string // -socket or the default (design 3)
+	ConfigDir string // daemon, check: -config or the default (design 3)
+	Socket    string // -socket or the default (design 3); not for check
+	State     string // daemon: -state or the default (design 3)
+	Log       string // daemon: -log or the default (design 3)
 	Verbose   bool   // daemon: -v
 }
 
@@ -27,24 +29,29 @@ var nargs = map[string]int{
 	"up":      1,
 	"down":    1,
 	"reload":  0,
+	"check":   0,
 	"daemon":  0,
 	"version": 0,
 }
 
 // parseArgs parses os.Args[1:]: [flags] <command> [arg] [flags]. The flags
-// are -socket path (every command), -config dir (reload only) and -v
-// (daemon only); they may go before the command or after it and its
-// argument. A usage error is errUsage-wrapped (exit 2): no or an unknown
+// (design 13) are -socket path (every command but check), -config dir
+// (daemon and check), -state path, -log path and -v (daemon only); they may
+// go before the command or after it and its argument. A usage error is errUsage-wrapped (exit 2): no or an unknown
 // command, a wrong number of arguments, an empty argument, a flag the
 // command does not take.
 //
 // def gives the defaults (pathsFor(defaultPrefix()) in main), so parseArgs
-// itself looks at nothing outside args. ConfigDir is set for reload only.
+// itself looks at nothing outside args. ConfigDir is set for daemon and
+// check only, State and Log for daemon only. reload takes no -config: the
+// daemon reads its own config directory (design 10.2).
 func parseArgs(args []string, def paths) (command, error) {
 	fs := flag.NewFlagSet("wgplex", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	socket := fs.String("socket", def.Socket, "RPC socket `path`")
 	dir := fs.String("config", def.ConfigDir, "config `dir`")
+	state := fs.String("state", def.State, "state `path` (daemon)")
+	logPath := fs.String("log", def.Log, "log `path` (daemon)")
 	verbose := fs.Bool("v", false, "debug logging (daemon)")
 	if err := fs.Parse(args); err != nil {
 		return command{}, fmt.Errorf("%w: %v", errUsage, err)
@@ -79,18 +86,33 @@ func parseArgs(args []string, def paths) (command, error) {
 	if fs.NArg() > 0 {
 		return command{}, fmt.Errorf("%w: %s takes %d argument(s)", errUsage, cmd.Name, n)
 	}
+	daemon, check := cmd.Name == "daemon", cmd.Name == "check"
 	var bad error
 	fs.Visit(func(f *flag.Flag) {
-		if bad == nil && (f.Name == "config" && cmd.Name != "reload" || f.Name == "v" && cmd.Name != "daemon") {
+		var ok bool
+		switch f.Name {
+		case "socket":
+			ok = !check
+		case "config":
+			ok = daemon || check
+		default: // state, log, v
+			ok = daemon
+		}
+		if bad == nil && !ok {
 			bad = fmt.Errorf("%w: %s does not take -%s", errUsage, cmd.Name, f.Name)
 		}
 	})
 	if bad != nil {
 		return command{}, bad
 	}
-	cmd.Socket, cmd.Verbose = *socket, *verbose
-	if cmd.Name == "reload" {
+	if !check {
+		cmd.Socket = *socket
+	}
+	if daemon || check {
 		cmd.ConfigDir = *dir
+	}
+	if daemon {
+		cmd.State, cmd.Log, cmd.Verbose = *state, *logPath, *verbose
 	}
 	return cmd, nil
 }

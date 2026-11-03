@@ -10,21 +10,23 @@ import (
 	"github.com/mrFokin/wgplex/internal/dns"
 )
 
-// planApply decides the tunnels after applying next over cur.
-// enabled: tunnels enabled now; running: those with a utun. cur nil (first
-// apply): a tunnel is on by its autostart. Otherwise a tunnel kept by name
-// keeps its toggle, a new one gets its autostart, a removed one is gone.
+// planApply decides the tunnels after applying next over cur (design 10.2).
+// switches: the explicit toggles (state.json, design 11); running: tunnels
+// with a utun. A tunnel of next is on by switches[name] when it has an entry,
+// otherwise by its autostart, on every apply (cur nil or not): an autostart
+// edit takes effect with the next reload. A removed tunnel is gone.
 // restart: kept, running, enabled and its WGConfig changed (reflect.DeepEqual).
 // stop: running and (not enabled in next or restart); start: enabled in next
 // and (not running or restart). Both in next's (stop: cur's) tunnel order.
+// cur nil (first apply): nothing to stop or restart.
 //
 // nextEnabled holds only enabled tunnels (all values true).
-func planApply(cur, next *config.Config, enabled, running map[string]bool) (nextEnabled map[string]bool, stop, start []string) {
+func planApply(cur, next *config.Config, switches, running map[string]bool) (nextEnabled map[string]bool, stop, start []string) {
 	nextEnabled = map[string]bool{}
 	for _, t := range next.Tunnels {
 		on := t.Autostart
 		if cur != nil && findTunnel(cur, t.Name) != nil {
-			on = enabled[t.Name]
+			on = switches[t.Name]
 		}
 		if on {
 			nextEnabled[t.Name] = true

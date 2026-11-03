@@ -63,7 +63,7 @@ func printStatus(w io.Writer, s rpc.Status, now time.Time) {
 					tx += p.TxBytes
 				}
 				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n", t.Name, t.State, t.Interface,
-					formatAgo(last, now), formatCheck(t.Check), formatBytes(rx), formatBytes(tx), t.RouteCount, t.Reason)
+					formatAgo(last, now), formatCheckStatus(t.Check), formatBytes(rx), formatBytes(tx), t.RouteCount, t.Reason)
 			case "off":
 				fmt.Fprintf(tw, "%s\t%s\t\t\t\t\t\t\t\n", t.Name, t.State)
 			default:
@@ -275,10 +275,10 @@ func printRPCError(w io.Writer, e *jrpc.JRPCError) {
 	}
 }
 
-// formatCheck formats the active check for the CHECK column: "-" without a
+// formatCheckStatus formats the active check for the CHECK column: "-" without a
 // check, "fail N" after N failures in a row, "12ms" (RTT of the last
 // successful check, whole ms), "?" before the first check.
-func formatCheck(c *rpc.CheckStatus) string {
+func formatCheckStatus(c *rpc.CheckStatus) string {
 	switch {
 	case c == nil:
 		return "-"
