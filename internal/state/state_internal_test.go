@@ -7,14 +7,14 @@ import (
 	"testing"
 )
 
-func TestImplLoadMissing(t *testing.T) {
+func TestInternalLoadMissing(t *testing.T) {
 	s, err := Load(filepath.Join(t.TempDir(), "state.json"))
 	if err != nil || len(s.Tunnels) != 0 {
 		t.Fatalf("Load = %+v, %v; want empty, nil", s, err)
 	}
 }
 
-func TestImplLoad(t *testing.T) {
+func TestInternalLoad(t *testing.T) {
 	cases := []struct {
 		name    string
 		data    string
@@ -46,7 +46,7 @@ func TestImplLoad(t *testing.T) {
 	}
 }
 
-func TestImplLoadUnreadable(t *testing.T) {
+func TestInternalLoadUnreadable(t *testing.T) {
 	dir := t.TempDir()
 	// A directory in place of the file: read fails.
 	p := filepath.Join(dir, "state.json")
@@ -59,7 +59,7 @@ func TestImplLoadUnreadable(t *testing.T) {
 	}
 }
 
-func TestImplSaveRoundTrip(t *testing.T) {
+func TestInternalSaveRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "state.json")
 	if err := os.WriteFile(p, []byte("old"), 0o600); err != nil {
@@ -80,10 +80,10 @@ func TestImplSaveRoundTrip(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(out, in) {
 		t.Fatalf("Load = %+v, %v; want %+v", out, err, in)
 	}
-	implOnlyFile(t, dir, "state.json")
+	internalOnlyFile(t, dir, "state.json")
 }
 
-func TestImplSaveNoDir(t *testing.T) {
+func TestInternalSaveNoDir(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "missing", "state.json")
 	if err := (State{}).Save(p); err == nil {
@@ -94,7 +94,7 @@ func TestImplSaveNoDir(t *testing.T) {
 	}
 }
 
-func TestImplSaveRenameFails(t *testing.T) {
+func TestInternalSaveRenameFails(t *testing.T) {
 	dir := t.TempDir()
 	// A non-empty directory in place of the file: rename fails.
 	p := filepath.Join(dir, "state.json")
@@ -104,10 +104,10 @@ func TestImplSaveRenameFails(t *testing.T) {
 	if err := (State{Tunnels: map[string]bool{"a": true}}).Save(p); err == nil {
 		t.Fatal("Save: no error")
 	}
-	implOnlyFile(t, dir, "state.json")
+	internalOnlyFile(t, dir, "state.json")
 }
 
-func TestImplPrune(t *testing.T) {
+func TestInternalPrune(t *testing.T) {
 	s := State{Tunnels: map[string]bool{"a": true, "b": false, "c": true}}
 	if !s.Prune([]string{"a", "c", "z"}) {
 		t.Fatal("Prune dropped nothing")
@@ -124,8 +124,8 @@ func TestImplPrune(t *testing.T) {
 	}
 }
 
-// implOnlyFile fails unless dir holds just name (no temporary files left).
-func implOnlyFile(t *testing.T, dir, name string) {
+// internalOnlyFile fails unless dir holds just name (no temporary files left).
+func internalOnlyFile(t *testing.T, dir, name string) {
 	t.Helper()
 	ents, err := os.ReadDir(dir)
 	if err != nil {

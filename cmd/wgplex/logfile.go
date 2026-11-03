@@ -13,8 +13,8 @@ import (
 // logRotateSize is the size at which the log is rotated (design 15).
 const logRotateSize = 5 << 20
 
-// logMode is the mode of the log file and its archives (design 15).
-const logMode = 0o640
+// logFileMode is the mode of the log file and its archives (design 15).
+const logFileMode = 0o640
 
 // rotatingFile is the daemon log <prefix>/var/log/wgplex/wgplex.log
 // (design 15). It counts the bytes written under a mutex; at logRotateSize
@@ -141,11 +141,11 @@ func (l *rotatingFile) rotate() error {
 // open opens the log file for appending, makes it 0640 and gives it the group
 // gid (when one is set), and returns its current size.
 func (l *rotatingFile) open() (*os.File, int64, error) {
-	f, err := os.OpenFile(l.path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, logMode)
+	f, err := os.OpenFile(l.path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, logFileMode)
 	if err != nil {
 		return nil, 0, fmt.Errorf("log %s: %w", l.path, err)
 	}
-	if err := f.Chmod(logMode); err != nil {
+	if err := f.Chmod(logFileMode); err != nil {
 		f.Close()
 		return nil, 0, fmt.Errorf("log %s: %w", l.path, err)
 	}

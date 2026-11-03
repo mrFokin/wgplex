@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -32,7 +31,6 @@ import (
 
 type recordedCall struct {
 	method  string
-	files   map[string]string
 	name    string
 	enabled bool
 }
@@ -48,10 +46,10 @@ type fakeDaemon struct {
 	state       *State
 }
 
-func (d *fakeDaemon) Apply(files map[string]string) (ApplyResult, error) {
+func (d *fakeDaemon) Reload() (ApplyResult, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.calls = append(d.calls, recordedCall{method: "Apply", files: maps.Clone(files)})
+	d.calls = append(d.calls, recordedCall{method: "Reload"})
 	return d.applyResult, d.applyErr
 }
 
@@ -273,34 +271,34 @@ func sameJSON(t *testing.T, method string, got json.RawMessage, want any) {
 
 // --- methods ------------------------------------------------------------------------
 
-// design 14: config.apply passes the files to the daemon and returns its result.
-func TestServeApply(t *testing.T) {
+// design 14: config.reload (no params) makes the daemon re-read its config
+// directory and returns its result.
+func TestServeReload(t *testing.T) {
 	d := &fakeDaemon{applyResult: ApplyResult{
 		Warnings: []string{`service "tg" is not used by any rule`},
 		Tunnels:  []TunnelError{{Name: "bad", Error: "resolve endpoints: no such host"}},
 	}}
 	s := startServe(t, d, nil)
-	files := map[string]string{"wgplex.yaml": "tunnels: []\n", "de.conf": "[Interface]\n"}
-	r := s.call(t, "config.apply", ApplyParams{Files: files})
-	wantResult(t, "config.apply", r)
-	sameJSON(t, "config.apply", r.Result, d.applyResult)
+	r := s.call(t, "config.reload", nil)
+	wantResult(t, "config.reload", r)
+	sameJSON(t, "config.reload", r.Result, d.applyResult)
 
 	calls := d.mutating()
-	if len(calls) != 1 || calls[0].method != "Apply" || !maps.Equal(calls[0].files, files) {
-		t.Errorf("daemon calls = %+v, want one Apply with the files", calls)
+	if len(calls) != 1 || calls[0].method != "Reload" {
+		t.Errorf("daemon calls = %+v, want one Reload", calls)
 	}
 }
 
 // CodeConfigInvalid passes as is, with ConfigErrorData in data.
-func TestServeApplyConfigInvalid(t *testing.T) {
+func TestServeReloadConfigInvalid(t *testing.T) {
 	data := ConfigErrorData{
 		Errors:   []string{`tunnel "x": conf "x.conf" not found`},
 		Warnings: []string{"w1"},
 	}
 	d := &fakeDaemon{applyErr: jrpc.NewError(CodeConfigInvalid, "config is invalid", data)}
 	s := startServe(t, d, nil)
-	r := s.call(t, "config.apply", ApplyParams{Files: map[string]string{"wgplex.yaml": "x"}})
-	wantCode(t, "config.apply", r, CodeConfigInvalid)
+	r := s.call(t, "config.reload", nil)
+	wantCode(t, "config.reload", r, CodeConfigInvalid)
 	if r.Error.Message != "config is invalid" {
 		t.Errorf("message %q", r.Error.Message)
 	}

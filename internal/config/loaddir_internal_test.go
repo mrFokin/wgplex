@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// Implementation tests of LoadDir, checkAccess, tccError and control_group
+// Internal tests of LoadDir, checkAccess, tccError and control_group
 // (go-dev); the design-driven ones are in dir_test.go and controlgroup_test.go.
 
 const loadDirYAML = `
@@ -98,7 +98,7 @@ func hasMsg(errs Errors, parts ...string) bool {
 	return false
 }
 
-func TestLoadDirImplOK(t *testing.T) {
+func TestLoadDirInternalOK(t *testing.T) {
 	stubGroups(t, "admin")
 	conf := simpleConf(t)
 	dir := writeDir(t, map[string]string{
@@ -120,7 +120,7 @@ func TestLoadDirImplOK(t *testing.T) {
 	}
 }
 
-func TestLoadDirImplMissing(t *testing.T) {
+func TestLoadDirInternalMissing(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nope")
 	errs, _ := loadDirErrs(t, dir)
 	if len(errs) != 1 || errs[0].Error() != "config directory "+dir+" not found" {
@@ -128,14 +128,14 @@ func TestLoadDirImplMissing(t *testing.T) {
 	}
 }
 
-func TestLoadDirImplNoMain(t *testing.T) {
+func TestLoadDirInternalNoMain(t *testing.T) {
 	errs, _ := loadDirErrs(t, writeDir(t, nil, nil))
 	if len(errs) != 1 || errs[0].Error() != "wgplex.yaml not found" {
 		t.Errorf("errs = %v", errs)
 	}
 }
 
-func TestLoadDirImplCollectsAll(t *testing.T) {
+func TestLoadDirInternalCollectsAll(t *testing.T) {
 	asked := stubGroups(t)
 	yaml := "control_group: nosuchgroup\n" + loadDirYAML + "  - services: [missing]\n"
 	dir := writeDir(t, map[string]string{"wgplex.yaml": yaml, "work.conf": simpleConf(t)},
@@ -160,7 +160,7 @@ func TestLoadDirImplCollectsAll(t *testing.T) {
 	}
 }
 
-func TestLoadDirImplConfWarn(t *testing.T) {
+func TestLoadDirInternalConfWarn(t *testing.T) {
 	stubGroups(t, "admin")
 	dir := writeDir(t, map[string]string{"wgplex.yaml": loadDirYAML, "work.conf": simpleConf(t)},
 		map[string]fs.FileMode{"wgplex.yaml": 0o644, "work.conf": 0o640})
@@ -173,7 +173,7 @@ func TestLoadDirImplConfWarn(t *testing.T) {
 	}
 }
 
-func TestLoadDirImplNotRead(t *testing.T) {
+func TestLoadDirInternalNotRead(t *testing.T) {
 	stubGroups(t, "admin")
 	t.Run("fifo", func(t *testing.T) {
 		dir := writeDir(t, map[string]string{"wgplex.yaml": loadDirYAML}, nil)
@@ -207,7 +207,7 @@ func TestLoadDirImplNotRead(t *testing.T) {
 	})
 }
 
-func TestLoadDirImplSymlink(t *testing.T) {
+func TestLoadDirInternalSymlink(t *testing.T) {
 	stubGroups(t, "admin")
 	dir := writeDir(t, map[string]string{"wgplex.yaml": loadDirYAML}, nil)
 	target := filepath.Join(t.TempDir(), "real.conf")
@@ -229,7 +229,7 @@ func TestLoadDirImplSymlink(t *testing.T) {
 	}
 }
 
-func TestLoadDirImplUnreadNotFound(t *testing.T) {
+func TestLoadDirInternalUnreadNotFound(t *testing.T) {
 	stubGroups(t, "admin")
 	yaml := loadDirYAML + `
   - services: [s]
@@ -276,7 +276,7 @@ services:
 	}
 }
 
-func TestCheckGroupImpl(t *testing.T) {
+func TestCheckGroupInternal(t *testing.T) {
 	asked := stubGroups(t, "staff")
 	if w, err := checkGroup("12345"); w != "" || err != nil || len(*asked) != 0 {
 		t.Errorf("numeric gid: %q, %v, looked up %q", w, err, *asked)
@@ -290,7 +290,7 @@ func TestCheckGroupImpl(t *testing.T) {
 	}
 }
 
-func TestCheckAccessImpl(t *testing.T) {
+func TestCheckAccessInternal(t *testing.T) {
 	reg := func(mode fs.FileMode, uid uint32) fileInfo {
 		return fileInfo{Name: "a.conf", Mode: mode, UID: uid, Size: 10}
 	}
@@ -326,7 +326,7 @@ func TestCheckAccessImpl(t *testing.T) {
 	}
 }
 
-func TestControlGroupDefaultImpl(t *testing.T) {
+func TestControlGroupDefaultInternal(t *testing.T) {
 	cfg, _ := mustLoad(t, filesOf("ipv6_filter: false\n", nil))
 	if cfg.ControlGroup != "admin" {
 		t.Errorf("default = %q", cfg.ControlGroup)
@@ -337,7 +337,7 @@ func TestControlGroupDefaultImpl(t *testing.T) {
 	}
 }
 
-func TestTCCErrorImpl(t *testing.T) {
+func TestTCCErrorInternal(t *testing.T) {
 	p := "/Users/x/Documents/work.conf"
 	eperm := tccError(p, &fs.PathError{Op: "open", Path: p, Err: syscall.EPERM})
 	if !strings.Contains(eperm.Error(), "TCC") || !strings.Contains(eperm.Error(), "config directory") ||

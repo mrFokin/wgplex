@@ -8,22 +8,23 @@ import (
 // Tests follow design 10.2, 11, not the implementation. Fixtures reuse the
 // m6 helpers of apply_test.go (generated keys).
 
-// design 10.2: a repeated apply keeps the current toggles; a new tunnel gets
-// its autostart (tunnel toggles live in memory).
+// design 10.2, 11: a repeated apply keeps the explicit toggles
+// (state.json switches); a new tunnel without an entry gets its autostart.
 func TestPlanApplyRepeatedNewTunnels(t *testing.T) {
 	cs := newConfFiles(t)
 	yaml := baseYAML(baseTunnels()...)
 	cur := loadConfig(t, yaml, cs.texts(nil))
 	next := loadConfig(t, yaml, cs.texts(nil))
 	on := boolSet("work", "home", "fi")
-	checkPlan(t, "same config", cur, next, on, on, planWant{
+	switches := map[string]bool{"work": true, "home": true, "fi": true, "de": false}
+	checkPlan(t, "same config", cur, next, switches, on, planWant{
 		enabled: []string{"fi", "home", "work"},
 	})
 
 	next2 := loadConfig(t, baseYAML(append(baseTunnels(),
 		tunnelYAML("nl", "rules", true),
 		tunnelYAML("lab", "config", false))...), cs.texts(nil))
-	checkPlan(t, "new tunnels", cur, next2, on, on, planWant{
+	checkPlan(t, "new tunnels", cur, next2, switches, on, planWant{
 		enabled: []string{"fi", "home", "nl", "work"},
 		start:   []string{"nl"},
 	})
@@ -32,7 +33,7 @@ func TestPlanApplyRepeatedNewTunnels(t *testing.T) {
 // --- checkWarnings with a check URL -----------------------------------
 
 // design 9 "HTTP", 9.3: an IP literal in a check URL of a family the tunnel
-// has no Address of is not checked: config.apply warns, one warning per
+// has no Address of is not checked: config.reload warns, one warning per
 // tunnel in config order, naming the tunnel and the address. A URL with a
 // host name gives no warning when the tunnel has a DNS server of a family
 // present in its Address (the default 1.1.1.1 serves an IPv4 tunnel); v6name
