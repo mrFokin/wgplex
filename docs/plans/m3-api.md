@@ -97,7 +97,7 @@ func (s State) Save(path string, gid int) error
 // cmd/wgplex
 // args: down -all; pause, resume; -json у status, explain, routes, check
 // main/format: exit codes, printPermission, versionWarning(cli, daemon string) string
-// daemon: Enable/Disable/Pause/Resume; blockConfig(*state.Block) (*config.Config, []router.RuleState)
+// daemon: Enable/Disable/Pause/Resume; blockConfig(*state.Block) (*config.Config, []router.RuleState) // nil при пустом/битом снимке
 ```
 
 ## Файлы и зоны агентов
@@ -190,9 +190,9 @@ func (s State) Save(path string, gid int) error
 
 - [x] План согласован (2026-11-03): «да» на все пять рекомендаций; в design 5 внесено: урезание `warnings`→`warning_count`, `servers` в `explain`, `LookupGroup` для существования группы. В `status.get` добавляется `warning_count`; ветка включает master 4e7858a (раздел 17 → wgplex-app)
 - [x] Spike (шаг 2): см. «Факты spike»; в VM остаётся universal и LaunchDaemon
-- [ ] Сигнатуры
-- [ ] Волна A/B/тесты
-- [ ] C, D, E
-- [ ] Ревью
+- [x] Сигнатуры (488efe8)
+- [x] Волна A/B/тесты: A уже вошла в коммит сигнатур (`state.go` реализован), B — права, `Access`, cgo, урезание, `status.get`; тесты test-dev
+- [x] C, D, E (демон: пауза, снимок, группа; CLI; `api.md`)
+- [x] Ревью (reviewer, opus). Блокер: нет тестов паузы и снимка → написаны (`daemon_pause_test.go`, `daemon_block_test.go`, `TestServePeerError`). Решения пользователя (2026-11-03): скрывать `reason` и `error` туннелей, скрывать `addrs` в `explain`, добавить `block_snapshot` в `status.get` — design 5, 14 и `api.md` обновлены. Исправлено: порядок проверки прав и пометки redacted в `api.md`, текст отказа в design 13, имя теста. Принято без правок (низкая серьёзность): предупреждение `IsMember` раз на ошибку, а не по uid; группа `state.json` не переписывается до первой записи; `dnsErr` не обновляется в `checkCapture` (сбросится при `reload`); `Resume` не отдаёт ошибки подъёма в ответ RPC.
 - [ ] Проверка в VM
 - [ ] Слияние
