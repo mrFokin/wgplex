@@ -10,15 +10,57 @@ package rpc
 // the check address or URL (Check.Addr), the texts of config errors and
 // warnings (ConfigErrors, Warnings; ConfigErrorCount and WarningCount stay).
 func RedactStatus(s Status) Status {
-	panic("not implemented")
+	if n := len(s.ConfigErrors); n > s.ConfigErrorCount {
+		s.ConfigErrorCount = n
+	}
+	if n := len(s.Warnings); n > s.WarningCount {
+		s.WarningCount = n
+	}
+	s.ConfigErrors, s.Warnings = nil, nil
+	tunnels := make([]TunnelStatus, len(s.Tunnels))
+	for i, t := range s.Tunnels {
+		if t.Peers != nil {
+			peers := make([]PeerStatus, len(t.Peers))
+			for j, p := range t.Peers {
+				p.Endpoint, p.Resolved = "", ""
+				peers[j] = p
+			}
+			t.Peers = peers
+		}
+		if t.Check != nil {
+			c := *t.Check
+			c.Addr = ""
+			t.Check = &c
+		}
+		tunnels[i] = t
+	}
+	if s.Tunnels != nil {
+		s.Tunnels = tunnels
+	}
+	return s
 }
 
 // RedactExplanation returns e without Servers and without Names of its Route.
 func RedactExplanation(e Explanation) Explanation {
-	panic("not implemented")
+	e.Servers = nil
+	if e.Route != nil {
+		r := *e.Route
+		r.Names = nil
+		e.Route = &r
+	}
+	return e
 }
 
 // RedactRoutes returns r without Names of the routes.
 func RedactRoutes(r Routes) Routes {
-	panic("not implemented")
+	if r.Routes == nil {
+		return r
+	}
+	routes := make([]RouteInfo, len(r.Routes))
+	for i, ri := range r.Routes {
+		ri.Names = nil
+		routes[i] = ri
+	}
+	r.Routes = routes
+	return r
 }

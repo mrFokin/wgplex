@@ -50,46 +50,91 @@ type peer struct {
 // CodeNoPermission with PermissionData{acc.Group()}. A peer whose uid failed
 // reads as one that cannot control and may not mutate. status.get gets
 // APIVersion, meta, CanControl and ControlGroup (acc.Group()) here.
-//
-// Signatures stage (M3): the rights, meta and the redaction are not wired yet;
-// every method calls d as is.
 func Serve(ctx context.Context, ln net.Listener, d Daemon, acc *Access, meta Meta, log *slog.Logger) error {
 	e := echo.New()
 	e.Logger = log
 
+	// canControl reports whether the peer of the request of c may control.
+	canControl := func(c *jrpc.Context) bool {
+		p, ok := c.Echo.Request().Context().Value(peerKey{}).(peer)
+		return ok && p.err == nil && acc.CanControl(p.uid)
+	}
+	// deny is the error of a mutating method for a peer that cannot control;
+	// nil: it can.
+	deny := func(c *jrpc.Context) error {
+		if canControl(c) {
+			return nil
+		}
+		return jrpc.NewError(CodeNoPermission, "permission denied", PermissionData{ControlGroup: acc.Group()})
+	}
+
 	j := jrpc.Endpoint(e, Path)
-	j.Method("config.reload", func(_ *jrpc.Context, _ struct{}) (ApplyResult, error) {
+	j.Method("config.reload", func(c *jrpc.Context, _ struct{}) (ApplyResult, error) {
+		if err := deny(c); err != nil {
+			return ApplyResult{}, err
+		}
 		return d.Reload()
 	})
-	j.Method("tunnel.enable", func(_ *jrpc.Context, p EnableParams) (EnableResult, error) {
+	j.Method("tunnel.enable", func(c *jrpc.Context, p EnableParams) (EnableResult, error) {
+		if err := deny(c); err != nil {
+			return EnableResult{}, err
+		}
 		if p.Name == "" {
 			return EnableResult{}, jrpc.NewErrorInvalidParams(nil)
 		}
 		return d.Enable(p.Name)
 	})
-	j.Method("tunnel.disable", func(_ *jrpc.Context, p EnableParams) (any, error) {
+	j.Method("tunnel.disable", func(c *jrpc.Context, p EnableParams) (any, error) {
+		if err := deny(c); err != nil {
+			return nil, err
+		}
 		if p.Name == "" {
 			return nil, jrpc.NewErrorInvalidParams(nil)
 		}
 		return nil, d.Disable(p.Name)
 	})
-	j.Method("tunnel.disableAll", func(_ *jrpc.Context, _ struct{}) (any, error) {
+	j.Method("tunnel.disableAll", func(c *jrpc.Context, _ struct{}) (any, error) {
+		if err := deny(c); err != nil {
+			return nil, err
+		}
 		return nil, d.DisableAll()
 	})
-	j.Method("daemon.pause", func(_ *jrpc.Context, _ struct{}) (any, error) {
+	j.Method("daemon.pause", func(c *jrpc.Context, _ struct{}) (any, error) {
+		if err := deny(c); err != nil {
+			return nil, err
+		}
 		return nil, d.Pause()
 	})
-	j.Method("daemon.resume", func(_ *jrpc.Context, _ struct{}) (any, error) {
+	j.Method("daemon.resume", func(c *jrpc.Context, _ struct{}) (any, error) {
+		if err := deny(c); err != nil {
+			return nil, err
+		}
 		return nil, d.Resume()
 	})
-	j.Method("status.get", func(_ *jrpc.Context, _ struct{}) (Status, error) {
-		return StatusOf(d.State()), nil
+	j.Method("status.get", func(c *jrpc.Context, _ struct{}) (Status, error) {
+		st := StatusOf(d.State())
+		st.APIVersion = APIVersion
+		st.Version, st.ConfigDir, st.LogPath = meta.Version, meta.ConfigDir, meta.LogPath
+		st.ControlGroup = acc.Group()
+		st.CanControl = canControl(c)
+		if !st.CanControl {
+			st = RedactStatus(st)
+		}
+		return st, nil
 	})
-	j.Method("diag.explain", func(_ *jrpc.Context, p ExplainParams) (Explanation, error) {
-		return Explain(d.State(), p.Query)
+	j.Method("diag.explain", func(c *jrpc.Context, p ExplainParams) (Explanation, error) {
+		e, err := Explain(d.State(), p.Query)
+		if err != nil || canControl(c) {
+			return e, err
+		}
+		return RedactExplanation(e), nil
 	})
-	j.Method("diag.routes", func(_ *jrpc.Context, _ struct{}) (Routes, error) {
-		return RoutesOf(d.State()), nil
+	j.Method("diag.routes", func(c *jrpc.Context, _ struct{}) (Routes, error) {
+		r := RoutesOf(d.State())
+		if canControl(c) {
+			return r, nil
+		}
+		return RedactRoutes(r), nil
 	})
 
 	sc := echo.StartConfig{

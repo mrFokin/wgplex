@@ -20,10 +20,11 @@ import (
 	"github.com/mrFokin/jrpc/v2"
 )
 
-// Tests follow design 14 (JSON-RPC 2.0 over the unix socket, POST /rpc,
-// socket 0666, a stale file removed, a second instance refused, a foreign
-// uid gets HTTP 403, the error codes) ("RPC",
-// 5, 8–4), not the implementation. The socket lives in
+// Tests follow design 5 and 14 (JSON-RPC 2.0 over the unix socket, POST
+// /rpc, socket 0666, a stale file removed, a second instance refused, rights
+// per method: a caller that cannot control reads redacted replies and gets
+// error 5 on mutating methods, no HTTP 403; the error codes), not the
+// implementation. The socket lives in
 // os.MkdirTemp("", "wgp"): t.TempDir() is too long for sun_path.
 // No root and no network: the client is net/http over the unix socket.
 
@@ -154,19 +155,39 @@ type testServer struct {
 	done   chan error
 }
 
-// startServe listens in a fresh folder and serves d; allow nil allows any uid.
+// owner is an Access under which the test process owns the config
+// directory: it controls.
+func owner() *Access {
+	return &Access{OwnerUID: func() (uint32, bool) { return uint32(os.Getuid()), true }}
+}
+
+// stranger is an Access under which the test process (not root) cannot
+// control: another owner, control_group "wgpctl" without it.
+func stranger(t *testing.T) *Access {
+	t.Helper()
+	if os.Getuid() == 0 {
+		t.Skip("root always controls")
+	}
+	return &Access{
+		OwnerUID:    func() (uint32, bool) { return uint32(os.Getuid()) + 1, true },
+		ConfigGroup: func() string { return "wgpctl" },
+		IsMember:    func(uint32, string) (bool, error) { return false, nil },
+	}
+}
+
+// startServe listens in a fresh folder and serves d under acc; nil: owner().
 // The server is stopped at cleanup.
-func startServe(t *testing.T, d Daemon, allow func(uint32) bool) *testServer {
+func startServe(t *testing.T, d Daemon, acc *Access) *testServer {
 	t.Helper()
 	path := filepath.Join(sockDir(t), "s.sock")
 	ln := listenUnix(t, path)
-	return serveOn(t, path, ln, d, allow)
+	return serveOn(t, path, ln, d, acc, Meta{})
 }
 
-func serveOn(t *testing.T, path string, ln net.Listener, d Daemon, allow func(uint32) bool) *testServer {
+func serveOn(t *testing.T, path string, ln net.Listener, d Daemon, acc *Access, meta Meta) *testServer {
 	t.Helper()
-	if allow == nil {
-		allow = func(uint32) bool { return true }
+	if acc == nil {
+		acc = owner()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &testServer{path: path, cancel: cancel, done: make(chan error, 1), client: unixClient(path)}
@@ -177,7 +198,7 @@ func serveOn(t *testing.T, path string, ln net.Listener, d Daemon, allow func(ui
 				s.done <- errors.New("Serve panicked")
 			}
 		}()
-		s.done <- Serve(ctx, ln, d, &Access{}, Meta{}, log)
+		s.done <- Serve(ctx, ln, d, acc, meta, log)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -333,29 +354,29 @@ func TestServeReloadConfigInvalid(t *testing.T) {
 	}
 }
 
-// design 14: tunnel.setEnabled passes name and enabled; the result is null.
-func TestServeSetEnabled(t *testing.T) {
-	t.Skip("M3 signatures: tunnel.setEnabled and HTTP 403 are replaced (plan M3, decisions 1, 7); rewritten with the rights per method")
+// design 14: tunnel.enable passes the name and returns EnableResult;
+// tunnel.disable passes the name and returns null.
+func TestServeEnableDisable(t *testing.T) {
 	d := &fakeDaemon{}
 	s := startServe(t, d, nil)
-	for _, on := range []bool{true, false} {
-		r := s.call(t, "tunnel.setEnabled", map[string]any{"name": "de", "enabled": on})
-		wantResult(t, "tunnel.setEnabled", r)
-		if string(r.Result) != "null" {
-			t.Errorf("tunnel.setEnabled: result %s, want null", r.Result)
-		}
+	r := s.call(t, "tunnel.enable", EnableParams{Name: "de"})
+	wantResult(t, "tunnel.enable", r)
+	sameJSON(t, "tunnel.enable", r.Result, EnableResult{})
+	r = s.call(t, "tunnel.disable", EnableParams{Name: "de"})
+	wantResult(t, "tunnel.disable", r)
+	if string(r.Result) != "null" {
+		t.Errorf("tunnel.disable: result %s, want null", r.Result)
 	}
 	calls := d.mutating()
 	if len(calls) != 2 ||
-		calls[0].method != "SetEnabled" || calls[0].name != "de" || !calls[0].enabled ||
-		calls[1].method != "SetEnabled" || calls[1].name != "de" || calls[1].enabled {
+		calls[0].method != "Enable" || calls[0].name != "de" ||
+		calls[1].method != "Disable" || calls[1].name != "de" {
 		t.Errorf("daemon calls = %+v", calls)
 	}
 }
 
 // The daemon codes pass as is; any other error is Internal error.
-func TestServeSetEnabledErrors(t *testing.T) {
-	t.Skip("M3 signatures: tunnel.setEnabled and HTTP 403 are replaced (plan M3, decisions 1, 7); rewritten with the rights per method")
+func TestServeEnableDisableErrors(t *testing.T) {
 	cases := []struct {
 		err  error
 		code int
@@ -368,26 +389,43 @@ func TestServeSetEnabledErrors(t *testing.T) {
 	for _, c := range cases {
 		d := &fakeDaemon{setErr: c.err}
 		s := startServe(t, d, nil)
-		r := s.call(t, "tunnel.setEnabled", map[string]any{"name": "nosuch", "enabled": true})
-		wantCode(t, "tunnel.setEnabled", r, c.code)
-		var je *jrpc.JRPCError
-		if errors.As(c.err, &je) && r.Error != nil && r.Error.Message != je.Message {
-			t.Errorf("message %q, want %q", r.Error.Message, je.Message)
+		for _, m := range []string{"tunnel.enable", "tunnel.disable"} {
+			r := s.call(t, m, EnableParams{Name: "nosuch"})
+			wantCode(t, m, r, c.code)
+			var je *jrpc.JRPCError
+			if errors.As(c.err, &je) && r.Error != nil && r.Error.Message != je.Message {
+				t.Errorf("%s: message %q, want %q", m, r.Error.Message, je.Message)
+			}
 		}
 	}
 }
 
 // An empty tunnel name and params that do not bind are Invalid params.
-func TestServeSetEnabledInvalidParams(t *testing.T) {
-	t.Skip("M3 signatures: tunnel.setEnabled and HTTP 403 are replaced (plan M3, decisions 1, 7); rewritten with the rights per method")
+func TestServeEnableInvalidParams(t *testing.T) {
 	d := &fakeDaemon{}
 	s := startServe(t, d, nil)
-	r := s.call(t, "tunnel.setEnabled", map[string]any{"name": "", "enabled": true})
-	wantCode(t, "empty name", r, -32602)
-	r = s.call(t, "tunnel.setEnabled", map[string]any{"name": 5, "enabled": "yes"})
-	wantCode(t, "bad types", r, -32602)
+	for _, m := range []string{"tunnel.enable", "tunnel.disable"} {
+		wantCode(t, m+" empty name", s.call(t, m, EnableParams{}), -32602)
+		wantCode(t, m+" bad types", s.call(t, m, map[string]any{"name": 5}), -32602)
+	}
 	if calls := d.mutating(); len(calls) != 0 {
 		t.Errorf("daemon called with invalid params: %+v", calls)
+	}
+}
+
+// design 12, 14: daemon.pause and daemon.resume take no params and return null.
+func TestServePauseResume(t *testing.T) {
+	d := &fakeDaemon{}
+	s := startServe(t, d, nil)
+	for _, m := range []string{"daemon.pause", "daemon.resume"} {
+		r := s.call(t, m, nil)
+		wantResult(t, m, r)
+		if string(r.Result) != "null" {
+			t.Errorf("%s: result %s, want null", m, r.Result)
+		}
+	}
+	if calls := d.mutating(); len(calls) != 2 || calls[0].method != "Pause" || calls[1].method != "Resume" {
+		t.Errorf("daemon calls = %+v, want Pause, Resume", calls)
 	}
 }
 
@@ -419,7 +457,9 @@ func TestServeReads(t *testing.T) {
 
 	r := s.call(t, "status.get", nil)
 	wantResult(t, "status.get", r)
-	sameJSON(t, "status.get", r.Result, statusOf(t, st))
+	want := statusOf(t, st)
+	want.APIVersion, want.CanControl = APIVersion, true
+	sameJSON(t, "status.get", r.Result, want)
 
 	r = s.call(t, "diag.routes", nil)
 	wantResult(t, "diag.routes", r)
@@ -443,7 +483,8 @@ func TestServeReads(t *testing.T) {
 	}
 }
 
-// An empty daemon (no config) answers status.get: not configured, icon off.
+// An empty daemon (no config) answers status.get: not configured, icon warn
+// (design 14).
 func TestServeStatusEmpty(t *testing.T) {
 	s := startServe(t, &fakeDaemon{}, nil)
 	r := s.call(t, "status.get", nil)
@@ -452,8 +493,8 @@ func TestServeStatusEmpty(t *testing.T) {
 	if err := json.Unmarshal(r.Result, &st); err != nil {
 		t.Fatal(err)
 	}
-	if st.Configured || st.Icon != "off" {
-		t.Errorf("status = %+v, want not configured, icon off", st)
+	if st.Configured || st.Icon != "warn" {
+		t.Errorf("status = %+v, want not configured, icon warn", st)
 	}
 }
 
@@ -464,50 +505,110 @@ func TestServeUnknownMethod(t *testing.T) {
 
 // --- access -------------------------------------------------------------------------
 
-// design 5, 14: allow gets the uid of the peer (LOCAL_PEERCRED): here our own.
-func TestServeAllowGetsUID(t *testing.T) {
-	t.Skip("M3 signatures: tunnel.setEnabled and HTTP 403 are replaced (plan M3, decisions 1, 7); rewritten with the rights per method")
+// design 5, 14: CanControl gets the uid of the peer (LOCAL_PEERCRED): here
+// our own. status.get carries api_version, meta, can_control and
+// control_group.
+func TestServeAccessGetsUID(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root controls without IsMember")
+	}
 	var mu sync.Mutex
 	var uids []uint32
-	allow := func(uid uint32) bool {
-		mu.Lock()
-		defer mu.Unlock()
-		uids = append(uids, uid)
-		return true
+	acc := &Access{
+		ConfigGroup: func() string { return "wgpctl" },
+		IsMember: func(uid uint32, _ string) (bool, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			uids = append(uids, uid)
+			return true, nil
+		},
 	}
-	s := startServe(t, &fakeDaemon{}, allow)
-	wantResult(t, "status.get", s.call(t, "status.get", nil))
+	path := filepath.Join(sockDir(t), "s.sock")
+	meta := Meta{Version: "1.2.3", ConfigDir: "/etc/wgplex", LogPath: "/var/log/wgplex.log"}
+	s := serveOn(t, path, listenUnix(t, path), &fakeDaemon{}, acc, meta)
+	r := s.call(t, "status.get", nil)
+	wantResult(t, "status.get", r)
+	var st Status
+	if err := json.Unmarshal(r.Result, &st); err != nil {
+		t.Fatal(err)
+	}
+	if st.APIVersion != APIVersion || st.Version != meta.Version || st.ConfigDir != meta.ConfigDir ||
+		st.LogPath != meta.LogPath || !st.CanControl || st.ControlGroup != "wgpctl" {
+		t.Errorf("status = %+v, want api_version, meta, can_control, control_group wgpctl", st)
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	if len(uids) == 0 {
-		t.Fatal("allow was not called")
+		t.Fatal("IsMember was not called")
 	}
 	for _, u := range uids {
 		if u != uint32(os.Getuid()) {
-			t.Errorf("allow got uid %d, want %d", u, os.Getuid())
+			t.Errorf("IsMember got uid %d, want %d", u, os.Getuid())
 		}
 	}
 }
 
-// design 14: a uid that allow refuses gets HTTP 403 with body
-// "forbidden", no JSON-RPC; the daemon is not called.
-func TestServeForbidden(t *testing.T) {
-	t.Skip("M3 signatures: tunnel.setEnabled and HTTP 403 are replaced (plan M3, decisions 1, 7); rewritten with the rights per method")
+// design 5, 14: a caller that cannot control gets error 5 with control_group
+// on every mutating method, a JSON-RPC error over HTTP 200, not HTTP 403; the
+// daemon is not changed.
+func TestServeNoPermission(t *testing.T) {
 	d := &fakeDaemon{}
-	s := startServe(t, d, func(uint32) bool { return false })
-	for _, method := range []string{"status.get", "tunnel.disableAll"} {
-		body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method})
-		code, b := s.post(t, "application/json", body)
-		if code != http.StatusForbidden {
-			t.Errorf("%s: HTTP %d, want 403", method, code)
-		}
-		if !strings.Contains(string(b), "forbidden") || strings.Contains(string(b), "jsonrpc") {
-			t.Errorf("%s: body %q, want \"forbidden\" without JSON-RPC", method, b)
+	s := startServe(t, d, stranger(t))
+	for _, c := range []struct {
+		method string
+		params any
+	}{
+		{"config.reload", nil},
+		{"tunnel.enable", EnableParams{Name: "de"}},
+		{"tunnel.disable", EnableParams{Name: "de"}},
+		{"tunnel.disableAll", nil},
+		{"daemon.pause", nil},
+		{"daemon.resume", nil},
+	} {
+		r := s.call(t, c.method, c.params)
+		wantCode(t, c.method, r, CodeNoPermission)
+		js, _ := json.Marshal(r.Error.Data)
+		var data PermissionData
+		if err := json.Unmarshal(js, &data); err != nil || data.ControlGroup != "wgpctl" {
+			t.Errorf("%s: data %s, want control_group wgpctl", c.method, js)
 		}
 	}
-	if calls := d.Calls(); len(calls) != 0 {
-		t.Errorf("daemon called for a forbidden uid: %+v", calls)
+	if calls := d.mutating(); len(calls) != 0 {
+		t.Errorf("daemon changed for a caller that cannot control: %+v", calls)
 	}
+}
+
+// design 5, Visibility: a caller that cannot control reads status.get and
+// diag.*, redacted; can_control false.
+func TestServeReadsRedacted(t *testing.T) {
+	f := newFixture(t)
+	st := newState(f)
+	s := startServe(t, &fakeDaemon{state: st}, stranger(t))
+
+	r := s.call(t, "status.get", nil)
+	wantResult(t, "status.get", r)
+	want := RedactStatus(statusOf(t, st))
+	want.APIVersion, want.ControlGroup = APIVersion, "wgpctl"
+	sameJSON(t, "status.get", r.Result, want)
+	var got Status
+	if err := json.Unmarshal(r.Result, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.CanControl || len(got.Warnings) != 0 || got.WarningCount != len(st.Warnings) {
+		t.Errorf("status = %+v, want can_control false, warnings hidden, warning_count %d", got, len(st.Warnings))
+	}
+
+	r = s.call(t, "diag.routes", nil)
+	wantResult(t, "diag.routes", r)
+	sameJSON(t, "diag.routes", r.Result, RedactRoutes(routesOf(t, st)))
+
+	r = s.call(t, "diag.explain", ExplainParams{Query: "ifconfig.me"})
+	wantResult(t, "diag.explain", r)
+	e, err := explainOf(t, st, "ifconfig.me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameJSON(t, "diag.explain", r.Result, RedactExplanation(e))
 }
 
 // Not JSON is 415.
@@ -516,26 +617,6 @@ func TestServeNotJSON(t *testing.T) {
 	body := []byte(`{"jsonrpc":"2.0","id":1,"method":"status.get"}`)
 	if code, _ := s.post(t, "text/plain", body); code != http.StatusUnsupportedMediaType {
 		t.Errorf("text/plain: HTTP %d, want 415", code)
-	}
-}
-
-// design 14: the uid check comes before anything else: a
-// forbidden peer gets 403 even with a body that is not JSON (not 415).
-func TestServeForbiddenNotJSON(t *testing.T) {
-	t.Skip("M3 signatures: tunnel.setEnabled and HTTP 403 are replaced (plan M3, decisions 1, 7); rewritten with the rights per method")
-	d := &fakeDaemon{}
-	s := startServe(t, d, func(uint32) bool { return false })
-	for _, body := range []string{`{"jsonrpc":"2.0","id":1,"method":"status.get"}`, "hello"} {
-		code, b := s.post(t, "text/plain", []byte(body))
-		if code != http.StatusForbidden {
-			t.Errorf("text/plain %q: HTTP %d, want 403", body, code)
-		}
-		if !strings.Contains(string(b), "forbidden") {
-			t.Errorf("text/plain %q: body %q, want \"forbidden\"", body, b)
-		}
-	}
-	if calls := d.Calls(); len(calls) != 0 {
-		t.Errorf("daemon called for a forbidden uid: %+v", calls)
 	}
 }
 
@@ -573,7 +654,7 @@ func TestListenStale(t *testing.T) {
 	}
 
 	ln := listenUnix(t, path)
-	s := serveOn(t, path, ln, &fakeDaemon{}, nil)
+	s := serveOn(t, path, ln, &fakeDaemon{}, nil, Meta{})
 	wantResult(t, "status.get", s.call(t, "status.get", nil))
 }
 
