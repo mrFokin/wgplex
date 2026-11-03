@@ -16,7 +16,7 @@ import (
 // rule references to existing services and tunnels, valid domains and CIDRs,
 // DNS present in .conf for tunnels with dns_domains, no "=" in dns_domains,
 // one .conf per tunnel, required routes, no /0 in AllowedIPs with routes: config,
-// defaults (ipv6_filter: true, autostart: false, fallback: default). Every error is collected rather than
+// defaults (control_group: admin, ipv6_filter: true, autostart: false, fallback: default). Every error is collected rather than
 // stopping at the first one.
 //
 // Beyond design 10.1: a tunnel name must be non-empty, check must be an IP
@@ -29,7 +29,7 @@ import (
 func build(raw *rawConfig, files map[string][]byte) (cfg *Config, warnings []string, errs []error) {
 	errf := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 
-	cfg = &Config{IPv6Filter: true, Services: map[string]Service{}}
+	cfg = &Config{ControlGroup: controlGroup(raw), IPv6Filter: true, Services: map[string]Service{}}
 	if raw.IPv6Filter != nil {
 		cfg.IPv6Filter = *raw.IPv6Filter
 	}
@@ -190,6 +190,14 @@ func build(raw *rawConfig, files map[string][]byte) (cfg *Config, warnings []str
 		return nil, warnings, errs
 	}
 	return cfg, warnings, nil
+}
+
+// controlGroup is control_group of raw, "admin" when unset (design 10.1).
+func controlGroup(raw *rawConfig) string {
+	if raw.ControlGroup == "" {
+		return "admin"
+	}
+	return raw.ControlGroup
 }
 
 // parseDomain normalizes a domain pattern from YAML (design 7.4):
