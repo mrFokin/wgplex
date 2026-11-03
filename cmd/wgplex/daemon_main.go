@@ -117,11 +117,15 @@ func runDaemon(log *slog.Logger, logFile *rotatingFile, cmd command) int {
 
 	toggles, err := state.Load(cmd.State)
 	if err != nil {
-		log.Warn("state: tunnels by autostart", "err", err)
+		log.Warn("state: tunnels by autostart, no pause, no block snapshot", "err", err)
 	}
 
 	srv := &dns.Server{Log: log}
 	d := newDaemon(ctx, srv, log, cmd.ConfigDir, cmd.State, toggles, logFile)
+	// state.json has the group of the log, admin, until control_group (design 15).
+	if gid, err := groupID("admin"); err == nil {
+		d.gid = gid
+	}
 	d.setSystem() // the upstream of the resolver before any config
 	// Watching from before the config: a change of the network during the
 	// first apply is seen too.
@@ -138,7 +142,7 @@ func runDaemon(log *slog.Logger, logFile *rotatingFile, cmd command) int {
 
 	served := make(chan error, 1)
 	go func() {
-		acc := &rpc.Access{} // the funcs come with the daemon part of M3
+		acc := access(d, log)
 		meta := rpc.Meta{Version: version, ConfigDir: cmd.ConfigDir, LogPath: cmd.Log}
 		served <- rpc.Serve(ctx, ln, d, acc, meta, log)
 	}()
@@ -187,6 +191,41 @@ loop:
 	d.shutdown()
 	log.Info("stopped")
 	return code
+}
+
+// access returns the rights of the RPC callers (design 5): the owner of the
+// config directory of d by stat on every check (following a symlink, as the
+// config is read), control_group of the applied config and the membership by
+// Directory Services (rpc.IsMember).
+func access(d *daemon, log *slog.Logger) *rpc.Access {
+	return &rpc.Access{
+		OwnerUID: func() (uint32, bool) { return ownerUID(d.dir) },
+		ConfigGroup: func() string {
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			if d.cfg == nil {
+				return ""
+			}
+			return d.cfg.ControlGroup
+		},
+		IsMember: rpc.IsMember,
+		Now:      time.Now,
+		Log:      log,
+	}
+}
+
+// ownerUID returns the owner uid of dir; false: it cannot be stat'ed (not
+// there), so only root controls.
+func ownerUID(dir string) (uint32, bool) {
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return 0, false
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, false
+	}
+	return st.Uid, true
 }
 
 // logListenError reports a failure to listen on socket. The daemon creates
