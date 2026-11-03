@@ -42,11 +42,12 @@ func fullStatus() Status {
 				Check: &CheckStatus{Addr: "http://10.9.8.7/health", LastOK: redactT0, RTTMs: 12.5, Fails: 0},
 			},
 			{
-				Name: "fi", Enabled: true, State: "dead", Reason: "no handshake", Routes: "rules",
+				Name: "fi", Enabled: true, State: "dead", Reason: "http https://x.example/?token=SECRETTOK: 3 failures", Routes: "rules",
 				Peers: []PeerStatus{{Endpoint: "203.0.113.7:51820", Resolved: "203.0.113.7:51820"}},
 				Check: &CheckStatus{Addr: "198.51.100.9", Fails: 4},
 			},
 			{Name: "home", Enabled: false, State: "off", Routes: "config"},
+			{Name: "bad", Enabled: true, State: "error", Error: "resolve endpoints: lookup secret-dns.example via 192.0.2.53", Routes: "config"},
 		},
 		Rules: []RuleStatus{
 			{Index: 0, Services: []string{"tun"}, Via: []string{"de", "fi"}, Fallback: "default", Tunnel: "de"},
@@ -55,7 +56,7 @@ func fullStatus() Status {
 	}
 }
 
-var secretStrings = []string{"vpn-secret.example.net", "203.0.113.5", "203.0.113.7", "10.9.8.7", "198.51.100.9", "secret-host.example"}
+var secretStrings = []string{"vpn-secret.example.net", "203.0.113.5", "203.0.113.7", "10.9.8.7", "198.51.100.9", "secret-host.example", "SECRETTOK", "secret-dns.example", "192.0.2.53"}
 
 // design 5: the redacted status has no endpoint, resolved, check address, texts.
 func TestRedactStatusDropsSecrets(t *testing.T) {
@@ -81,7 +82,8 @@ func TestRedactStatusDropsSecrets(t *testing.T) {
 	}
 }
 
-// design 5: counts, names, states, via, reasons, traffic stay.
+// design 5: counts, names, states, via, rule reasons, traffic stay; the
+// tunnel reason and error texts go (they name the check URL, DNS servers).
 func TestRedactStatusKeeps(t *testing.T) {
 	in := fullStatus()
 	got := RedactStatus(in)
@@ -103,7 +105,7 @@ func TestRedactStatusKeeps(t *testing.T) {
 		g := got.Tunnels[i]
 		if g.Name != want.Name || g.Enabled != want.Enabled || g.State != want.State || g.Interface != want.Interface ||
 			!reflect.DeepEqual(g.Addresses, want.Addresses) || g.Routes != want.Routes || g.RouteCount != want.RouteCount ||
-			g.Reason != want.Reason || g.Error != want.Error {
+			g.Reason != "" || g.Error != "" {
 			t.Errorf("tunnel %s changed:\n got %+v\nwant %+v", want.Name, g, want)
 		}
 		if len(g.Peers) != len(want.Peers) {

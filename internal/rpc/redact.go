@@ -4,11 +4,14 @@ package rpc
 // (design 5, Visibility). They return a copy and do not change the slices of
 // their argument. Kept: names and states of tunnels, services and via of
 // rules, the serving tunnel, the fallback and its reason, addresses of the
-// tunnels, handshakes and traffic, config_error_count and warning_count.
+// tunnels, handshakes and traffic, config_error_count and warning_count. The
+// per-tunnel Reason and Error are dropped: they name the check URL (which may
+// hold a token), the pinged address, or the DNS servers of a failed resolve.
 
 // RedactStatus returns s without the endpoints of peers (Endpoint, Resolved),
-// the check address or URL (Check.Addr), the texts of config errors and
-// warnings (ConfigErrors, Warnings; ConfigErrorCount and WarningCount stay).
+// the check address or URL (Check.Addr), the reason and error of tunnels
+// (Reason, Error), the texts of config errors and warnings (ConfigErrors,
+// Warnings; ConfigErrorCount and WarningCount stay).
 func RedactStatus(s Status) Status {
 	if n := len(s.ConfigErrors); n > s.ConfigErrorCount {
 		s.ConfigErrorCount = n
@@ -19,6 +22,7 @@ func RedactStatus(s Status) Status {
 	s.ConfigErrors, s.Warnings = nil, nil
 	tunnels := make([]TunnelStatus, len(s.Tunnels))
 	for i, t := range s.Tunnels {
+		t.Reason, t.Error = "", ""
 		if t.Peers != nil {
 			peers := make([]PeerStatus, len(t.Peers))
 			for j, p := range t.Peers {

@@ -383,6 +383,7 @@ shape of the reply is otherwise the same.
 |---|---|---|
 | `status.get` | `tunnels[].peers[].endpoint`, `tunnels[].peers[].resolved` | — |
 | `status.get` | `tunnels[].check.addr` (the URL may contain a token) | — |
+| `status.get` | `tunnels[].reason`, `tunnels[].error` (they name the check URL or address, or the DNS servers of a failed resolve) | `state` stays (`dead`, `error`) |
 | `status.get` | `config_errors` | `config_error_count` |
 | `status.get` | `warnings` | `warning_count` |
 | `diag.explain` | `servers` | — |
