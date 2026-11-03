@@ -31,6 +31,9 @@ type State struct {
 	// status.get, kept on pause; Tunnels is what actually runs.
 	Switches map[string]bool
 	DNSError string // the system DNS capture failed: why; "": fine (icon warn)
+	// BlockSnapshot: no config is applied, but the block snapshot of the
+	// last applied one is enforced (design 9.1).
+	BlockSnapshot bool
 }
 
 // TunnelRuntime is an enabled tunnel: starting (Starting), running
@@ -70,6 +73,7 @@ const (
 func StatusOf(s *State) Status {
 	st := Status{
 		Configured:       s.Cfg != nil,
+		BlockSnapshot:    s.BlockSnapshot,
 		Paused:           s.Paused,
 		ConfigErrors:     s.ConfigErrors,
 		ConfigErrorCount: len(s.ConfigErrors),

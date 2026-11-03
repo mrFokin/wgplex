@@ -159,18 +159,23 @@ func fullExplanation() Explanation {
 	}
 }
 
-// design 5: no servers of explain, no names of its route.
+// design 5: no servers of explain, no addrs (which names were resolved),
+// no names of its route.
 func TestRedactExplanation(t *testing.T) {
 	in := fullExplanation()
 	got := RedactExplanation(in)
 	if len(got.Servers) != 0 {
 		t.Errorf("Servers = %q, want none", got.Servers)
 	}
+	if len(got.Addrs) != 0 {
+		t.Errorf("Addrs = %q, want none", got.Addrs)
+	}
 	if got.Route == nil || len(got.Route.Names) != 0 {
 		t.Errorf("Route = %+v, want it without Names", got.Route)
 	}
 	want := fullExplanation()
 	want.Servers = nil
+	want.Addrs = nil
 	want.Route.Names = nil
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("redacted explanation:\n got %+v\nwant %+v", got, want)

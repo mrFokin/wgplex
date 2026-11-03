@@ -270,3 +270,13 @@ func TestRuleReasonNone(t *testing.T) {
 		}
 	}
 }
+
+// design 9.1, 14: BlockSnapshot is passed through to status.get.
+func TestStatusBlockSnapshot(t *testing.T) {
+	if got := statusOf(t, &State{BlockSnapshot: true}); got.Configured || !got.BlockSnapshot {
+		t.Errorf("snapshot: configured %v block_snapshot %v, want false true", got.Configured, got.BlockSnapshot)
+	}
+	if got := statusOf(t, &State{}); got.BlockSnapshot {
+		t.Error("block_snapshot set without a snapshot")
+	}
+}

@@ -44,9 +44,11 @@ func RedactStatus(s Status) Status {
 	return s
 }
 
-// RedactExplanation returns e without Servers and without Names of its Route.
+// RedactExplanation returns e without Servers, without Addrs (they reveal
+// which names somebody resolved) and without Names of its Route.
 func RedactExplanation(e Explanation) Explanation {
 	e.Servers = nil
+	e.Addrs = nil
 	if e.Route != nil {
 		r := *e.Route
 		r.Names = nil

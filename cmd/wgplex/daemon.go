@@ -869,18 +869,19 @@ func (d *daemon) snapshot() *rpc.State {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	s := &rpc.State{
-		Cfg:          d.cfg,
-		Warnings:     d.warnings,
-		ConfigErrors: d.cfgErrs,
-		Tunnels:      make(map[string]rpc.TunnelRuntime, len(d.tunnels)),
-		Rules:        slices.Clone(d.rules),
-		Table:        d.table, // replaced, never modified in place
-		Skips:        d.skips,
-		SyncErr:      d.syncErr,
-		Ifaces:       maps.Clone(d.env.Ifaces),
-		Paused:       d.toggles.Paused,
-		DNSError:     d.dnsErr,
-		Switches:     d.switches(),
+		Cfg:           d.cfg,
+		Warnings:      d.warnings,
+		ConfigErrors:  d.cfgErrs,
+		Tunnels:       make(map[string]rpc.TunnelRuntime, len(d.tunnels)),
+		Rules:         slices.Clone(d.rules),
+		Table:         d.table, // replaced, never modified in place
+		Skips:         d.skips,
+		SyncErr:       d.syncErr,
+		Ifaces:        maps.Clone(d.env.Ifaces),
+		Paused:        d.toggles.Paused,
+		DNSError:      d.dnsErr,
+		BlockSnapshot: d.cfg == nil && d.blockCfg != nil,
+		Switches:      d.switches(),
 	}
 	for name, rt := range d.tunnels {
 		tr := rpc.TunnelRuntime{Err: rt.err, Starting: rt.starting, Endpoints: rt.endpoints}

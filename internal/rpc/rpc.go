@@ -71,6 +71,7 @@ type Status struct {
 	CanControl       bool           `json:"can_control"`             // for the caller
 	ControlGroup     string         `json:"control_group"`           // of the applied config; "": none applied
 	Configured       bool           `json:"configured"`              // a config has been applied
+	BlockSnapshot    bool           `json:"block_snapshot"`          // no config, but the block snapshot is enforced
 	Paused           bool           `json:"paused"`                  // daemon.pause (design 12)
 	ConfigDir        string         `json:"config_dir"`              // the config directory of the daemon
 	LogPath          string         `json:"log_path"`                // the log file of the daemon

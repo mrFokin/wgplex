@@ -248,6 +248,7 @@ Result of `status.get`.
 | `can_control` | bool | the caller may call the mutating methods and sees full replies |
 | `control_group` | string | `control_group` of the applied config; `""` without one |
 | `configured` | bool | a config has been applied |
+| `block_snapshot` | bool | `configured` is `false`, but the block snapshot of the last applied config is enforced (reject routes and NODATA for its `fallback: block` services); `false` otherwise |
 | `paused` | bool | the daemon is paused (`daemon.pause`) |
 | `config_dir` | string | the config directory of the daemon |
 | `log_path` | string | the log file of the daemon |
@@ -323,7 +324,7 @@ Result of `diag.explain`. `kind` decides which fields may be set.
 | `zone` | string | `domain`: the `dns_domains` zone that chose the tunnel; omitted when none |
 | `servers` | string[] | `domain`: DNS servers of the tunnel upstream; omitted when none; **redacted** |
 | `drop_aaaa` | bool | `domain`: AAAA answers are dropped; omitted when false |
-| `addrs` | string[] | `domain`: addresses the daemon currently routes for the name (from DNS answers); omitted when none |
+| `addrs` | string[] | `domain`: addresses the daemon currently routes for the name (from DNS answers); omitted when none; **redacted** |
 | `route` | [RouteInfo](#routeinfo) | `ip`: the longest-prefix route of the table; omitted when none (the system default route applies) |
 
 For `kind: ip`, `rule` is set too when the route comes from a rule. Without
@@ -395,13 +396,14 @@ shape of the reply is otherwise the same.
 | `status.get` | `config_errors` | `config_error_count` |
 | `status.get` | `warnings` | `warning_count` |
 | `diag.explain` | `servers` | — |
+| `diag.explain` | `addrs` (they reveal which names somebody resolved) | — |
 | `diag.explain` | `route.names` | — |
 | `diag.routes` | `routes[].names` (names other users resolved) | — |
 
 Kept for everybody: names, toggles and states of tunnels, their interfaces,
 addresses, route counts, handshakes and traffic, check results; services,
 `via`, the serving tunnel, fallback and `reason` of rules; `configured`,
-`paused`, `icon`, `control_group`, `config_dir`, `log_path`, `version`.
+`paused`, `block_snapshot`, `icon`, `control_group`, `config_dir`, `log_path`, `version`.
 
 The redaction is a list of removed fields: a field added to the API later is
 visible to everybody unless this list is extended.
