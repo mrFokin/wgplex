@@ -18,6 +18,7 @@ import (
 var version = "dev"
 
 const usage = `usage: wgplex [-socket path] <command> [args]
+       wgplex check [-config dir]
 
 commands:
   status                tunnels, handshakes, traffic, rule state

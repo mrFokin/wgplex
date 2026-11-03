@@ -12,8 +12,9 @@ import (
 	"github.com/mrFokin/wgplex/internal/config"
 )
 
-// Tests follow design 7.3, 8, 10.2 (config.reload: autostart on the first
-// apply, toggles kept on a repeated one, restart only on a changed .conf,
+// Tests follow design 7.3, 8, 10.2, 11 (config.reload: a tunnel with a toggle
+// in state.json follows it, one without follows autostart on every apply,
+// restart only on a changed .conf,
 // the warning about a tunnel DNS server under a CIDR of a rule with
 // fallback: block; planApply and blockedDNSWarnings), not the
 // implementation. Configs are built with

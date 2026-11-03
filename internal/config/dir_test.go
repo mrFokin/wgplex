@@ -47,7 +47,7 @@ func TestCheckAccessOwner(t *testing.T) {
 				}
 			} else {
 				if err == nil {
-					t.Error("checkAccess: expected error for wrong owner, got nil")
+					t.Fatal("checkAccess: expected error for wrong owner, got nil")
 				}
 				if !strings.Contains(err.Error(), "test.conf") {
 					t.Errorf("checkAccess: error must mention file name, got: %v", err)

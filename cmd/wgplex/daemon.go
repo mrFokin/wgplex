@@ -58,7 +58,12 @@ type daemon struct {
 	// toggles (under opMu) are the explicit tunnel toggles of state.json
 	// (design 11), written to statePath.
 	toggles state.State
-	mu      sync.Mutex
+	// stateDirty (under opMu): the last write of toggles failed, so the
+	// next toggle writes even when unchanged, and the warning stateWarning
+	// stays in warnings (across replan too) until a write succeeds.
+	stateDirty   bool
+	stateWarning string
+	mu           sync.Mutex
 
 	ctx       context.Context // done at stop: endpoint resolving gives up
 	srv       *dns.Server
@@ -196,7 +201,11 @@ func (d *daemon) startup() {
 		return
 	}
 	d.locked(d.sync)
-	if err := releaseDNS(d.log); err == nil {
+	if err := releaseDNS(d.log); err != nil {
+		// As if captured: the next apply without domains retries.
+		d.addWarning("DNS release failed: " + err.Error())
+		d.captured = true
+	} else {
 		d.captured = false
 	}
 }
@@ -248,18 +257,19 @@ func (d *daemon) apply() (rpc.ApplyResult, error) {
 	// keeps running meanwhile instead of standing in starting.
 	planned := d.toStart(next)
 	endpoints, errs := d.resolve(planned)
+	// The config is applied (nothing below fails): the toggles of tunnels
+	// gone from it are dropped (design 11). Before replan: they do not
+	// change its plan, and a toggle write still failing keeps its warning in
+	// the new warnings.
+	if d.toggles.Prune(tunnelNames(next)) || d.stateDirty {
+		d.saveToggles()
+	}
+	warnings = d.withStateWarning(warnings)
 	start := d.replan(next, warnings)
 	if !sameTunnels(planned, start) { // cannot happen: opMu is held
 		endpoints, errs = d.resolve(start)
 	}
 	res := rpc.ApplyResult{Warnings: slices.Clone(warnings)} // d.warnings is shared with State
-	// The config is applied: the toggles of tunnels gone from it are dropped
-	// (design 11).
-	if d.toggles.Prune(tunnelNames(next)) {
-		if w := d.saveToggles(); w != "" {
-			res.Warnings = append(res.Warnings, w)
-		}
-	}
 	d.setLogGroup(next.ControlGroup)
 	started := map[string]bool{}
 	for i, t := range start {
@@ -288,11 +298,22 @@ func (d *daemon) apply() (rpc.ApplyResult, error) {
 	})
 
 	// The system DNS is captured only when the config has domains. Without
-	// them the key is released every time, captured or not: a key left by a
-	// previous config or a previous run goes too (design 4.1); releasing an
-	// absent key is no error.
+	// them the key is released when captured or present in the system: a key
+	// left by a previous config or a previous run goes too (design 4.1). An
+	// absent key is left alone: Release would flush the mDNSResponder cache
+	// on every reload.
 	switch {
 	case !next.NeedsDNS():
+		if !d.captured {
+			present, err := dns.Captured()
+			if err == nil && !present {
+				d.log.Debug("dns release: no domains in config, no key")
+				break
+			}
+			if err != nil {
+				d.log.Warn("dns capture key", "err", err) // released to be sure
+			}
+		}
 		d.log.Debug("dns release: no domains in config")
 		if err := releaseDNS(d.log); err != nil {
 			// captured stays: the next apply without domains retries.
@@ -319,17 +340,40 @@ func (d *daemon) apply() (rpc.ApplyResult, error) {
 }
 
 // addWarning adds w to the warnings of the applied config shown by
-// status.get. Replaced, not appended to in place: a State snapshot may hold
-// the old slice.
+// status.get, unless they already have it. Replaced, not appended to in
+// place: a State snapshot may hold the old slice.
 func (d *daemon) addWarning(w string) {
-	d.locked(func() { d.warnings = append(slices.Clone(d.warnings), w) })
+	d.locked(func() {
+		if !slices.Contains(d.warnings, w) {
+			d.warnings = append(slices.Clone(d.warnings), w)
+		}
+	})
+}
+
+// removeWarning drops w from the warnings shown by status.get.
+func (d *daemon) removeWarning(w string) {
+	d.locked(func() {
+		if slices.Contains(d.warnings, w) {
+			d.warnings = slices.DeleteFunc(slices.Clone(d.warnings), func(x string) bool { return x == w })
+		}
+	})
+}
+
+// withStateWarning returns warnings with the warning of the failed write of
+// state.json while it is unsaved (stateDirty): the warnings of a new config
+// keep it. opMu is held.
+func (d *daemon) withStateWarning(warnings []string) []string {
+	if !d.stateDirty || slices.Contains(warnings, d.stateWarning) {
+		return warnings
+	}
+	return append(warnings, d.stateWarning)
 }
 
 // setToggle records the explicit toggle of name and writes state.json when
-// it changed (design 11). Returns the warning of a failed write ("": none).
-// opMu is held.
+// it changed or the last write failed (design 11). Returns the warning of a
+// failed write ("": none). opMu is held.
 func (d *daemon) setToggle(name string, on bool) string {
-	if v, ok := d.toggles.Tunnels[name]; ok && v == on {
+	if v, ok := d.toggles.Tunnels[name]; ok && v == on && !d.stateDirty {
 		return ""
 	}
 	if d.toggles.Tunnels == nil {
@@ -340,14 +384,23 @@ func (d *daemon) setToggle(name string, on bool) string {
 }
 
 // saveToggles writes state.json. A failure does not undo the action: it is a
-// warning in the log and in status.get, returned ("": saved). opMu is held.
+// warning in the log and in status.get, returned ("": saved), and sets
+// stateDirty; a successful write clears it and its warning. opMu is held.
 func (d *daemon) saveToggles() string {
 	err := d.toggles.Save(d.statePath)
 	if err == nil {
+		if d.stateDirty {
+			d.removeWarning(d.stateWarning)
+			d.stateDirty, d.stateWarning = false, ""
+		}
 		return ""
 	}
 	d.log.Warn("state not saved", "err", err)
 	w := "state not saved: " + err.Error()
+	if d.stateDirty && w != d.stateWarning {
+		d.removeWarning(d.stateWarning)
+	}
+	d.stateDirty, d.stateWarning = true, w
 	d.addWarning(w)
 	return w
 }
@@ -535,7 +588,7 @@ func (d *daemon) DisableAll() error {
 		}
 		d.toggles.Tunnels[name] = false
 	}
-	if changed {
+	if changed || d.stateDirty {
 		d.saveToggles()
 	}
 	return nil

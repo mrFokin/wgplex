@@ -21,7 +21,7 @@ const logFileMode = 0o640
 // the file becomes path.1 (an old .1 becomes .2, an old .2 is removed), a new
 // file is opened and fd 1 and 2 are pointed at it again (Dup2Std), so that Go
 // panics land in the current file. The file and its archives are 0640, owner
-// root, group gid.
+// root (logOwner), group gid.
 //
 // A negative gid means "no group set": openLog leaves the group of a file it
 // did not create, and files it creates get the group of their directory until
@@ -33,6 +33,25 @@ type rotatingFile struct {
 	size int64 // bytes in f
 	gid  int
 	std  []int // fds Dup2Std attached to f; repeated after a rotation
+	// reopen: a rotation moved the file away (or found it gone) but opening
+	// a new one failed; f is the old file and every Write tries to open
+	// path again.
+	reopen bool
+}
+
+// logOpenFile opens the log file; replaced in tests to make the open after a
+// rotation fail.
+var logOpenFile = os.OpenFile
+
+// logOwner is the owner given to the log files: root (design 15) when the
+// process runs as root, as the daemon does; otherwise -1, the owner left as
+// is, since only root may give a file to another user (tests, a daemon run
+// by hand).
+func logOwner() int {
+	if os.Geteuid() == 0 {
+		return 0
+	}
+	return -1
 }
 
 // openLog opens path for appending (created 0640 with group gid); the byte
@@ -50,7 +69,8 @@ func openLog(path string, gid int) (*rotatingFile, error) {
 
 // Write appends p and rotates when the file reaches logRotateSize
 // (design 15): .1 → .2 (an existing .2 removed, a missing one is not an
-// error), the file → .1, a new file opened and Dup2Std repeated.
+// error), the file → .1, a new file opened and Dup2Std repeated. When the
+// new file could not be opened, the next Write tries again.
 func (l *rotatingFile) Write(p []byte) (int, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -59,16 +79,13 @@ func (l *rotatingFile) Write(p []byte) (int, error) {
 	if err != nil {
 		return n, err
 	}
+	if l.reopen {
+		return n, l.openNew()
+	}
 	if l.size < logRotateSize {
 		return n, nil
 	}
-	if err := l.rotate(); err != nil {
-		// Keep writing where we are; try again after another logRotateSize
-		// rather than on every write.
-		l.size = 0
-		return n, err
-	}
-	return n, nil
+	return n, l.rotate()
 }
 
 // SetGroup changes the group of the file and its existing archives to gid
@@ -82,11 +99,11 @@ func (l *rotatingFile) SetGroup(gid int) error {
 	if gid < 0 {
 		return nil
 	}
-	if err := l.f.Chown(-1, gid); err != nil {
+	if err := l.f.Chown(logOwner(), gid); err != nil {
 		return fmt.Errorf("log %s: %w", l.path, err)
 	}
 	for _, name := range []string{l.path + ".1", l.path + ".2"} {
-		if err := os.Chown(name, -1, gid); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := os.Chown(name, logOwner(), gid); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("log %s: %w", name, err)
 		}
 	}
@@ -115,33 +132,58 @@ func (l *rotatingFile) dup2() error {
 	return nil
 }
 
-// rotate moves the file to .1, shifts the archives, opens a new file and
-// repeats dup2. On error the old file stays the current one.
+// rotate moves the file to .1, shifts the archives and opens a new file
+// (openNew). A file already gone from path (removed by hand) has nothing to
+// archive: the archives stay, a new file is opened. When moving the file
+// fails, it stays the current one and the next attempt is after another
+// logRotateSize rather than on every write.
 func (l *rotatingFile) rotate() error {
+	if _, err := os.Lstat(l.path); err == nil {
+		if err := l.shift(); err != nil {
+			l.size = 0
+			return err
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		l.size = 0
+		return fmt.Errorf("log rotate: %w", err)
+	}
+	l.reopen = true
+	return l.openNew()
+}
+
+// shift removes .2, moves .1 to .2 and the file to .1; a missing .2 or .1,
+// or the file itself gone meanwhile, is not an error.
+func (l *rotatingFile) shift() error {
 	if err := os.Remove(l.path + ".2"); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("log rotate: %w", err)
 	}
-	if err := os.Rename(l.path+".1", l.path+".2"); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("log rotate: %w", err)
+	for _, mv := range [][2]string{{l.path + ".1", l.path + ".2"}, {l.path, l.path + ".1"}} {
+		if err := os.Rename(mv[0], mv[1]); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("log rotate: %w", err)
+		}
 	}
-	if err := os.Rename(l.path, l.path+".1"); err != nil {
-		return fmt.Errorf("log rotate: %w", err)
-	}
+	return nil
+}
+
+// openNew opens a new file at path in place of the current one and repeats
+// dup2. On error the current file stays and reopen stays set: the next Write
+// tries again.
+func (l *rotatingFile) openNew() error {
 	f, size, err := l.open()
 	if err != nil {
 		return err
 	}
 	old := l.f
-	l.f, l.size = f, size
+	l.f, l.size, l.reopen = f, size, false
 	err = l.dup2()
 	old.Close()
 	return err
 }
 
-// open opens the log file for appending, makes it 0640 and gives it the group
-// gid (when one is set), and returns its current size.
+// open opens the log file for appending, makes it 0640 and gives it the owner
+// logOwner and the group gid (when set), and returns its current size.
 func (l *rotatingFile) open() (*os.File, int64, error) {
-	f, err := os.OpenFile(l.path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, logFileMode)
+	f, err := logOpenFile(l.path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, logFileMode)
 	if err != nil {
 		return nil, 0, fmt.Errorf("log %s: %w", l.path, err)
 	}
@@ -149,8 +191,8 @@ func (l *rotatingFile) open() (*os.File, int64, error) {
 		f.Close()
 		return nil, 0, fmt.Errorf("log %s: %w", l.path, err)
 	}
-	if l.gid >= 0 {
-		if err := f.Chown(-1, l.gid); err != nil {
+	if uid := logOwner(); uid >= 0 || l.gid >= 0 {
+		if err := f.Chown(uid, l.gid); err != nil {
 			f.Close()
 			return nil, 0, fmt.Errorf("log %s: %w", l.path, err)
 		}

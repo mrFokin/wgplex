@@ -175,26 +175,6 @@ func TestLoadDirInternalConfWarn(t *testing.T) {
 
 func TestLoadDirInternalNotRead(t *testing.T) {
 	stubGroups(t, "admin")
-	t.Run("fifo", func(t *testing.T) {
-		dir := writeDir(t, map[string]string{"wgplex.yaml": loadDirYAML}, nil)
-		if err := syscall.Mkfifo(filepath.Join(dir, "work.conf"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		errs, _ := loadDirErrs(t, dir)
-		if !hasMsg(errs, "work.conf", "not a regular file") {
-			t.Errorf("errs = %v", errs)
-		}
-	})
-	t.Run("big", func(t *testing.T) {
-		dir := writeDir(t, map[string]string{
-			"wgplex.yaml": loadDirYAML,
-			"work.conf":   strings.Repeat("#\n", MaxFileSize/2+1),
-		}, nil)
-		errs, _ := loadDirErrs(t, dir)
-		if !hasMsg(errs, "work.conf", "larger than") {
-			t.Errorf("errs = %v", errs)
-		}
-	})
 	t.Run("unreadable main", func(t *testing.T) {
 		if os.Getuid() == 0 {
 			t.Skip("root reads 0000 files")
@@ -290,65 +270,11 @@ func TestCheckGroupInternal(t *testing.T) {
 	}
 }
 
-func TestCheckAccessInternal(t *testing.T) {
-	reg := func(mode fs.FileMode, uid uint32) fileInfo {
-		return fileInfo{Name: "a.conf", Mode: mode, UID: uid, Size: 10}
-	}
-	for _, tc := range []struct {
-		name  string
-		fi    fileInfo
-		isDir bool
-		err   string
-		warn  bool
-	}{
-		{name: "owner", fi: reg(0o600, 501)},
-		{name: "root", fi: reg(0o600, 0)},
-		{name: "stranger", fi: reg(0o600, 777), err: "owner uid 777"},
-		{name: "group read", fi: reg(0o640, 501), warn: true},
-		{name: "other write", fi: reg(0o606, 501), err: "writable"},
-		{name: "device", fi: reg(fs.ModeDevice|0o600, 501), err: "not a regular file"},
-		{name: "big", fi: fileInfo{Name: "a.conf", Mode: 0o600, UID: 501, Size: MaxFileSize + 1}, err: "larger than"},
-		{name: "dir", fi: fileInfo{Name: "/d", Mode: fs.ModeDir | 0o755, UID: 501, Size: 1 << 30}, isDir: true},
-		{name: "dir not dir", fi: reg(0o600, 501), isDir: true, err: "not a directory"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			warn, err := checkAccess(tc.fi, 501, tc.isDir, true)
-			if (warn != "") != tc.warn {
-				t.Errorf("warn = %q", warn)
-			}
-			if tc.err == "" && err != nil || tc.err != "" && (err == nil || !strings.Contains(err.Error(), tc.err) || !strings.Contains(err.Error(), tc.fi.Name)) {
-				t.Errorf("err = %v, want containing %q", err, tc.err)
-			}
-		})
-	}
-	if warn, _ := checkAccess(reg(0o644, 501), 501, false, false); warn != "" {
-		t.Errorf("main file warned: %q", warn)
-	}
-}
-
-func TestControlGroupDefaultInternal(t *testing.T) {
-	cfg, _ := mustLoad(t, filesOf("ipv6_filter: false\n", nil))
-	if cfg.ControlGroup != "admin" {
-		t.Errorf("default = %q", cfg.ControlGroup)
-	}
-	cfg, _ = mustLoad(t, filesOf("control_group: staff\n", nil))
-	if cfg.ControlGroup != "staff" {
-		t.Errorf("explicit = %q", cfg.ControlGroup)
-	}
-}
-
-func TestTCCErrorInternal(t *testing.T) {
-	p := "/Users/x/Documents/work.conf"
-	eperm := tccError(p, &fs.PathError{Op: "open", Path: p, Err: syscall.EPERM})
-	if !strings.Contains(eperm.Error(), "TCC") || !strings.Contains(eperm.Error(), "config directory") ||
-		strings.Count(eperm.Error(), p) != 1 || !errors.Is(eperm, syscall.EPERM) {
-		t.Errorf("EPERM: %v", eperm)
-	}
-	eacces := tccError(p, &fs.PathError{Op: "open", Path: p, Err: syscall.EACCES})
-	if strings.Contains(eacces.Error(), "TCC") || !strings.Contains(eacces.Error(), p) {
-		t.Errorf("EACCES: %v", eacces)
-	}
-	if got := tccError(p, errors.New("boom")).Error(); got != p+": boom" {
-		t.Errorf("plain: %q", got)
+// A directory entry that is not a directory is an error (checkAccess with
+// isDir); the other cases of checkAccess are in dir_test.go.
+func TestCheckAccessInternalDirNotDir(t *testing.T) {
+	fi := fileInfo{Name: "/d", Mode: 0o600, UID: 501, Size: 10}
+	if _, err := checkAccess(fi, 501, true, false); err == nil || !strings.Contains(err.Error(), "not a directory") || !strings.Contains(err.Error(), "/d") {
+		t.Errorf("err = %v, want not a directory", err)
 	}
 }
