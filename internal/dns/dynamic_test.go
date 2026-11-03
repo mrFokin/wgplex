@@ -346,7 +346,7 @@ func TestDynamicsList(t *testing.T) {
 			t.Errorf("List = %v, want 192.0.2.5 on rule 1 only", got)
 		}
 	})
-	// A config without the rule (config.apply): the name has no rule, its
+	// A config without the rule (config.reload): the name has no rule, its
 	// address is left out; the pair itself is not dropped (design 8).
 	t.Run("config without the youtube rule", func(t *testing.T) {
 		cfg2 := dynCfg()

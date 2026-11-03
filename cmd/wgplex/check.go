@@ -2,8 +2,12 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"strings"
+	"syscall"
 
 	"github.com/mrFokin/wgplex/internal/config"
 )
@@ -20,6 +24,8 @@ func checkMain(cmd command, stdout, stderr io.Writer) int {
 	if err == nil {
 		warnings = append(warnings, blockedDNSWarnings(cfg)...)
 		warnings = append(warnings, checkWarnings(cfg)...)
+	} else {
+		err = unreadableHint(err, os.Getuid())
 	}
 	out, code := formatCheck(warnings, err)
 	if _, werr := io.WriteString(stdout, out); werr != nil {
@@ -27,6 +33,33 @@ func checkMain(cmd command, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return code
+}
+
+// unreadableHint annotates the errors of a read denied to uid (the user
+// running check) with why it may be denied: check reads the config as that
+// user, the daemon as root (design 13, 18). Only EACCES-like errors get it:
+// EPERM already names TCC. The type of err is kept (config.Errors or one
+// error), so formatCheck still prints one line per error.
+func unreadableHint(err error, uid int) error {
+	hint := fmt.Sprintf(" (cannot read as uid %d; the daemon reads it as root)", uid)
+	var errs config.Errors
+	if !errors.As(err, &errs) {
+		return hintOne(err, hint)
+	}
+	out := make(config.Errors, len(errs))
+	for i, e := range errs {
+		out[i] = hintOne(e, hint)
+	}
+	return out
+}
+
+// hintOne returns err with hint appended when reading was denied to a user
+// other than root (EACCES, not the EPERM of TCC); otherwise err as is.
+func hintOne(err error, hint string) error {
+	if !errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.EPERM) {
+		return err
+	}
+	return errors.New(err.Error() + hint)
 }
 
 // formatCheck renders the result of a check as text and its exit code

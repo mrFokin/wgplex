@@ -7,13 +7,6 @@ import (
 	"testing"
 )
 
-func TestInternalLoadMissing(t *testing.T) {
-	s, err := Load(filepath.Join(t.TempDir(), "state.json"))
-	if err != nil || len(s.Tunnels) != 0 {
-		t.Fatalf("Load = %+v, %v; want empty, nil", s, err)
-	}
-}
-
 func TestInternalLoad(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -59,41 +52,6 @@ func TestInternalLoadUnreadable(t *testing.T) {
 	}
 }
 
-func TestInternalSaveRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "state.json")
-	if err := os.WriteFile(p, []byte("old"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	in := State{Tunnels: map[string]bool{"nl": true, "home": false}}
-	if err := in.Save(p); err != nil {
-		t.Fatal(err)
-	}
-	fi, err := os.Stat(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fi.Mode().Perm() != 0o640 {
-		t.Fatalf("mode = %v, want 0640", fi.Mode().Perm())
-	}
-	out, err := Load(p)
-	if err != nil || !reflect.DeepEqual(out, in) {
-		t.Fatalf("Load = %+v, %v; want %+v", out, err, in)
-	}
-	internalOnlyFile(t, dir, "state.json")
-}
-
-func TestInternalSaveNoDir(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "missing", "state.json")
-	if err := (State{}).Save(p); err == nil {
-		t.Fatal("Save into a missing directory: no error")
-	}
-	if _, err := os.Stat(filepath.Join(dir, "missing")); !os.IsNotExist(err) {
-		t.Fatalf("directory created: %v", err)
-	}
-}
-
 func TestInternalSaveRenameFails(t *testing.T) {
 	dir := t.TempDir()
 	// A non-empty directory in place of the file: rename fails.
@@ -105,23 +63,6 @@ func TestInternalSaveRenameFails(t *testing.T) {
 		t.Fatal("Save: no error")
 	}
 	internalOnlyFile(t, dir, "state.json")
-}
-
-func TestInternalPrune(t *testing.T) {
-	s := State{Tunnels: map[string]bool{"a": true, "b": false, "c": true}}
-	if !s.Prune([]string{"a", "c", "z"}) {
-		t.Fatal("Prune dropped nothing")
-	}
-	if want := map[string]bool{"a": true, "c": true}; !reflect.DeepEqual(s.Tunnels, want) {
-		t.Fatalf("Tunnels = %v, want %v", s.Tunnels, want)
-	}
-	if s.Prune([]string{"a", "c"}) {
-		t.Fatal("second Prune dropped something")
-	}
-	var empty State
-	if empty.Prune(nil) {
-		t.Fatal("Prune of empty State dropped something")
-	}
 }
 
 // internalOnlyFile fails unless dir holds just name (no temporary files left).

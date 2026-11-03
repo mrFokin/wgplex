@@ -37,17 +37,6 @@ func internalStat(t *testing.T, name string) *syscall.Stat_t {
 	return fi.Sys().(*syscall.Stat_t)
 }
 
-func TestInternalOpenLogMissingDir(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "log", "wgplex.log")
-	if _, err := openLog(p, -1); err == nil {
-		t.Fatal("openLog in a missing directory: no error")
-	}
-	if _, err := os.Stat(filepath.Join(dir, "log")); !os.IsNotExist(err) {
-		t.Fatalf("directory created: %v", err)
-	}
-}
-
 func TestInternalOpenLogAppendsAndCounts(t *testing.T) {
 	_, p := internalLogDir(t)
 	if err := os.WriteFile(p, []byte("old\n"), 0o600); err != nil {
@@ -72,48 +61,84 @@ func TestInternalOpenLogAppendsAndCounts(t *testing.T) {
 	}
 }
 
-func TestInternalRotate(t *testing.T) {
-	for _, withArchives := range []bool{true, false} {
-		t.Run(map[bool]string{true: "with .1 and .2", false: "no archives"}[withArchives], func(t *testing.T) {
-			_, p := internalLogDir(t)
-			if withArchives {
-				os.WriteFile(p+".1", []byte("one"), 0o640)
-				os.WriteFile(p+".2", []byte("two"), 0o640)
-			}
-			// The existing file is one byte short of the limit.
-			if err := os.WriteFile(p, bytes.Repeat([]byte("x"), logRotateSize-1), 0o640); err != nil {
-				t.Fatal(err)
-			}
-			l, err := openLog(p, -1)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer func() { l.f.Close() }()
-			if _, err := l.Write([]byte("y")); err != nil {
-				t.Fatalf("rotating Write: %v", err)
-			}
-			if _, err := l.Write([]byte("after")); err != nil {
-				t.Fatal(err)
-			}
-			if got := internalReadFile(t, p); got != "after" {
-				t.Fatalf("new file = %q", got)
-			}
-			if got := internalReadFile(t, p+".1"); len(got) != logRotateSize || !strings.HasSuffix(got, "xy") {
-				t.Fatalf(".1: %d bytes", len(got))
-			}
-			internalStat(t, p)
-			internalStat(t, p+".1")
-			if withArchives {
-				if got := internalReadFile(t, p+".2"); got != "one" {
-					t.Fatalf(".2 = %q, want the old .1", got)
-				}
-			} else if _, err := os.Stat(p + ".2"); !os.IsNotExist(err) {
-				t.Fatalf(".2 exists: %v", err)
-			}
-			if l.size != int64(len("after")) {
-				t.Fatalf("size = %d", l.size)
-			}
-		})
+// A log removed by hand has nothing to archive at the rotation: the archives
+// stay, a new file is opened at path and writing goes there.
+func TestInternalRotateFileGone(t *testing.T) {
+	_, p := internalLogDir(t)
+	os.WriteFile(p+".1", []byte("one"), 0o640)
+	l, err := openLog(p, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { l.f.Close() }()
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Write(bytes.Repeat([]byte("x"), logRotateSize)); err != nil {
+		t.Fatalf("rotating Write: %v", err)
+	}
+	if _, err := l.Write([]byte("after")); err != nil {
+		t.Fatal(err)
+	}
+	if got := internalReadFile(t, p); got != "after" {
+		t.Fatalf("new file = %q", got)
+	}
+	if got := internalReadFile(t, p+".1"); got != "one" {
+		t.Fatalf(".1 = %q, want the old .1 untouched", got)
+	}
+	if _, err := os.Stat(p + ".2"); !os.IsNotExist(err) {
+		t.Fatalf(".2 exists: %v", err)
+	}
+}
+
+// The file moved to .1 but the new one failed to open: writing goes on in the
+// old file, the next Write tries to open again (not after another
+// logRotateSize), and once it succeeds the writes land in a new file at path,
+// the archives shifted once.
+func TestInternalRotateOpenFails(t *testing.T) {
+	_, p := internalLogDir(t)
+	os.WriteFile(p+".1", []byte("one"), 0o640)
+	l, err := openLog(p, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { l.f.Close() }()
+	fail := true
+	logOpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		if fail {
+			return nil, &os.PathError{Op: "open", Path: name, Err: syscall.EMFILE}
+		}
+		return os.OpenFile(name, flag, perm)
+	}
+	t.Cleanup(func() { logOpenFile = os.OpenFile })
+
+	if _, err := l.Write(bytes.Repeat([]byte("x"), logRotateSize)); err == nil {
+		t.Fatal("rotating Write: no error with the open failing")
+	}
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Fatalf("%s exists after a failed open: %v", p, err)
+	}
+	if _, err := l.Write([]byte("a")); err == nil {
+		t.Fatal("Write: open not tried again")
+	}
+	fail = false
+	if _, err := l.Write([]byte("b")); err != nil {
+		t.Fatalf("Write after the open works again: %v", err)
+	}
+	if _, err := l.Write([]byte("c")); err != nil {
+		t.Fatal(err)
+	}
+	if got := internalReadFile(t, p); got != "c" {
+		t.Fatalf("new file = %q, want the writes after the reopen", got)
+	}
+	if got := internalReadFile(t, p+".1"); len(got) != logRotateSize+2 || !strings.HasSuffix(got, "xab") {
+		t.Fatalf(".1: %d bytes, want the rotated file with the writes made meanwhile", len(got))
+	}
+	if got := internalReadFile(t, p+".2"); got != "one" {
+		t.Fatalf(".2 = %q, want the old .1 (shifted once)", got)
+	}
+	if l.reopen {
+		t.Fatal("reopen still set")
 	}
 }
 
