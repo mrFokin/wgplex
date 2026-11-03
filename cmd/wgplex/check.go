@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,15 +11,16 @@ import (
 	"syscall"
 
 	"github.com/mrFokin/wgplex/internal/config"
+	"github.com/mrFokin/wgplex/internal/rpc"
 )
 
-// checkMain is "wgplex check [-config dir]" (design 13): it validates the
-// config directory cmd.ConfigDir locally with config.LoadDir, as the daemon
-// would, without the daemon and without root. Warnings include those of
-// blockedDNSWarnings and checkWarnings for a valid config. It writes
-// formatCheck's text to stdout and returns its exit code: 0 config OK
-// (warnings do not matter), 1 config errors. stderr is for failures outside
-// the config check.
+// checkMain is "wgplex check [-config dir] [-json]" (design 13): it validates
+// the config directory cmd.ConfigDir locally with config.LoadDir, as the
+// daemon would, without the daemon and without root. Warnings include those
+// of blockedDNSWarnings and checkWarnings for a valid config. It writes
+// formatCheck's text (with -json, checkJSON's rpc.ConfigErrorData) to stdout
+// and returns its exit code: 0 config OK (warnings do not matter), 1 config
+// errors. stderr is for failures outside the config check.
 func checkMain(cmd command, stdout, stderr io.Writer) int {
 	cfg, warnings, err := config.LoadDir(cmd.ConfigDir)
 	if err == nil {
@@ -28,6 +30,9 @@ func checkMain(cmd command, stdout, stderr io.Writer) int {
 		err = unreadableHint(err, os.Getuid())
 	}
 	out, code := formatCheck(warnings, err)
+	if cmd.JSON {
+		out = checkJSON(warnings, err)
+	}
 	if _, werr := io.WriteString(stdout, out); werr != nil {
 		io.WriteString(stderr, "wgplex: "+werr.Error()+"\n")
 		return 1
@@ -86,4 +91,24 @@ func formatCheck(warnings []string, err error) (out string, code int) {
 		b.WriteString("warning: " + w + "\n")
 	}
 	return b.String(), code
+}
+
+// checkJSON renders the result of a check as the JSON of rpc.ConfigErrorData,
+// the data of config.reload's CodeConfigInvalid (design 13: the structures of
+// the API): one element of Errors per error as in formatCheck, empty arrays
+// rather than null, a trailing "\n".
+func checkJSON(warnings []string, err error) string {
+	data := rpc.ConfigErrorData{Errors: []string{}, Warnings: append([]string{}, warnings...)}
+	var errs config.Errors
+	switch {
+	case err == nil:
+	case errors.As(err, &errs):
+		for _, e := range errs {
+			data.Errors = append(data.Errors, e.Error())
+		}
+	default:
+		data.Errors = append(data.Errors, err.Error())
+	}
+	b, _ := json.MarshalIndent(data, "", "  ") // string slices always marshal
+	return string(b) + "\n"
 }
