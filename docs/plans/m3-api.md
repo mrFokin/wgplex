@@ -187,7 +187,7 @@ func (s State) Save(path string, gid int) error
 
 ## Ход работы
 
-- [ ] План согласован
+- [x] План согласован (2026-11-03): «да» на все пять рекомендаций; в design 5 внесено: урезание `warnings`→`warning_count`, `servers` в `explain`, `LookupGroup` для существования группы. В `status.get` добавляется `warning_count`; ветка включает master 4e7858a (раздел 17 → wgplex-app)
 - [ ] Spike (шаг 2)
 - [ ] Сигнатуры
 - [ ] Волна A/B/тесты
