@@ -229,6 +229,53 @@ func TestLoadDirImplSymlink(t *testing.T) {
 	}
 }
 
+func TestLoadDirImplUnreadNotFound(t *testing.T) {
+	stubGroups(t, "admin")
+	yaml := loadDirYAML + `
+  - services: [s]
+    via: [gone]
+`
+	yaml = strings.Replace(yaml, "services:\n", `  - name: gone
+    conf: gone.conf
+    routes: rules
+  - name: pipe
+    conf: pipe.conf
+    routes: rules
+  - name: big
+    conf: big.conf
+    routes: rules
+services:
+`, 1)
+	files := map[string]string{
+		"wgplex.yaml": yaml,
+		"big.conf":    strings.Repeat("#\n", MaxFileSize/2+1),
+	}
+	modes := map[string]fs.FileMode{}
+	if os.Getuid() != 0 {
+		files["work.conf"] = simpleConf(t)
+		modes["work.conf"] = 0
+	}
+	dir := writeDir(t, files, modes)
+	if err := syscall.Mkfifo(filepath.Join(dir, "pipe.conf"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	errs, _ := loadDirErrs(t, dir)
+	for _, name := range []string{"work.conf", "pipe.conf", "big.conf"} {
+		if hasMsg(errs, `conf file "`+name+`" not found`) {
+			t.Errorf("%s exists but is reported not found:\n%v", name, errs)
+		}
+	}
+	if !hasMsg(errs, `tunnel "gone"`, `conf file "gone.conf" not found`) {
+		t.Errorf("missing gone.conf not reported:\n%v", errs)
+	}
+	if !hasMsg(errs, "pipe.conf", "not a regular file") || !hasMsg(errs, "big.conf", "larger than") {
+		t.Errorf("own errors of unread files missing:\n%v", errs)
+	}
+	if os.Getuid() != 0 && !hasMsg(errs, "work.conf", "permission denied") {
+		t.Errorf("EACCES of work.conf missing:\n%v", errs)
+	}
+}
+
 func TestCheckGroupImpl(t *testing.T) {
 	asked := stubGroups(t, "staff")
 	if w, err := checkGroup("12345"); w != "" || err != nil || len(*asked) != 0 {

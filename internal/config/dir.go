@@ -58,6 +58,7 @@ func LoadDir(dir string) (cfg *Config, warnings []string, err error) {
 		return nil, nil, Errors(append(errs, tccError(dir, err)))
 	}
 	present := map[string]bool{}
+	unread := map[string]bool{} // present but not read: an error of its own is reported
 	files := map[string][]byte{}
 	for _, e := range entries {
 		present[e.Name()] = true
@@ -78,6 +79,7 @@ func LoadDir(dir string) (cfg *Config, warnings []string, err error) {
 			files[name] = data
 		} else {
 			delete(files, name) // e.g. a referenced *.yaml placeholder
+			unread[name] = true
 		}
 		return ok
 	}
@@ -109,7 +111,7 @@ func LoadDir(dir string) (cfg *Config, warnings []string, err error) {
 		warnings = append(warnings, ws...)
 		var le Errors
 		if errors.As(err, &le) {
-			errs = append(errs, le...)
+			errs = append(errs, suppressNotFound(le, unread)...)
 		} else if err != nil {
 			errs = append(errs, err)
 		}
@@ -129,6 +131,24 @@ func LoadDir(dir string) (cfg *Config, warnings []string, err error) {
 		return nil, warnings, Errors(errs)
 	}
 	return cfg, warnings, nil
+}
+
+// suppressNotFound drops Load's "conf file … not found" errors about files
+// that unread lists, that is files present in the directory whose own error
+// (permissions, TCC, not regular, too large) is already reported: saying
+// "not found" about an existing file only misleads.
+func suppressNotFound(errs Errors, unread map[string]bool) Errors {
+	out := make(Errors, 0, len(errs))
+next:
+	for _, err := range errs {
+		for name := range unread {
+			if strings.HasSuffix(err.Error(), fmt.Sprintf("conf file %q not found", name)) {
+				continue next
+			}
+		}
+		out = append(out, err)
+	}
+	return out
 }
 
 // readFile reads path (shown as name) for LoadDir. ok is false when the file
