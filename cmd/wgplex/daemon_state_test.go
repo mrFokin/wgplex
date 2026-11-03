@@ -162,7 +162,7 @@ func TestDaemonReloadInvalid(t *testing.T) {
 
 // design 11: disabling a tunnel that is not running is an explicit toggle,
 // written to state.json.
-func TestDaemonSetEnabledOffWritesState(t *testing.T) {
+func TestDaemonDisableWritesState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	d := testDaemon(t, path, state.State{})
 	d.cfg = loadConfig(t, baseYAML(baseTunnels()...), newConfFiles(t).texts(nil))

@@ -76,8 +76,10 @@ cannot get the peer uid, the caller reads as one that cannot control.
 | `status.get`, `diag.explain`, `diag.routes` | everybody; redacted unless `can_control` ([Redaction](#redaction)) |
 | `config.reload`, `tunnel.enable`, `tunnel.disable`, `tunnel.disableAll`, `daemon.pause`, `daemon.resume` | `can_control` only; otherwise error `5` |
 
-The right is checked before params: a caller that cannot control gets error
-`5` even with invalid params.
+The right is checked in the handler, before the params are validated: a
+caller that cannot control gets error `5` for a missing or empty `name`.
+Params that fail to decode (wrong JSON type) are rejected by the JSON-RPC
+layer first, with `-32602`.
 
 ## Errors
 
@@ -264,13 +266,13 @@ Result of `status.get`.
 | `name` | string | tunnel name |
 | `enabled` | bool | the toggle (see [enabled vs state](#enabled-vs-state)) |
 | `state` | string | `off` \| `starting` \| `up` \| `dead` \| `error` |
-| `error` | string | state `error`: why it failed to start; omitted when empty |
+| `error` | string | state `error`: why it failed to start; omitted when empty; **redacted** |
 | `interface` | string | `utunN`, states `up` and `dead`; omitted when empty |
 | `addresses` | string[] | `Address` of the `.conf` (CIDR); omitted when empty |
 | `routes` | string | route mode: `config` \| `rules` |
 | `route_count` | int | routes of the table via this tunnel |
 | `peers` | [PeerStatus](#peerstatus)[] | states `up` and `dead`, in `.conf` order; omitted otherwise |
-| `reason` | string | state `dead`: why; omitted otherwise |
+| `reason` | string | state `dead`: why; omitted otherwise; **redacted** |
 | `check` | [CheckStatus](#checkstatus) | the active check, when `check` is set, states `up` and `dead`; omitted otherwise |
 
 ### PeerStatus
@@ -326,6 +328,12 @@ Result of `diag.explain`. `kind` decides which fields may be set.
 
 For `kind: ip`, `rule` is set too when the route comes from a rule. Without
 an applied config a domain gets `upstream: system`.
+
+While `configured` is `false`, the daemon may still enforce the block
+snapshot of the last applied config (reject routes and NODATA for the
+`fallback: block` services). `diag.*` do not reflect it: `diag.explain`
+answers `upstream: system` for a snapshot domain, and `rule` of a snapshot
+route does not refer to an entry of `status.rules`.
 
 ### Routes
 

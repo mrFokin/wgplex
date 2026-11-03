@@ -491,7 +491,7 @@ wgplex version
 - `wgplex status` показывает все правила, отмечая ушедшие на резерв или в fallback, и паузу. Туннели — с колонкой `CHECK`: RTT, `fail N` или `-` без `check`; у мёртвого туннеля — причина.
 - Предупреждения конфига — в `wgplex reload` и `wgplex status`.
 - Коды выхода: `0` — успех, `1` — ошибка (в том числе нет прав), `2` — неверные аргументы, `3` — демон недоступен (нет сокета, отказ, таймаут).
-- Нет прав — `permission denied: up/down/reload require root, the config owner or membership in group "<группа>"`.
+- Нет прав — `permission denied: up/down/pause/resume/reload require root, the config owner or membership in group "<группа>"`.
 - Отладочные флаги: `-socket` у клиентских команд; `-config`, `-socket`, `-state`, `-log` у `daemon`.
 - Версия CLI отличается от `version` демона в `status.get` (после `brew upgrade` без перезапуска службы, 16.4) — предупреждение в stderr с командой перезапуска; код выхода не меняется. `wgplex version` печатает обе.
 - Тексты CLI и демона — на английском.
