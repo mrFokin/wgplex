@@ -305,7 +305,7 @@ func TestCheckAccessInternal(t *testing.T) {
 		{name: "root", fi: reg(0o600, 0)},
 		{name: "stranger", fi: reg(0o600, 777), err: "owner uid 777"},
 		{name: "group read", fi: reg(0o640, 501), warn: true},
-		{name: "other write", fi: reg(0o606, 501), err: "writable", warn: true},
+		{name: "other write", fi: reg(0o606, 501), err: "writable"},
 		{name: "device", fi: reg(fs.ModeDevice|0o600, 501), err: "not a regular file"},
 		{name: "big", fi: fileInfo{Name: "a.conf", Mode: 0o600, UID: 501, Size: MaxFileSize + 1}, err: "larger than"},
 		{name: "dir", fi: fileInfo{Name: "/d", Mode: fs.ModeDir | 0o755, UID: 501, Size: 1 << 30}, isDir: true},

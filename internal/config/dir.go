@@ -240,7 +240,7 @@ type fileInfo struct {
 //
 // warn (no error) for a .conf (conf true) readable by group or others
 // (Mode&0o044 != 0), as wg-quick does; never for the main file or the
-// directory. Both messages name fi.Name.
+// directory, and not together with an error (the config is rejected anyway). Both messages name fi.Name.
 func checkAccess(fi fileInfo, dirUID uint32, isDir, conf bool) (warn string, err error) {
 	var problems []string
 	if fi.UID != 0 && fi.UID != dirUID {
@@ -262,7 +262,7 @@ func checkAccess(fi fileInfo, dirUID uint32, isDir, conf bool) (warn string, err
 	if len(problems) > 0 {
 		err = fmt.Errorf("%s: %s", fi.Name, strings.Join(problems, "; "))
 	}
-	if conf && !isDir && fi.Mode&0o044 != 0 {
+	if err == nil && conf && !isDir && fi.Mode&0o044 != 0 {
 		warn = fmt.Sprintf("%s: readable by group or others (mode %04o), 0600 is recommended", fi.Name, fi.Mode.Perm())
 	}
 	return warn, err

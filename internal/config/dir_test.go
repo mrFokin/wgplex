@@ -110,7 +110,7 @@ func TestCheckAccessConfReadable(t *testing.T) {
 		{".conf 0600", 0o600, false, true, false, true},
 		{".conf 0604", 0o604, false, true, true, true},
 		{"wgplex.yaml 0640", 0o640, false, false, false, true},
-		{"dir 0755", 0o755, true, false, false, true},
+		{"dir 0755", 0o755 | fs.ModeDir, true, false, false, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
