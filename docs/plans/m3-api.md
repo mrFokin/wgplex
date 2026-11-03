@@ -20,7 +20,7 @@
 
 1. **Права по методам** (design 5, 14). Middleware в `Serve` убирается: соединение принимается всегда, uid кладётся в контекст (`peerKey`). `status.get`, `diag.*` — всем; `config.reload`, `tunnel.*`, `daemon.*` — проверка `can_control(uid)` в обработчике; отказ — `jrpc.NewError(5, "permission denied", {control_group})`. Ошибка получения uid (`peer.err`): чтение — как «не управляет», изменение — код `5`.
 2. **`can_control(uid)`** = uid 0, или uid владельца каталога конфига (`stat` при каждой проверке; нет каталога — только root), или член `control_group` применённого конфига. Конфиг не применён — только root и владелец. Логика — чистая, в `internal/rpc/access.go`: `Access{OwnerUID func() (uint32, bool), Group func() string, IsMember func(uid uint32, group string) (bool, error), Now func() time.Time}`, кэш членства по `(uid)` на 30 с (константа `membershipTTL`; смена группы в конфиге кэш сбрасывает). Ошибка `IsMember` — «не член», в кэш не кладётся, предупреждение в лог (раз на ошибку, без спама).
-3. **`mbr_check_membership`** — cgo-файл `internal/rpc/membership_darwin.go`: `mbr_uid_to_uuid` и `mbr_identifier_to_uuid(ID_TYPE_GNAME)` → `mbr_check_membership`. Числовой `control_group` — `ID_TYPE_GID`. Группа не найдена (`ENOENT`) → «не член». Тонкий слой, без своей логики; юнит-тест — только на синтетических функциях, живой — VM. `config.LoadDir` остаётся на `os/user.LookupGroup` для проверки существования (в M2 принято; замена на Directory Services — по желанию, см. вопрос 3).
+3. **`mbr_check_membership`** — cgo-файл `internal/rpc/membership_darwin.go`: `mbr_uid_to_uuid` и `mbr_identifier_to_uuid(ID_TYPE_GROUPNAME)` → `mbr_check_membership`. Числовой `control_group` — `ID_TYPE_GID` с `gid_t`. Группа не найдена (`ENOENT`) → «не член». Тонкий слой, без своей логики; юнит-тест — только на синтетических функциях, живой — VM. `config.LoadDir` остаётся на `os/user.LookupGroup` для проверки существования (в M2 принято; замена на Directory Services — по желанию, см. вопрос 3).
 4. **Урезание** (design 5, «Видимость»): `Redact(Status, canControl)` и то же для `Explanation`, `Routes` — чистые функции в `internal/rpc/redact.go`. Для не управляющего: нет `endpoint`/`resolved` пиров, `check.addr`, `names` маршрутов, `config_errors` (вместо — `config_error_count`, он есть у всех), `servers` в `explain`. Остальное — см. вопрос 1.
 5. **`status.get`** — поля из design 14: `api_version` (константа `1`), `version`, `can_control`, `control_group` (применённый конфиг; без конфига — пустая строка), `paused`, `config_dir`, `log_path`, `config_error_count`; `reason` у правила; `icon` с приоритетом design 14 (`paused`, ошибка захвата DNS — `warn`). `Enabled` у туннеля уже переключатель — сохраняется и на паузе (сейчас `Enabled = есть в d.tunnels`, на паузе станет ложью — берётся из переключателей, см. 8).
 6. **`reason` правила** (чистая функция по `State`): правило в fallback или `Degraded` с `via` не пустым. Пауза → `paused`; иначе среди туннелей `via`, стоящих выше обслуживающего (в fallback — все): есть включённый переключателем, но `dead`/`error`/`starting`-сбой → `dead`; иначе (все выключены) → `disabled`.
@@ -164,10 +164,11 @@ func (s State) Save(path string, gid int) error
 
 Проверить в ходе работы (результат записать сюда):
 
-- [ ] `mbr_uid_to_uuid` / `mbr_identifier_to_uuid` / `mbr_check_membership` под cgo, universal-сборка (`make build`), из LaunchDaemon (root) и вызов от обычного пользователя в VM — как M0 G1, G5, G7.
-- [ ] `ENOENT` для несуществующей группы и числового gid.
-- [ ] Хватает ли `blockConfig` для DNS-захвата при `cfg == nil` (`NeedsDNS`, `captureDNS` читают `d.cfg` напрямую).
-- [ ] Как `ruleStatus`/`Degraded` ведёт себя на паузе (`Tunnel == ""`).
+- [x] cgo `mbr_*` (2026-11-03, хост, без root): собирается, `GOARCH=amd64` тоже. Имя группы — `ID_TYPE_GROUPNAME` (в SDK нет `ID_TYPE_GNAME`); несуществующая группа → код 2 (`ENOENT`) = «не член». Числовой `control_group` — `ID_TYPE_GID` с идентификатором `gid_t` (4 байта), а не строкой (строка → 22 `EINVAL`).
+- [ ] В VM: universal-сборка `make build`, вызов из LaunchDaemon (root) и от обычного пользователя — как M0 G1, G5, G7.
+- [x] `blockConfig` при `cfg == nil` (Explore): подстановка без правок не работает. Reject-маршруты строятся только по CIDR сервисов правила (`router/table.go:98-99`), NODATA — только по `Domains` (`dns/choose.go`): снимок хранит оба списка, синтетический сервис их получает. `startup` (`daemon.go:196-211`) при неудаче `apply` лишь делает `sync` и `releaseDNS`, захват DNS не ставит. Читатели `d.cfg`, которые должны видеть синтетику: `reselect` (`daemon.go:944,969`), `syncNow` (`:984`), `checkCapture` (`events.go:200`); остальные (`toggle`, `DisableAll`, `snapshot`, `planApply`, `health`) остаются на `d.cfg`, чтобы `configured: false` и «нет конфига» работали. Решение: метод `effectiveCfg()` (`d.cfg`, иначе синтетический из снимка) в трёх местах; в `startup` после неудачи — `reselect`, `sync`, `captureDNS` при `NeedsDNS`. `reselect` переписывает `d.rules` по `SelectRules`, поэтому у синтетического правила `via` — несуществующий туннель (тогда `Fallback: true`).
+- [x] `ruleStatus` на паузе (Explore): правило с `via` без живых туннелей → `RuleState{Fallback:true}`, `Tunnel == ""`; `Degraded = len(via)>0 && Tunnel != via[0]` → true, `InFallback` true. Правило без `via` — не degraded.
+- [x] `Enabled` сейчас = наличие записи в `d.tunnels` (`rpc/state.go:111-113`; `toggle` удаляет, `DisableAll` чистит). Для паузы `Enabled` берётся из `State.Switches` (переключатели из `state.json` и `autostart`), а не из `d.tunnels`; на паузе переключатели в `state.json` не затираются.
 
 ## Риски
 
@@ -188,7 +189,7 @@ func (s State) Save(path string, gid int) error
 ## Ход работы
 
 - [x] План согласован (2026-11-03): «да» на все пять рекомендаций; в design 5 внесено: урезание `warnings`→`warning_count`, `servers` в `explain`, `LookupGroup` для существования группы. В `status.get` добавляется `warning_count`; ветка включает master 4e7858a (раздел 17 → wgplex-app)
-- [ ] Spike (шаг 2)
+- [x] Spike (шаг 2): см. «Факты spike»; в VM остаётся universal и LaunchDaemon
 - [ ] Сигнатуры
 - [ ] Волна A/B/тесты
 - [ ] C, D, E
