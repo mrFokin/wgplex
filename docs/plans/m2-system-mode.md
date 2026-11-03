@@ -216,4 +216,5 @@ type paths struct { Socket, ConfigDir, State, Log string }
 
 ## Ход работы
 
-- [ ] План согласован
+- [x] План согласован (2026-11-03): «да» на все пять рекомендаций — `os/user.LookupGroup` для `control_group`, группа лога → `control_group` в M2, каталоги создаёт формула/шаг VM, `api.md` — M3, `test-dev` пишет тесты до реализации
+- [ ] Шаг 2 — сигнатуры (`go-dev`)
