@@ -217,4 +217,9 @@ type paths struct { Socket, ConfigDir, State, Log string }
 ## Ход работы
 
 - [x] План согласован (2026-11-03): «да» на все пять рекомендаций — `os/user.LookupGroup` для `control_group`, группа лога → `control_group` в M2, каталоги создаёт формула/шаг VM, `api.md` — M3, `test-dev` пишет тесты до реализации
-- [ ] Шаг 2 — сигнатуры (`go-dev`)
+- [x] Шаг 2 — сигнатуры (`go-dev`): 105efad. Сверх плана: `formatCheck(*rpc.CheckStatus)` в `format.go` переименована в `formatCheckStatus` (имя нужно новой `formatCheck`); `parseArgs`/`paths` реализованы сразу; `reload` до задачи C читал каталог по умолчанию (временный мост, уходит в C)
+- [x] Шаг 3 — волна A/B/тесты:
+  - Задача A (`go-dev`, `m2-a`) — слита (f2420af, 93b9b5e): `LoadDir`/`checkAccess`/`tccError`, `control_group` (по умолчанию `admin`); файл читается через `Stat` (нерегулярный и > 1 МБ не открываются) + `O_NONBLOCK` + повторная проверка через `fstat`; «conf file … not found» подавляется для существующих, но непрочитанных `.conf`. Решение: сбой поиска группы, отличный от `UnknownGroupError`, — предупреждение, не ошибка (временный сбой Directory Services при загрузке не должен оставлять машину без туннелей)
+  - Задача B (`go-dev`, `m2-b`) — слита (4211991): `internal/state`, `logfile.go`. Решения: `Dup2Std` включает повтор dup2 после ротации (иначе тесты перенаправили бы stdout `go test`); `gid < 0` — группу не задавать; ошибка ротации возвращается из `Write`, но `slog` её не показывает (принято как ограничение, ротация проверяется по файлам); группа `state.json` — группа каталога (design 11 группу не задаёт, chown `control_group` — M3)
+  - Тесты (`test-dev`, `m2-tests`, 2dddf2a) — вливаются после задачи C (красные `TestSwitch*`, `TestFormatCheck*`, `TestCheckMain*` до интеграции)
+- [ ] Шаг 5 — задача C (интеграция), `m2-c`
