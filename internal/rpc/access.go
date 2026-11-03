@@ -48,12 +48,61 @@ type membership struct {
 // uid for membershipTTL; a change of ConfigGroup drops the cache. An IsMember
 // error is "not a member", is not cached and is logged as a warning once per
 // distinct error.
+//
+// A nil OwnerUID is "no directory", a nil ConfigGroup is "no config", a nil
+// Now is time.Now and a nil Log drops the warning.
 func (a *Access) CanControl(uid uint32) bool {
-	panic("not implemented")
+	if uid == 0 {
+		return true
+	}
+	if a.OwnerUID != nil {
+		if owner, ok := a.OwnerUID(); ok && owner == uid {
+			return true
+		}
+	}
+	group := a.Group()
+	if group == "" || a.IsMember == nil {
+		return false
+	}
+	now := time.Now
+	if a.Now != nil {
+		now = a.Now
+	}
+
+	// The lock is held over IsMember (0.1–2 ms, design 5): simpler than
+	// checking the group again after it.
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if group != a.group {
+		a.group, a.cache = group, nil
+	}
+	t := now()
+	if m, ok := a.cache[uid]; ok && t.Sub(m.at) < membershipTTL {
+		return m.member
+	}
+	member, err := a.IsMember(uid, group)
+	if err != nil {
+		if msg := err.Error(); msg != a.lastErr {
+			a.lastErr = msg
+			if a.Log != nil {
+				a.Log.Warn("control_group membership check failed", "uid", uid, "group", group, "err", err)
+			}
+		}
+		return false
+	}
+	a.lastErr = ""
+	if a.cache == nil {
+		a.cache = make(map[uint32]membership)
+	}
+	a.cache[uid] = membership{member: member, at: t}
+	return member
 }
 
 // Group returns control_group of the applied config (ConfigGroup): the data
 // of CodeNoPermission and control_group of status.get; "" without a config.
 func (a *Access) Group() string {
-	panic("not implemented")
+	if a.ConfigGroup == nil {
+		return ""
+	}
+	return a.ConfigGroup()
 }

@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/mrFokin/jrpc/v2"
@@ -55,20 +56,27 @@ const (
 )
 
 // StatusOf builds the status.get reply from s. Tunnels and rules go in config
-// order. A tunnel is "off" when not in s.Tunnels, "starting" when Starting
-// (no Error), "error" when its Err is set, "dead" (with Reason) when running
-// but Dead, "up" otherwise; Check comes with "up" and "dead". RouteCount
-// counts the TargetTunnel routes of s.Table via the tunnel, whatever its
-// state. Icon: "warn" when there are
-// config errors or an enabled tunnel is in "error" or "dead" ("starting" is
-// not); else "on" when some tunnel is up; else "off".
+// order. Enabled of a tunnel is its toggle (s.Switches), kept on pause; its
+// State is "off" when not in s.Tunnels, "starting" when Starting (no Error),
+// "error" when its Err is set, "dead" (with Reason) when running but Dead,
+// "up" otherwise; Check comes with "up" and "dead". RouteCount counts the
+// TargetTunnel routes of s.Table via the tunnel, whatever its state. A rule
+// gets Reason by ruleReason. Icon by the priority of design 14: "warn" with
+// no config or a DNS capture error; else "paused" on pause; else "warn" with
+// config errors or a tunnel in "error" or "dead" ("starting" is not); else
+// "on" when some tunnel is up; else "off". ConfigErrorCount and WarningCount
+// are set here; APIVersion, Version, CanControl, ControlGroup, ConfigDir and
+// LogPath are left to Serve.
 func StatusOf(s *State) Status {
 	st := Status{
-		Configured:   s.Cfg != nil,
-		ConfigErrors: s.ConfigErrors,
-		Warnings:     s.Warnings,
-		Tunnels:      []TunnelStatus{},
-		Rules:        []RuleStatus{},
+		Configured:       s.Cfg != nil,
+		Paused:           s.Paused,
+		ConfigErrors:     s.ConfigErrors,
+		ConfigErrorCount: len(s.ConfigErrors),
+		Warnings:         s.Warnings,
+		WarningCount:     len(s.Warnings),
+		Tunnels:          []TunnelStatus{},
+		Rules:            []RuleStatus{},
 	}
 	var up, broken bool
 	if s.Cfg != nil {
@@ -83,10 +91,14 @@ func StatusOf(s *State) Status {
 			st.Tunnels = append(st.Tunnels, ts)
 		}
 		for i := range s.Cfg.Rules {
-			st.Rules = append(st.Rules, ruleStatus(s.Cfg, s.Rules, i))
+			st.Rules = append(st.Rules, ruleStatus(s, i))
 		}
 	}
 	switch {
+	case s.Cfg == nil || s.DNSError != "":
+		st.Icon = "warn"
+	case s.Paused:
+		st.Icon = "paused"
 	case len(s.ConfigErrors) > 0 || broken:
 		st.Icon = "warn"
 	case up:
@@ -100,9 +112,10 @@ func StatusOf(s *State) Status {
 // tunnelStatus builds the status of t.
 func tunnelStatus(s *State, t *config.Tunnel) TunnelStatus {
 	ts := TunnelStatus{
-		Name:   t.Name,
-		State:  stateOff,
-		Routes: string(t.Routes),
+		Name:    t.Name,
+		State:   stateOff,
+		Routes:  string(t.Routes),
+		Enabled: s.Switches[t.Name],
 	}
 	for _, p := range t.WG.Addresses {
 		ts.Addresses = append(ts.Addresses, p.String())
@@ -116,7 +129,6 @@ func tunnelStatus(s *State, t *config.Tunnel) TunnelStatus {
 	if !ok {
 		return ts
 	}
-	ts.Enabled = true
 	if rt.Starting {
 		ts.State = stateStarting
 		return ts
@@ -148,21 +160,22 @@ func tunnelStatus(s *State, t *config.Tunnel) TunnelStatus {
 	return ts
 }
 
-// ruleStatus builds the status of rule i of cfg with its decision from rules
-// (none: neither on a tunnel nor in fallback).
-func ruleStatus(cfg *config.Config, rules []router.RuleState, i int) RuleStatus {
-	r := cfg.Rules[i]
+// ruleStatus builds the status of rule i of s.Cfg with its decision from
+// s.Rules (none: neither on a tunnel nor in fallback) and its Reason.
+func ruleStatus(s *State, i int) RuleStatus {
+	r := s.Cfg.Rules[i]
 	rs := RuleStatus{
 		Index:    i,
 		Services: append([]string{}, r.Services...),
 		Via:      append([]string{}, r.Via...),
 		Fallback: string(r.Fallback),
 	}
-	if i < len(rules) {
-		rs.Tunnel = rules[i].Tunnel
-		rs.InFallback = rules[i].Fallback
+	if i < len(s.Rules) {
+		rs.Tunnel = s.Rules[i].Tunnel
+		rs.InFallback = s.Rules[i].Fallback
 	}
 	rs.Degraded = len(r.Via) > 0 && rs.Tunnel != r.Via[0]
+	rs.Reason = ruleReason(s, i)
 	return rs
 }
 
@@ -172,7 +185,27 @@ func ruleStatus(cfg *config.Config, rules []router.RuleState, i int) RuleStatus 
 // the serving one (all of via in fallback): one switched on (Switches) but
 // dead, failed or not up gives "dead"; else (all switched off) "disabled".
 func ruleReason(s *State, i int) string {
-	panic("not implemented")
+	via := s.Cfg.Rules[i].Via
+	var serving string
+	if i < len(s.Rules) {
+		serving = s.Rules[i].Tunnel
+	}
+	if len(via) == 0 || serving == via[0] {
+		return ""
+	}
+	if s.Paused {
+		return "paused"
+	}
+	above := via
+	if k := slices.Index(via, serving); serving != "" && k >= 0 {
+		above = via[:k]
+	}
+	for _, name := range above {
+		if s.Switches[name] {
+			return "dead"
+		}
+	}
+	return "disabled"
 }
 
 // Explain explains q (a domain or an IP); an invalid q is a jrpc Invalid params error.
@@ -206,14 +239,14 @@ func explainDomain(s *State, name string) Explanation {
 	}
 	c := dns.Choose(cfg, s.Rules, s.Ifaces, name)
 	if c.Rule >= 0 {
-		rs := ruleStatus(cfg, s.Rules, c.Rule)
+		rs := ruleStatus(s, c.Rule)
 		e.Rule = &rs
 	}
 	// The best match by domain alone, passed over by Choose because it is
 	// in fallback: default.
 	if i, ok := cfg.MatchDomain(name); ok && i != c.Rule && i < len(s.Rules) &&
 		s.Rules[i].Fallback && cfg.Rules[i].Fallback == config.FallbackDefault {
-		rs := ruleStatus(cfg, s.Rules, i)
+		rs := ruleStatus(s, i)
 		e.Skipped = &rs
 	}
 	switch {
@@ -251,7 +284,7 @@ func explainIP(s *State, a netip.Addr) Explanation {
 	ri := routeInfo(s, s.Table[best])
 	e.Route = &ri
 	if r := s.Table[best].Rule; r >= 0 && s.Cfg != nil && r < len(s.Cfg.Rules) {
-		rs := ruleStatus(s.Cfg, s.Rules, r)
+		rs := ruleStatus(s, r)
 		e.Rule = &rs
 	}
 	return e

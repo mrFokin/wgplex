@@ -100,7 +100,7 @@ type TunnelStatus struct {
 
 // CheckStatus is the active check: ping of the check address or GET of the check URL.
 type CheckStatus struct {
-	Addr   string    `json:"addr"`             // the check address or URL
+	Addr   string    `json:"addr,omitempty"`   // the check address or URL; "": redacted
 	LastOK time.Time `json:"last_ok,omitzero"` // zero: never
 	RTTMs  float64   `json:"rtt_ms,omitempty"` // of the last successful check
 	Fails  int       `json:"fails"`            // consecutive
@@ -108,7 +108,7 @@ type CheckStatus struct {
 
 // PeerStatus is one peer of a running tunnel; its public key is not shown.
 type PeerStatus struct {
-	Endpoint      string    `json:"endpoint"`                // as in the .conf ("" if none)
+	Endpoint      string    `json:"endpoint,omitempty"`      // as in the .conf; "": none or redacted
 	Resolved      string    `json:"resolved,omitempty"`      // addr:port in use
 	LastHandshake time.Time `json:"last_handshake,omitzero"` // zero: never
 	RxBytes       uint64    `json:"rx_bytes"`
