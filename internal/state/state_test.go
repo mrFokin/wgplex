@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"syscall"
 	"testing"
 )
 
@@ -266,5 +268,150 @@ func TestPruneKeepsValues(t *testing.T) {
 	}
 	if on, ok := s.Tunnels["a"]; !ok || on {
 		t.Errorf("Tunnels = %v, want a false", s.Tunnels)
+	}
+}
+
+// --- M3: pause, block snapshot, group ----------------------------------------
+
+func fileGID(t *testing.T, path string) int {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return int(fi.Sys().(*syscall.Stat_t).Gid)
+}
+
+// design 12: the pause flag is kept in state.json together with the toggles.
+func TestSaveLoadPaused(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	in := State{Tunnels: map[string]bool{"de": false, "fi": true}, Paused: true}
+	if err := in.Save(path, -1); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !got.Paused || !reflect.DeepEqual(got.Tunnels, in.Tunnels) {
+		t.Errorf("round trip: got %+v, want %+v", got, in)
+	}
+	// not paused: round trip keeps it false
+	if err := (State{Tunnels: in.Tunnels}).Save(path, -1); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = Load(path); got.Paused {
+		t.Error("Paused true after saving a state without pause")
+	}
+}
+
+// design 9.1, 10.2, 11: the snapshot of the block rules (CIDRs and domains).
+func TestSaveLoadBlock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	in := State{Block: &Block{
+		CIDRs:   []string{"198.51.100.0/24", "2001:db8::/32"},
+		Domains: []string{"openai.com", "=www.example.org"},
+	}}
+	if err := in.Save(path, -1); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Block == nil || !reflect.DeepEqual(*got.Block, *in.Block) {
+		t.Errorf("round trip: got %+v, want %+v", got.Block, in.Block)
+	}
+}
+
+// No snapshot stays no snapshot, and the file then has no block key.
+func TestSaveNoBlock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := (State{Tunnels: map[string]bool{"de": true}}).Save(path, -1); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Block != nil {
+		t.Errorf("Block = %+v, want nil", got.Block)
+	}
+	data, _ := os.ReadFile(path)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := raw["block"]; ok {
+		t.Errorf("file has a block key: %s", data)
+	}
+}
+
+// design 11: a state.json of M2 (only tunnels) is read: no pause, no snapshot.
+func TestLoadOldFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(path, []byte(`{"tunnels":{"de":true,"fi":false}}`), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Paused || got.Block != nil {
+		t.Errorf("old file: Paused=%v Block=%+v, want none", got.Paused, got.Block)
+	}
+	if !reflect.DeepEqual(got.Tunnels, map[string]bool{"de": true, "fi": false}) {
+		t.Errorf("Tunnels = %v", got.Tunnels)
+	}
+}
+
+// design 15, plan M3 decision 10: Save(path, gid) gives the file the group and 0640.
+func TestSaveGroup(t *testing.T) {
+	gid := os.Getgid()
+	if groups, err := os.Getgroups(); err == nil {
+		for _, g := range groups {
+			if g != gid { // a group other than the primary one, if the user has any
+				gid = g
+				break
+			}
+		}
+	}
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := (State{Paused: true}).Save(path, gid); err != nil {
+		t.Fatalf("Save(gid %d): %v", gid, err)
+	}
+	if got := fileGID(t, path); got != gid {
+		t.Errorf("group = %d, want %d", got, gid)
+	}
+	fi, _ := os.Stat(path)
+	if fi.Mode().Perm() != 0o640 {
+		t.Errorf("mode = %v, want 0640", fi.Mode().Perm())
+	}
+	// overwrite keeps the group and mode
+	if err := (State{}).Save(path, gid); err != nil {
+		t.Fatal(err)
+	}
+	if got := fileGID(t, path); got != gid {
+		t.Errorf("after overwrite group = %d, want %d", got, gid)
+	}
+}
+
+// gid < 0: the group is not set (the file gets what the directory gives), mode 0640.
+func TestSaveNoGroup(t *testing.T) {
+	dir := t.TempDir()
+	plain := filepath.Join(dir, "plain")
+	if err := os.WriteFile(plain, nil, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "state.json")
+	if err := (State{}).Save(path, -1); err != nil {
+		t.Fatalf("Save(-1): %v", err)
+	}
+	if got, want := fileGID(t, path), fileGID(t, plain); got != want {
+		t.Errorf("group = %d, want the default %d", got, want)
+	}
+	fi, _ := os.Stat(path)
+	if fi.Mode().Perm() != 0o640 {
+		t.Errorf("mode = %v, want 0640", fi.Mode().Perm())
 	}
 }
