@@ -563,7 +563,7 @@ func TestPrintErrorConfigInvalid(t *testing.T) {
 		Errors:   []string{`tunnel "x": conf "x.conf" not found`, `wgplex.yaml: unknown key "foo"`},
 		Warnings: []string{`service "tg" is not used by any rule`},
 	})
-	for _, err := range []error{e, fmt.Errorf("config.apply: %w", e)} {
+	for _, err := range []error{e, fmt.Errorf("config.reload: %w", e)} {
 		out := printed(t, "printError", func(w io.Writer) { printError(w, err) })
 		hdr := rowIndex(out, fields("config error:"))
 		e1 := rowIndex(out, fields(`tunnel "x": conf "x.conf" not found`))

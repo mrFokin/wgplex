@@ -11,18 +11,14 @@ const (
 	Path = "/rpc" // the JSON-RPC endpoint
 
 	// JSON-RPC error codes of the daemon.
-	CodeConfigInvalid = 1 // config.apply: config.Load failed; data: ConfigErrorData
-	CodeNoConfig      = 2 // tunnel.setEnabled before the first successful config.apply
+	CodeConfigInvalid = 1 // config.reload: the config is invalid; data: ConfigErrorData
+	CodeNoConfig      = 2 // tunnel.* without an applied config
 	CodeUnknownTunnel = 3 // the tunnel name is not in the config
 	CodeTunnelStart   = 4 // tunnel.setEnabled true: the tunnel failed to start
 )
 
-// ApplyParams are the params of config.apply.
-type ApplyParams struct {
-	Files map[string]string `json:"files"` // base name → content (design 10.2)
-}
-
-// ApplyResult is the result of config.apply.
+// ApplyResult is the result of config.reload (no params): the daemon re-reads
+// its config directory (design 10.2).
 type ApplyResult struct {
 	Warnings []string      `json:"warnings"`          // config.Load and blockedDNSWarnings
 	Tunnels  []TunnelError `json:"tunnels,omitempty"` // enabled tunnels that failed to start
@@ -51,7 +47,7 @@ type SetEnabledParams struct {
 type Status struct {
 	Configured   bool           `json:"configured"`              // a config has been applied
 	Icon         string         `json:"icon"`                    // "off" | "on" | "warn"
-	ConfigErrors []string       `json:"config_errors,omitempty"` // last failed config.apply; cleared by a successful one
+	ConfigErrors []string       `json:"config_errors,omitempty"` // last failed apply (start or config.reload); cleared by a successful one
 	Warnings     []string       `json:"warnings,omitempty"`      // of the applied config
 	Tunnels      []TunnelStatus `json:"tunnels"`                 // config order
 	Rules        []RuleStatus   `json:"rules"`                   // config order

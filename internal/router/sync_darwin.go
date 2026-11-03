@@ -123,7 +123,7 @@ type Skip struct {
 // Scoped routes (RTF_IFSCOPE) are not ours for Sync: owned skips them, so
 // scoped host routes of ours to the DNS servers of tunnels (AddScoped,
 // design 7.2, 8) are never changed or deleted here; they go away with their
-// utun, and DeleteOwned removes leftovers.
+// utun.
 //
 // keep comes from t alone: our host route to an endpoint that t lacks is
 // deleted like any other route of ours. Between AddHost and the tunnel being

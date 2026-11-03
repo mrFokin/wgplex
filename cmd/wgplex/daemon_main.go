@@ -7,51 +7,101 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/mrFokin/wgplex/internal/dns"
 	"github.com/mrFokin/wgplex/internal/health"
 	"github.com/mrFokin/wgplex/internal/netwatch"
-	"github.com/mrFokin/wgplex/internal/router"
 	"github.com/mrFokin/wgplex/internal/rpc"
+	"github.com/mrFokin/wgplex/internal/state"
 )
 
 // daemonMain is "wgplex daemon": the daemon runs as root under launchd and
 // owns the WireGuard tunnels, the routing table and the local DNS resolver
-// (design 4.1). It logs to stderr (-v: debug, including verbose
-// wireguard-go) and returns the exit code.
+// (design 4.1). It logs to cmd.Log (-v: debug, including verbose
+// wireguard-go), group admin until a config names control_group, with fd 1
+// and 2 pointed at the log, so that Go panics land there too (design 15).
+// Returns the exit code.
 //
 // Not root, it reports to stderr and exits 0: "brew services start" without
 // sudo installs a LaunchAgent of the user, and launchd must not restart it
-// (design 4.1).
+// (design 4.1). The log not opened (its directory missing included: the
+// daemon does not create it) — stderr and exit 1.
 func daemonMain(cmd command) int {
 	level := slog.LevelInfo
 	if cmd.Verbose {
 		level = slog.LevelDebug
 	}
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	opts := &slog.HandlerOptions{Level: level}
+	stderr := slog.New(slog.NewTextHandler(os.Stderr, opts))
 	if os.Geteuid() != 0 {
-		log.Error("wgplex daemon must run as root: sudo brew services start --sudo-service-user=root wgplex")
+		stderr.Error("wgplex daemon must run as root: sudo brew services start --sudo-service-user=root wgplex")
 		return 0
 	}
-	return runDaemon(log, cmd.Socket)
+	gid, gerr := groupID("admin")
+	if gerr != nil {
+		gid = -1 // the group of the directory
+	}
+	lf, err := openLog(cmd.Log, gid)
+	if err != nil {
+		if dir := filepath.Dir(cmd.Log); !exists(dir) {
+			stderr.Error("log: directory "+dir+" does not exist; the daemon does not create it", "log", cmd.Log)
+		} else {
+			stderr.Error("log", "err", err)
+		}
+		return 1
+	}
+	log := slog.New(slog.NewTextHandler(lf, opts))
+	if gerr != nil {
+		log.Warn("log group admin", "err", gerr)
+	}
+	if err := lf.Dup2Std(); err != nil {
+		log.Error("log: stdout and stderr not redirected", "err", err)
+	}
+	return runDaemon(log, lf, cmd)
 }
 
-// runDaemon starts the daemon listening on socket and
-// serves until SIGINT/SIGTERM (exit code 0) or a failure of the resolver or
-// the RPC server (1), then stops: DNS released, routes, tunnels and the
-// socket removed.
+// groupID returns the gid of the group name: a number is taken as is (design
+// 5), a name is looked up.
+func groupID(name string) (int, error) {
+	if gid, err := strconv.Atoi(name); err == nil {
+		return gid, nil
+	}
+	g, err := user.LookupGroup(name)
+	if err != nil {
+		return -1, err
+	}
+	return strconv.Atoi(g.Gid)
+}
+
+// exists reports whether path exists (an error other than "not exist" counts
+// as existing: the caller's own error tells more).
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return !errors.Is(err, fs.ErrNotExist)
+}
+
+// runDaemon starts the daemon listening on cmd.Socket and serves until
+// SIGINT/SIGTERM (exit code 0) or a failure of the resolver or the RPC
+// server (1), then stops: DNS released, routes, tunnels and the socket
+// removed. logFile is the log (nil: none), its group follows control_group.
 //
-// It starts empty: no tunnels, no routes, the system DNS untouched; the
-// resolver listens on 127.0.0.1:53 and the RPC waits for config.apply.
+// Before the RPC it reads state.json (a broken one: a warning, the tunnels
+// by autostart, design 11) and applies the config of cmd.ConfigDir (design
+// 4.1, 10.2): nothing left by the previous run is removed beforehand, the
+// first sync replaces it. An invalid config leaves the daemon running
+// without tunnels, with the errors in status.get.
 //
 // The socket goes first: a second daemon fails there and touches nothing
 // of the running one. The socket file is removed only by closing our own
 // listener (net.UnixListener unlinks its path on Close, which Serve or the
 // error path does), never by path: a failed start leaves it alone.
-func runDaemon(log *slog.Logger, socket string) int {
+func runDaemon(log *slog.Logger, logFile *rotatingFile, cmd command) int {
+	socket := cmd.Socket
 	// SIGHUP and SIGUSR1 would kill the process without cleanup (design 4.1).
 	signal.Ignore(syscall.SIGHUP, syscall.SIGUSR1)
 	sigCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -65,17 +115,16 @@ func runDaemon(log *slog.Logger, socket string) int {
 		return 1
 	}
 
-	// Leftovers of a crash.
-	if err := router.DeleteOwned(); err != nil {
-		log.Warn("delete stale routes", "err", err)
+	toggles, err := state.Load(cmd.State)
+	if err != nil {
+		log.Warn("state: tunnels by autostart", "err", err)
 	}
-	releaseDNS(log)
 
 	srv := &dns.Server{Log: log}
-	d := newDaemon(ctx, srv, log)
+	d := newDaemon(ctx, srv, log, cmd.ConfigDir, cmd.State, toggles, logFile)
 	d.setSystem() // the upstream of the resolver before any config
-	// Watching from before the RPC: a change of the network before the
-	// first config.apply is seen too.
+	// Watching from before the config: a change of the network during the
+	// first apply is seen too.
 	events := netwatch.Watch(ctx, dns.CaptureKey, log)
 	if err := srv.Start(dnsAddr); err != nil {
 		log.Error("dns server", "err", err)
@@ -83,6 +132,9 @@ func runDaemon(log *slog.Logger, socket string) int {
 		return 1
 	}
 	log.Info("dns server listening", "addr", dnsAddr)
+
+	// The resolver listens before the config may capture the system DNS.
+	d.startup()
 
 	served := make(chan error, 1)
 	go func() {

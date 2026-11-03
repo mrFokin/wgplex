@@ -69,10 +69,15 @@ func (e Errors) Error() string {
 
 // Config is a validated and normalized configuration (design 10.1).
 type Config struct {
-	IPv6Filter bool
-	Tunnels    []Tunnel // order = priority (design 7.2)
-	Services   map[string]Service
-	Rules      []Rule // order = tie-break (design 7.4)
+	// ControlGroup is control_group of wgplex.yaml, default "admin": besides
+	// root and the config owner, members of this group control the daemon
+	// (design 5, 10.1). LoadDir checks that the group exists; a numeric gid
+	// is accepted unchecked. Membership checks are not part of the config.
+	ControlGroup string
+	IPv6Filter   bool
+	Tunnels      []Tunnel // order = priority (design 7.2)
+	Services     map[string]Service
+	Rules        []Rule // order = tie-break (design 7.4)
 }
 
 // NeedsDNS reports whether the resolver has work for c (design 8): a rule names a service with domains, or a tunnel has
