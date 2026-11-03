@@ -599,18 +599,28 @@ func TestPrintErrorCodes(t *testing.T) {
 	}
 }
 
-// design 14: HTTP 403 is "permission denied: ...".
-func TestPrintErrorForbidden(t *testing.T) {
-	for _, err := range []error{
-		&httpError{Code: http.StatusForbidden, Body: "forbidden"},
-		fmt.Errorf("status.get: %w", &httpError{Code: http.StatusForbidden, Body: "forbidden"}),
-	} {
+// design 13, 14: permission denied is JSON-RPC error 5 (not HTTP 403) and
+// prints the text of design 13 with control_group; HTTP 413 is not it.
+func TestPrintErrorPermission(t *testing.T) {
+	e := wireError(t, rpc.CodeNoPermission, "permission denied", rpc.PermissionData{ControlGroup: "wgpctl"})
+	for _, err := range []error{e, fmt.Errorf("tunnel.enable: %w", e)} {
 		out := printed(t, "printError", func(w io.Writer) { printError(w, err) })
-		if !strings.HasPrefix(strings.TrimSpace(out), "permission denied") {
-			t.Errorf("printError(403) = %q, want \"permission denied: ...\"", out)
+		want := `permission denied: up/down/pause/resume/reload require root, the config owner or membership in group "wgpctl"`
+		if strings.TrimSpace(out) != want {
+			t.Errorf("printError(5) = %q, want %q", out, want)
+		}
+		if got := exitCode(err); got != 1 {
+			t.Errorf("exitCode(5) = %d, want 1", got)
 		}
 	}
+	// Without a group only root and the owner control: no tail about a group.
 	out := printed(t, "printError", func(w io.Writer) {
+		printError(w, wireError(t, rpc.CodeNoPermission, "permission denied", rpc.PermissionData{}))
+	})
+	if !strings.HasPrefix(out, "permission denied:") || strings.Contains(out, "group") {
+		t.Errorf("printError(5, no group) = %q", out)
+	}
+	out = printed(t, "printError", func(w io.Writer) {
 		printError(w, &httpError{Code: http.StatusRequestEntityTooLarge, Body: "Request Entity Too Large"})
 	})
 	if strings.TrimSpace(out) == "" || strings.HasPrefix(strings.TrimSpace(out), "permission denied") {
