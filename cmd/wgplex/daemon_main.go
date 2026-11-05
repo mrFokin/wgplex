@@ -86,9 +86,10 @@ func exists(path string) bool {
 }
 
 // runDaemon starts the daemon listening on cmd.Socket and serves until
-// SIGINT/SIGTERM (exit code 0) or a failure of the resolver after it
-// listened or of the RPC server (1), then stops: DNS released, routes, tunnels and the socket
-// removed. logFile is the log (nil: none), its group follows control_group.
+// SIGINT/SIGTERM (exit code 0) or a failure of the RPC server (1), then
+// stops: DNS released, routes, tunnels and the socket removed. A failure of
+// the resolver after it listened does not stop it: listening is tried again
+// as for a busy port (daemon.lost). logFile is the log (nil: none), its group follows control_group.
 //
 // Before the RPC it reads state.json (a broken one: a warning, the tunnels
 // by autostart, design 11) and applies the config of cmd.ConfigDir (design
@@ -162,9 +163,9 @@ loop:
 			break loop
 		// nil until the resolver listens; a later Start is seen at the next round.
 		case err := <-srv.Err():
-			log.Error("dns server", "err", err)
-			code = 1
-			break loop
+			if !d.lost(err) {
+				go d.listenEvery(ctx, dnsT.C)
+			}
 		case err := <-served:
 			serving = false
 			log.Error("rpc server stopped", "err", err)

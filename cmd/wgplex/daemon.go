@@ -279,6 +279,28 @@ func (d *daemon) retryListen() bool {
 	return d.listening
 }
 
+// lost handles a failure of the resolver after it listened (srv.Err): like
+// a busy port, it does not stop the daemon and the capture key stays
+// (fail-closed, design 9.1). The resolver is shut down (the other listener
+// may still serve), listening is reset and tried at once; the caller starts
+// listenEvery again. Reports whether the resolver listens again. After
+// shutdown: nothing is done, true.
+func (d *daemon) lost(err error) bool {
+	d.opMu.Lock()
+	defer d.opMu.Unlock()
+	if d.closed {
+		return true
+	}
+	d.log.Error("dns server stopped serving; retrying", "addr", dnsAddr, "err", err)
+	if serr := d.srv.Shutdown(); serr != nil {
+		d.log.Debug("dns server shutdown", "err", serr)
+	}
+	d.listening = false
+	d.locked(func() { d.listenErr = "DNS resolver stopped serving on " + dnsAddr + ": " + err.Error() })
+	d.listen()
+	return d.listening
+}
+
 // listenEvery calls retryListen on every tick (every dnsRetry in runDaemon)
 // until the resolver listens or ctx is done.
 func (d *daemon) listenEvery(ctx context.Context, tick <-chan time.Time) {

@@ -9,8 +9,14 @@ package dns
 #include <SystemConfiguration/SystemConfiguration.h>
 #include <stdlib.h>
 
-static SCDynamicStoreRef wgpStoreCreate(void) {
-	return SCDynamicStoreCreate(NULL, CFSTR("wgplex"), NULL, NULL);
+// The wrappers of SC calls return SCError() in *code from the same C call:
+// SCError is thread-local, and a goroutine may move to another OS thread
+// between two cgo calls.
+
+static SCDynamicStoreRef wgpStoreCreate(int *code) {
+	SCDynamicStoreRef r = SCDynamicStoreCreate(NULL, CFSTR("wgplex"), NULL, NULL);
+	*code = r == NULL ? SCError() : kSCStatusOK;
+	return r;
 }
 
 static CFStringRef wgpString(const char *s) {
@@ -84,16 +90,22 @@ static void wgpCopyEntries(CFDictionaryRef d, CFTypeRef **keys, CFTypeRef **vals
 	CFDictionaryGetKeysAndValues(d, (const void **)*keys, (const void **)*vals);
 }
 
-static CFPropertyListRef wgpCopyValue(SCDynamicStoreRef s, CFStringRef k) {
-	return SCDynamicStoreCopyValue(s, k);
+static CFPropertyListRef wgpCopyValue(SCDynamicStoreRef s, CFStringRef k, int *code) {
+	CFPropertyListRef r = SCDynamicStoreCopyValue(s, k);
+	*code = r == NULL ? SCError() : kSCStatusOK;
+	return r;
 }
 
-static int wgpSetValue(SCDynamicStoreRef s, CFStringRef k, CFDictionaryRef v) {
-	return SCDynamicStoreSetValue(s, k, v);
+static int wgpSetValue(SCDynamicStoreRef s, CFStringRef k, CFDictionaryRef v, int *code) {
+	int ok = SCDynamicStoreSetValue(s, k, v);
+	*code = ok ? kSCStatusOK : SCError();
+	return ok;
 }
 
-static int wgpRemoveValue(SCDynamicStoreRef s, CFStringRef k) {
-	return SCDynamicStoreRemoveValue(s, k);
+static int wgpRemoveValue(SCDynamicStoreRef s, CFStringRef k, int *code) {
+	int ok = SCDynamicStoreRemoveValue(s, k);
+	*code = ok ? kSCStatusOK : SCError();
+	return ok;
 }
 */
 import "C"
@@ -112,17 +124,17 @@ type scStore struct {
 	ref C.SCDynamicStoreRef
 }
 
-// scErr is the error of the last SC call.
-func scErr(op string) error {
-	code := C.SCError()
+// scErr is the error of a failed SC call op with its SCError code.
+func scErr(op string, code C.int) error {
 	return fmt.Errorf("%s: %s (%d)", op, C.GoString(C.SCErrorString(code)), int(code))
 }
 
 // openStore opens a session of SCDynamicStore; close it with close.
 func openStore() (*scStore, error) {
-	ref := C.wgpStoreCreate()
+	var code C.int
+	ref := C.wgpStoreCreate(&code)
 	if ref == 0 {
-		return nil, scErr("SCDynamicStoreCreate")
+		return nil, scErr("SCDynamicStoreCreate", code)
 	}
 	return &scStore{ref: ref}, nil
 }
@@ -152,12 +164,13 @@ func (s *scStore) get(key string) (m map[string][]string, ok bool, err error) {
 		return nil, false, err
 	}
 	defer C.wgpRelease(C.CFTypeRef(k))
-	v := C.wgpCopyValue(s.ref, k)
+	var code C.int
+	v := C.wgpCopyValue(s.ref, k, &code)
 	if v == 0 {
-		if code := C.SCError(); code == C.kSCStatusNoKey || code == C.kSCStatusOK {
+		if code == C.kSCStatusNoKey || code == C.kSCStatusOK {
 			return nil, false, nil
 		}
-		return nil, false, scErr("SCDynamicStoreCopyValue " + key)
+		return nil, false, scErr("SCDynamicStoreCopyValue "+key, code)
 	}
 	defer C.wgpRelease(C.CFTypeRef(v))
 	if C.wgpIsDict(C.CFTypeRef(v)) == 0 {
@@ -264,8 +277,9 @@ func (s *scStore) set(key string, val map[string]any) error {
 		C.wgpRelease(C.CFTypeRef(ck))
 		C.wgpRelease(cv)
 	}
-	if C.wgpSetValue(s.ref, k, C.CFDictionaryRef(d)) == 0 {
-		return scErr("SCDynamicStoreSetValue " + key)
+	var code C.int
+	if C.wgpSetValue(s.ref, k, C.CFDictionaryRef(d), &code) == 0 {
+		return scErr("SCDynamicStoreSetValue "+key, code)
 	}
 	return nil
 }
@@ -321,11 +335,12 @@ func (s *scStore) remove(key string) error {
 		return err
 	}
 	defer C.wgpRelease(C.CFTypeRef(k))
-	if C.wgpRemoveValue(s.ref, k) == 0 {
-		if C.SCError() == C.kSCStatusNoKey {
+	var code C.int
+	if C.wgpRemoveValue(s.ref, k, &code) == 0 {
+		if code == C.kSCStatusNoKey {
 			return nil
 		}
-		return scErr("SCDynamicStoreRemoveValue " + key)
+		return scErr("SCDynamicStoreRemoveValue "+key, code)
 	}
 	return nil
 }

@@ -124,7 +124,8 @@ func (s *Server) Expire(now time.Time) bool {
 // one port for both) and serves in the background. It returns after both are
 // bound: a bind error (EADDRINUSE) is returned at once and leaves nothing
 // bound, so Start may be called again later (the daemon retries a busy port).
-// Not after a successful Start.
+// After a successful Start only once Shutdown has returned (the daemon
+// restarts a resolver that stopped serving).
 func (s *Server) Start(addr string) error {
 	pc, ln, err := listen(addr)
 	if err != nil {
@@ -179,7 +180,8 @@ func listen(addr string) (net.PacketConn, net.Listener, error) {
 
 // Err returns the channel that receives an error when serving UDP or TCP
 // stops after Start other than by Shutdown (at most one per listener). The
-// resolver no longer answers then: the caller stops. Before a successful
+// resolver no longer answers then: the caller shuts it down and starts it
+// again. Before a successful
 // Start: nil (a receive blocks forever); call it again after a Start.
 func (s *Server) Err() <-chan error {
 	s.mu.Lock()

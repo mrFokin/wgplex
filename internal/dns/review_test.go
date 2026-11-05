@@ -451,23 +451,22 @@ func TestM5rServerNoDataEDNS0(t *testing.T) {
 
 // --- systemServers: loopback -------------------------------------------------
 
-// A loopback system server (127.0.0.1 is our own
-// resolver once captured; 127.0.0.53, ::1) would loop, so it is dropped.
-// Tested on systemServers: Server.SetSystem cannot filter it, the server
-// tests use 127.0.0.1 as the system upstream.
+// A loopback system server (dnscrypt-proxy, dnsmasq on 127.0.0.1:53) is a
+// legitimate upstream and is kept (design 8): our resolver listens on Port,
+// the system servers are asked on :53, so there is no loop.
 func TestM5rSystemServersLoopback(t *testing.T) {
 	cases := []struct {
 		why          string
 		setup, state map[string][]string
 		want         []string
 	}{
-		{"State: loopback dropped",
+		{"State: loopback kept",
 			nil, map[string][]string{"ServerAddresses": {"127.0.0.1", "192.168.20.1", "127.0.0.53", "::1", "2001:db8::53"}},
-			[]string{"192.168.20.1", "2001:db8::53"}},
-		{"Setup: loopback dropped",
-			map[string][]string{"ServerAddresses": {"::1", "9.9.9.9", "127.0.0.1"}}, nil,
-			[]string{"9.9.9.9"}},
-		{"only loopback", nil, map[string][]string{"ServerAddresses": {"127.0.0.1", "127.0.0.53", "::1"}}, nil},
+			[]string{"127.0.0.1", "192.168.20.1", "127.0.0.53", "::1", "2001:db8::53"}},
+		{"Setup: loopback kept",
+			map[string][]string{"ServerAddresses": {"::1", "9.9.9.9", "127.0.0.1"}}, map[string][]string{"ServerAddresses": {"192.168.20.1"}},
+			[]string{"::1", "9.9.9.9", "127.0.0.1"}},
+		{"only loopback", nil, map[string][]string{"ServerAddresses": {"127.0.0.1", "::1"}}, []string{"127.0.0.1", "::1"}},
 	}
 	for _, c := range cases {
 		t.Run(c.why, func(t *testing.T) {

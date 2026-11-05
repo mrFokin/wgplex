@@ -54,9 +54,10 @@ func Capture(zones []string) error {
 }
 
 // Release removes the capture key (no error if it is absent) and flushes the
-// cache. Called at stop and at start, after a crash (design 8). The key is
-// read back: Release fails if it is still there. When only the flush fails,
-// the error wraps ErrFlush. Needs root.
+// cache. Called at stop and when there are no zones (design 8); at start a
+// key left by the previous run is not removed but synced (design 4.1). The
+// key is read back: Release fails if it is still there. When only the flush
+// fails, the error wraps ErrFlush. Needs root.
 func Release() error {
 	s, err := openStore()
 	if err != nil {
@@ -119,7 +120,7 @@ func VerifyZones(zones []string) error {
 // SystemServers returns the DNS servers of the primary service: the
 // PrimaryService of State:/Network/Global/IPv4, then ServerAddresses of
 // Setup:/Network/Service/<id>/DNS, else of State:/Network/Service/<id>/DNS
-// (systemServers, loopback addresses skipped). The capture key is never the
+// (systemServers, invalid addresses skipped). The capture key is never the
 // primary service (it has no IPv4), so capturing does not change the result.
 // No primary service or no servers is an error.
 func SystemServers() ([]netip.Addr, error) {

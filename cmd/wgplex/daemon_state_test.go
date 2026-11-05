@@ -27,7 +27,10 @@ import (
 func testDaemon(t *testing.T, statePath string, toggles state.State) *daemon {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return newDaemon(context.Background(), &dns.Server{Log: log}, log, t.TempDir(), statePath, toggles, nil)
+	d := newDaemon(context.Background(), &dns.Server{Log: log}, log, t.TempDir(), statePath, toggles, nil)
+	// Reload starts the resolver: no real port in tests.
+	d.dnsListen = func() error { return nil }
+	return d
 }
 
 func wantCode(t *testing.T, what string, err error, code int) {

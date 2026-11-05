@@ -80,11 +80,12 @@ func valueStrings(v any) []string {
 }
 
 // systemServers returns ServerAddresses of setup if present, else of state
-// (the DNS keys of the primary service); invalid and loopback addresses
-// (127.0.0.0/8, ::1, also IPv4-mapped) are skipped: a loopback upstream would
-// send our queries back to our own resolver on 127.0.0.1. The choice between
-// setup and state is made before skipping: manual servers that are all
-// loopback give none, not the DHCP ones.
+// (the DNS keys of the primary service); invalid addresses are skipped.
+// Loopback addresses are kept (design 8): our resolver listens on Port and
+// asks the system servers on :53, so 127.0.0.1 is a local upstream
+// (dnscrypt-proxy, dnsmasq), not a loop back to us. The choice between setup
+// and state is made before skipping: manual servers that are all invalid
+// give none, not the DHCP ones.
 func systemServers(setup, state map[string][]string) []netip.Addr {
 	vals := setup["ServerAddresses"]
 	if len(vals) == 0 {
@@ -92,7 +93,7 @@ func systemServers(setup, state map[string][]string) []netip.Addr {
 	}
 	var res []netip.Addr
 	for _, v := range vals {
-		if a, err := netip.ParseAddr(v); err == nil && !a.Unmap().IsLoopback() {
+		if a, err := netip.ParseAddr(v); err == nil {
 			res = append(res, a)
 		}
 	}
