@@ -107,8 +107,12 @@ func (h Health) Observe(s Sample) Health {
 		if s.Ping.OK {
 			h.Fails, h.LastOK, h.RTT = 0, at, s.Ping.RTT
 			h.active, h.activeWhy = Alive, ""
+			if h.aliveSince.IsZero() {
+				h.aliveSince = at // the return countdown starts (design 9.2)
+			}
 		} else {
 			h.Fails++
+			h.aliveSince = time.Time{} // any failure restarts the countdown
 			if h.Fails >= FailsToDead {
 				h.active = Dead
 				switch {
@@ -172,11 +176,16 @@ func (h Health) decide() Health {
 // Reset returns h after a network change or a wake at at: the passive
 // window starts at at, the tx/rx base and the passive count are forgotten,
 // Fails is 0; the verdicts stay (a dead tunnel stays dead until evidence of
-// life).
+// life). The return countdown restarts at at when the active verdict is
+// Alive and is zero otherwise (design 9.2).
 func (h Health) Reset(at time.Time) Health {
 	h.since = at.Round(0)
 	h.base, h.tx, h.rx, h.strikes = false, 0, 0, 0
 	h.Fails = 0
+	h.aliveSince = time.Time{}
+	if h.active == Alive {
+		h.aliveSince = h.since
+	}
 	return h
 }
 
@@ -215,8 +224,10 @@ func SampleOf(at time.Time, peers []tunnel.PeerStats, ping PingResult) Sample {
 }
 
 // Returnable reports whether the tunnel may take rules back (design 9.2): the
-// active check has been Alive for ReturnAfter. Only the active verdict counts;
-// a tunnel without a check is never Returnable.
+// active check has been Alive for ReturnAfter, with no failure since it came
+// alive or since the last Reset. Only the active verdict counts; a tunnel
+// without a check is never Returnable, nor is a Dead one (passive Dead).
 func (h Health) Returnable(now time.Time) bool {
-	panic("not implemented")
+	return h.State != Dead && h.active == Alive && !h.aliveSince.IsZero() &&
+		now.Round(0).Sub(h.aliveSince) >= ReturnAfter
 }
