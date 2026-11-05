@@ -34,12 +34,13 @@ $(BIN): FORCE
 # `shasum -a 256` format with the bare archive name. Tagging and gh release
 # are manual (design 16.3).
 release: check build
+	@echo '$(VERSION)' | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$$' || { echo 'VERSION $(VERSION) is not X.Y.Z: drop -dev (or pass VERSION=X.Y.Z)'; exit 1; }
 	rm -rf $(BUILD)/release $(BUILD)/$(ARCHIVE) $(BUILD)/$(ARCHIVE).sha256
 	mkdir -p $(BUILD)/release/bin $(BUILD)/release/share/wgplex
 	cp $(BIN) $(BUILD)/release/bin/wgplex
 	cp share/wgplex/wgplex.yaml $(BUILD)/release/share/wgplex/wgplex.yaml
 	cp LICENSE $(BUILD)/release/LICENSE
-	COPYFILE_DISABLE=1 tar -czf $(BUILD)/$(ARCHIVE) -C $(BUILD)/release bin share LICENSE
+	COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata --uid 0 --gid 0 --uname root --gname wheel -czf $(BUILD)/$(ARCHIVE) -C $(BUILD)/release bin share LICENSE
 	rm -rf $(BUILD)/release
 	cd $(BUILD) && shasum -a 256 $(ARCHIVE) > $(ARCHIVE).sha256
 
