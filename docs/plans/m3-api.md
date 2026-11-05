@@ -1,6 +1,6 @@
 # M3 — доступ и API
 
-Статус: план на согласовании (2026-11-03). Ветка `m3-api` от `master` (16113de).
+Статус: реализован, проверен в VM (2026-11-05), ждёт слияния. Ветка `m3-api` от `master` (16113de).
 
 **Цель:** права по методам и членство в `control_group` через Directory Services; урезанные ответы для остальных пользователей; полный контракт `status.get`; `tunnel.enable/disable`, пауза и `down -all`; снимок блокировки; `-json`, код выхода `3`, предупреждение о версиях; `docs/api.md`.
 
@@ -194,5 +194,23 @@ func (s State) Save(path string, gid int) error
 - [x] Волна A/B/тесты: A уже вошла в коммит сигнатур (`state.go` реализован), B — права, `Access`, cgo, урезание, `status.get`; тесты test-dev
 - [x] C, D, E (демон: пауза, снимок, группа; CLI; `api.md`)
 - [x] Ревью (reviewer, opus). Блокер: нет тестов паузы и снимка → написаны (`daemon_pause_test.go`, `daemon_block_test.go`, `TestServePeerError`). Решения пользователя (2026-11-03): скрывать `reason` и `error` туннелей, скрывать `addrs` в `explain`, добавить `block_snapshot` в `status.get` — design 5, 14 и `api.md` обновлены. Исправлено: порядок проверки прав и пометки redacted в `api.md`, текст отказа в design 13, имя теста. Принято без правок (низкая серьёзность): предупреждение `IsMember` раз на ошибку, а не по uid; группа `state.json` не переписывается до первой записи; `dnsErr` не обновляется в `checkCapture` (сбросится при `reload`); `Resume` не отдаёт ошибки подъёма в ответ RPC.
-- [ ] Проверка в VM
-- [ ] Слияние
+- [x] Проверка в VM (2026-11-05, `general-purpose` на sonnet, клоны `wgp-check-m3-*` в bridged-сети, сняты): шаги 1–8 и дополнительные проверки — PASS, дефектов кода нет.
+  - Права: у `bob` код 1 с текстом о группе, сырой JSON-RPC — ошибка `5` при HTTP 200; вложенная группа (`alice` через `wgpouter`) работает.
+  - Членство: добавление `bob` — управление сразу, удаление — ровно через 30 с (граница TTL).
+  - Битый конфиг при старте: `configured: false`, `block_snapshot: true`, `reject`-маршрут с флагом `2`, NODATA на домен `block`; после `kill -9` (KeepAlive временно выключен) маршрут и ключ DNS остались; `reload` заменил снимок обычной работой.
+  - Пауза: туннели опущены, handshake сервера не растёт, `reason: paused`, `block` держится; пауза пережила `kickstart -k`; `down -all` пережил перезапуск; новый туннель после `reload` — по `autostart`.
+  - Файлы: `state.json` и лог `0640`, группа `wgpctl`; `bob` лог не читает. CLI: код `3`, предупреждение о версиях, `-json` разбирается `jq`.
+  - Не проверено: x86_64-срез universal-бинарника (VM — arm64; cgo `mbr_*` под LaunchDaemon проверен на arm64), живой TCC, занятый порт DNS (M4).
+  - Замечание: при обычном `kill -9` launchd перезапускает демон мгновенно; полный захват DNS (`SupplementalMatchDomains {""}`, порт 53) — поведение M2, точечный — M4.
+- [ ] Слияние (ждёт подтверждения пользователя по условиям CLAUDE.md)
+
+### Текст для сессии `wgplex-app`
+
+Движок `0.1.0-dev`, `api_version: 1`. Контракт — `docs/api.md` (ветка `m3-api`, после слияния — `master`). Что нового для клиента:
+
+- Права по методам: сокет принимает всех. `status.get`, `diag.explain`, `diag.routes` доступны любому, но не управляющему (`can_control: false`) отдают урезанный ответ: нет `endpoint`/`resolved` пиров, `check.addr`, `reason` и `error` туннелей, `names` маршрутов, `servers` и `addrs` в `explain`, текстов `config_errors` и `warnings` — вместо них `config_error_count` и `warning_count`. Изменяющие методы (`config.reload`, `tunnel.*`, `daemon.*`) от не управляющего дают ошибку JSON-RPC `5` с `data.control_group` (HTTP 403 больше нет). Управляют root, владелец каталога конфига и члены `control_group` (вложенные группы учитываются, кэш 30 с).
+- `status.get`: новые поля `api_version`, `version`, `can_control`, `control_group`, `paused`, `config_dir`, `log_path`, `config_error_count`, `warning_count`, `block_snapshot`; у правила — `reason` (`dead` | `disabled` | `paused`); `icon` получил значение `paused`, `warn` без конфига и при ошибке захвата DNS. `enabled` у туннеля — переключатель и на паузе, `state` — фактическое.
+- Методы: `tunnel.setEnabled` заменён на `tunnel.enable{name}` и `tunnel.disable{name}`; `tunnel.enable` возвращает `{starts_on_resume: true}` на паузе. Новые `daemon.pause`, `daemon.resume` (идемпотентны, работают без конфига). `tunnel.disableAll` остался.
+- `configured: false` при битом конфиге на старте: демон держит снимок блокировки последнего удачного конфига (`block_snapshot: true`), туннелей нет.
+- Совместимость: поля и методы только добавляются; клиент игнорирует неизвестные поля. `wgplex-app` ещё не начат, обратной совместимости с `tunnel.setEnabled` не требуется.
+
