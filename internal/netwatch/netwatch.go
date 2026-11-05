@@ -1,7 +1,8 @@
 // Package netwatch reports the events the daemon reacts to (design 6, 8):
 // network changes, the DNS capture key, wake from sleep and a periodic
-// resync. The parsing of scutil output, the mapping of keys to events and
-// the debouncing are pure; Watch (watch_darwin.go) runs scutil.
+// resync. The keys watched, the mapping of keys to events and the
+// debouncing are pure; Watch (watch_darwin.go) is a thin cgo layer over
+// SystemConfiguration (SCDynamicStore notifications on a CFRunLoop).
 package netwatch
 
 import (
@@ -17,7 +18,7 @@ const (
 	Network Event = 1 << iota // global or service IPv4/IPv6/DNS keys changed
 	Capture                   // the DNS capture key changed
 	Wake                      // the machine slept
-	Resync                    // periodic or after a scutil restart
+	Resync                    // periodic or after the SC session is recreated
 )
 
 // String formats e for logs: "network|wake"; "none" for 0.
@@ -34,9 +35,9 @@ func (e Event) String() string {
 	return strings.Join(names, "|")
 }
 
-// The keys and patterns watched; a pattern
-// is a regex(3) one for scutil "n.add <pattern> pattern" and matches whole
-// keys. AirPort keys are noise and are not watched.
+// The keys and patterns watched; a pattern is a regex(3) one, as
+// SCDynamicStoreSetNotificationKeys takes them, and matches whole keys.
+// AirPort keys are noise and are not watched.
 
 var (
 	networkKeys     = []string{"State:/Network/Global/IPv4", "State:/Network/Global/IPv6", "State:/Network/Global/DNS"}
@@ -53,20 +54,11 @@ var (
 	}()
 )
 
-// parseChangedKey returns the key of a `scutil` n.watch line
-// "  14:36:45.351 (+0.000) changedKey [1] = <key>", exactly as printed
-// (a trailing space kept); ok false for any other line.
-func parseChangedKey(line string) (key string, ok bool) {
-	line = strings.TrimRight(line, "\r\n")
-	_, rest, ok := strings.Cut(line, "changedKey [")
-	if !ok {
-		return "", false
-	}
-	_, key, ok = strings.Cut(rest, "] = ")
-	if !ok || key == "" {
-		return "", false
-	}
-	return key, true
+// watchKeys returns the keys and the patterns of the notification set: the
+// global keys and captureKey, the service patterns.
+func watchKeys(captureKey string) (keys, patterns []string) {
+	keys = append(append([]string{}, networkKeys...), captureKey)
+	return keys, append([]string{}, networkPatterns...)
 }
 
 // classify maps a changed key to its event; 0: not ours. The capture key is

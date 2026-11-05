@@ -28,7 +28,7 @@ const (
 // upstream on 127.0.0.1.
 var upstreamPort uint16 = 53
 
-// Server is the resolver on 127.0.0.1:53 (design 8). Safe for concurrent
+// Server is the resolver on 127.0.0.1:Port (design 8). Safe for concurrent
 // use; Sync is called without Server's lock held.
 //
 // A query: Choose; Block → NoData; else the servers of the upstream in turn
@@ -120,9 +120,12 @@ func (s *Server) Expire(now time.Time) bool {
 	return s.dyn.Expire(now)
 }
 
-// Start binds UDP and TCP on addr ("127.0.0.1:53"; "127.0.0.1:0" in tests,
+// Start binds UDP and TCP on addr ("127.0.0.1:5301"; "127.0.0.1:0" in tests,
 // one port for both) and serves in the background. It returns after both are
-// bound: a bind error (EADDRINUSE) is returned at once.
+// bound: a bind error (EADDRINUSE) is returned at once and leaves nothing
+// bound, so Start may be called again later (the daemon retries a busy port).
+// After a successful Start only once Shutdown has returned (the daemon
+// restarts a resolver that stopped serving).
 func (s *Server) Start(addr string) error {
 	pc, ln, err := listen(addr)
 	if err != nil {
@@ -130,7 +133,10 @@ func (s *Server) Start(addr string) error {
 	}
 	s.addr = pc.LocalAddr().(*net.UDPAddr).AddrPort()
 	s.sem = make(chan struct{}, maxInflight)
-	s.errc = make(chan error, 2)
+	errc := make(chan error, 2)
+	s.mu.Lock()
+	s.errc = errc // Err may be called concurrently: a retried Start
+	s.mu.Unlock()
 	h := dns.HandlerFunc(s.serve)
 	var started sync.WaitGroup
 	started.Add(2)
@@ -140,7 +146,7 @@ func (s *Server) Start(addr string) error {
 		go func() {
 			// nil after Shutdown; an error means serving has stopped.
 			if err := srv.ActivateAndServe(); err != nil {
-				s.errc <- fmt.Errorf("dns %s: %w", [...]string{"udp", "tcp"}[i], err)
+				errc <- fmt.Errorf("dns %s: %w", [...]string{"udp", "tcp"}[i], err)
 			}
 		}()
 	}
@@ -174,9 +180,12 @@ func listen(addr string) (net.PacketConn, net.Listener, error) {
 
 // Err returns the channel that receives an error when serving UDP or TCP
 // stops after Start other than by Shutdown (at most one per listener). The
-// resolver no longer answers then: the caller stops. Before Start: nil (a
-// receive blocks forever).
+// resolver no longer answers then: the caller shuts it down and starts it
+// again. Before a successful
+// Start: nil (a receive blocks forever); call it again after a Start.
 func (s *Server) Err() <-chan error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.errc
 }
 

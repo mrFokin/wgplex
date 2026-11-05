@@ -1,49 +1,37 @@
 package netwatch
 
 import (
+	"context"
+	"log/slog"
 	"regexp"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
-// watchScript adds the
-// global keys and the capture key, the service patterns
-// (anchored, whole keys), and n.watch last.
-func TestWatchScript(t *testing.T) {
+// watchKeys gives the global keys and the capture key, and the service
+// patterns (anchored, whole keys) for SCDynamicStoreSetNotificationKeys.
+func TestWatchKeys(t *testing.T) {
 	defer noPanic(t)
-	script := watchScript(captureKey)
-	if !strings.HasSuffix(script, "\n") {
-		t.Errorf("script %q: want a trailing newline (scutil reads lines)", script)
-	}
-	lines := strings.Split(strings.TrimRight(script, "\n"), "\n")
-	if len(lines) == 0 || lines[len(lines)-1] != "n.watch" {
-		t.Fatalf("script %q: want n.watch last", script)
-	}
-	if strings.Count(script, "n.watch") != 1 {
-		t.Errorf("script %q: want exactly one n.watch", script)
-	}
+	keyList, patternList := watchKeys(captureKey)
 
 	keys := map[string]bool{}
+	for _, k := range keyList {
+		keys[k] = true
+	}
 	var patterns []*regexp.Regexp
-	for _, l := range lines[:len(lines)-1] {
-		f := strings.Fields(l)
-		switch {
-		case len(f) == 2 && f[0] == "n.add":
-			keys[f[1]] = true
-		case len(f) == 3 && f[0] == "n.add" && f[2] == "pattern":
-			p := f[1]
-			if !strings.HasPrefix(p, "^") || !strings.HasSuffix(p, "$") {
-				t.Errorf("pattern %q: want anchored with ^…$", p)
-			}
-			re, err := regexp.Compile(p)
-			if err != nil {
-				t.Errorf("pattern %q: %v", p, err)
-				continue
-			}
-			patterns = append(patterns, re)
-		default:
-			t.Errorf("line %q: want \"n.add <key>\" or \"n.add <pattern> pattern\"", l)
+	for _, p := range patternList {
+		if !strings.HasPrefix(p, "^") || !strings.HasSuffix(p, "$") {
+			t.Errorf("pattern %q: want anchored with ^…$", p)
 		}
+		re, err := regexp.Compile(p)
+		if err != nil {
+			t.Errorf("pattern %q: %v", p, err)
+			continue
+		}
+		patterns = append(patterns, re)
 	}
 
 	for _, k := range []string{
@@ -53,7 +41,7 @@ func TestWatchScript(t *testing.T) {
 		captureKey,
 	} {
 		if !keys[k] {
-			t.Errorf("key %q not added; script %q", k, script)
+			t.Errorf("key %q not watched; keys %q", k, keyList)
 		}
 	}
 
@@ -94,12 +82,58 @@ func TestWatchScript(t *testing.T) {
 	}
 }
 
-// The capture key passed in is the one added (not a fixed one).
-func TestWatchScriptCaptureKey(t *testing.T) {
+// The capture key passed in is the one watched (not a fixed one).
+func TestWatchKeysCaptureKey(t *testing.T) {
 	defer noPanic(t)
 	const other = "State:/Network/Service/00000000-0000-0000-0000-000000000000/DNS"
-	script := watchScript(other)
-	if !strings.Contains(script, "n.add "+other+"\n") {
-		t.Errorf("script %q: want n.add of %q", script, other)
+	keys, _ := watchKeys(other)
+	if !slices.Contains(keys, other) {
+		t.Errorf("keys %q: want %q", keys, other)
+	}
+}
+
+// Watch creates an SC session (no root needed) and, when ctx is done,
+// stops the run loop and closes the channel promptly.
+func TestWatchStops(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	out := Watch(ctx, captureKey, slog.New(slog.DiscardHandler))
+	time.Sleep(200 * time.Millisecond) // let the run loop start
+	cancel()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case _, ok := <-out:
+			if !ok {
+				return
+			}
+		case <-deadline:
+			t.Fatal("channel not closed 2 s after cancel")
+		}
+	}
+}
+
+// watchOnce on a live session returns nil soon after ctx is done (the run
+// loop is stopped, not left to time out).
+func TestWatchOnceStops(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		done <- watchOnce(ctx, captureKey, make(chan Event, 64), false)
+	}()
+	time.Sleep(200 * time.Millisecond)
+	start := time.Now()
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("watchOnce: %v", err)
+		}
+		if d := time.Since(start); d > time.Second {
+			t.Errorf("watchOnce returned %v after cancel, want promptly", d)
+		}
+	case <-time.After(2 * probeEvery):
+		t.Fatal("watchOnce did not return after cancel")
 	}
 }

@@ -255,7 +255,7 @@ Result of `status.get`.
 | `icon` | string | `off` \| `on` \| `warn` \| `paused`; see [Icon](#icon) |
 | `config_errors` | string[] | errors of the last failed apply (start or `config.reload`); cleared by a successful one; omitted when empty; **redacted** |
 | `config_error_count` | int | number of `config_errors`; always present |
-| `warnings` | string[] | warnings of the applied config; omitted when empty; **redacted** |
+| `warnings` | string[] | warnings of the applied config and of the system DNS capture (see [Icon](#icon)); omitted when empty; **redacted** |
 | `warning_count` | int | number of `warnings`; always present |
 | `tunnels` | [TunnelStatus](#tunnelstatus)[] | tunnels in config order |
 | `rules` | [RuleStatus](#rulestatus)[] | rules in config order |
@@ -469,7 +469,7 @@ A rule is `degraded` when its `via` is not empty and it is not served by
 
 | Condition | `icon` |
 |---|---|
-| no config applied (`configured: false`), or the system DNS capture failed | `warn` |
+| no config applied (`configured: false`), or the system DNS capture failed: the capture key not written, the resolver port busy, or the zones not verified (not seen in the system resolver configuration); each of these DNS failures is also a `warnings` entry while it lasts | `warn` |
 | paused | `paused` |
 | config errors (`config_error_count > 0`), or a tunnel in `dead` or `error` | `warn` |
 | at least one tunnel `up` | `on` |

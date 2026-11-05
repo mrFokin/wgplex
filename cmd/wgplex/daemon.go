@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,9 +30,21 @@ const (
 	// call brings up: they are resolved in parallel, well within the 60 s
 	// of the CLI.
 	resolveTimeout = 10 * time.Second
-	expireEvery    = time.Minute    // how often expired dynamic addresses are dropped
-	dnsAddr        = "127.0.0.1:53" // the resolver of the daemon (design 8)
+	expireEvery    = time.Minute // how often expired dynamic addresses are dropped
+	// dnsRetry is how often the resolver tries again to listen on a busy
+	// port (design 8); config.reload tries too.
+	dnsRetry = time.Minute
+	// verifyTries, verifyGap: dns.VerifyZones after a write is tried up to
+	// verifyTries times verifyGap apart: the system resolver configuration
+	// follows the key asynchronously (~0.1 s, design 8).
+	verifyTries = 5
 )
+
+// dnsAddr is the address of the resolver of the daemon (design 8).
+var dnsAddr = "127.0.0.1:" + strconv.Itoa(dns.Port)
+
+// verifyGap is the pause between verifyTries; tests set it to 0.
+var verifyGap = 200 * time.Millisecond
 
 // errStopping is the error of a mutating call after shutdown has begun; the
 // client gets it as Internal error.
@@ -53,9 +66,17 @@ var errStopping = errors.New("wgplex daemon is stopping")
 // puts all of them into the table as endpoint routes, so Sync never removes
 // one of a tunnel being brought up or stopped.
 type daemon struct {
-	opMu     sync.Mutex
-	closed   bool // under opMu: shutdown has begun, mutating calls fail
-	captured bool // under opMu: the DNS capture succeeded and is not released
+	opMu   sync.Mutex
+	closed bool // under opMu: shutdown has begun, mutating calls fail
+	// captured (under opMu): the capture key may be ours and set: written,
+	// or a release of it failed; zones are the zones last written to it
+	// (nil: none since the last release). A write happens only when the
+	// zones of the config differ from zones or from the key (design 8).
+	captured bool
+	zones    []string
+	// listening (under opMu): the resolver listens on dnsAddr; until then
+	// it is tried again every dnsRetry and at config.reload (design 8).
+	listening bool
 	// toggles is state.json (design 11): the explicit tunnel toggles, the
 	// pause and the block snapshot, written to statePath. Changed under opMu
 	// and mu, read under either: snapshot reads it under mu alone.
@@ -77,13 +98,23 @@ type daemon struct {
 	statePath string        // state.json
 	logFile   *rotatingFile // nil: not logging to a file; its group follows control_group
 
+	// The system DNS layer; tests replace it (set by newDaemon, read under
+	// opMu).
+	dnsListen   func() error                                // srv.Start(dnsAddr)
+	dnsCapture  func(zones []string) error                  // dns.Capture
+	dnsRelease  func() error                                // dns.Release
+	dnsCaptured func() (zones []string, ok bool, err error) // dns.Captured
+	dnsVerify   func(zones []string) error                  // dns.VerifyZones
+
 	// Under mu.
 	cfg *config.Config // nil: no config applied yet
 	// blockCfg is the synthetic config of the block snapshot (blockConfig),
 	// set by a start with an invalid config and used by effectiveCfg while
 	// cfg is nil; the first successful apply drops it (design 9.1).
 	blockCfg  *config.Config
-	dnsErr    string   // the last DNS capture failed: why; "": fine (status.get icon)
+	dnsErr    string   // the last DNS capture write failed: why; "": fine (status.get icon)
+	verifyErr string   // the last check of the capture failed: why; "": fine (icon, warnings)
+	listenErr string   // the resolver does not listen: why; "": it does (icon, warnings)
 	warnings  []string // of cfg
 	cfgErrs   []string // of the last failed apply; nil after a successful one
 	tunnels   map[string]*runTunnel
@@ -149,6 +180,12 @@ func newDaemon(ctx context.Context, srv *dns.Server, log *slog.Logger, dir, stat
 		tunnels:   map[string]*runTunnel{},
 		hosts:     map[netip.Addr]*hostRoute{},
 		gws:       map[bool]router.Gateway{},
+
+		dnsListen:   func() error { return srv.Start(dnsAddr) },
+		dnsCapture:  dns.Capture,
+		dnsRelease:  dns.Release,
+		dnsCaptured: dns.Captured,
+		dnsVerify:   dns.VerifyZones,
 	}
 	// Sync before a DNS answer with new addresses, from the resolver's
 	// goroutines (not under the resolver's lock: syncNow calls Dynamic).
@@ -198,23 +235,102 @@ func (d *daemon) Reload() (rpc.ApplyResult, error) {
 	if d.closed {
 		return rpc.ApplyResult{}, errStopping
 	}
+	d.listen() // a busy port is tried again at reload too (design 8)
 	return d.apply()
+}
+
+// listen starts the resolver on dnsAddr unless it listens already. A
+// failure (a busy port) does not stop the daemon (fail-closed, design 8):
+// the error goes to status.get (icon warn) and the log, the zones are
+// captured all the same, so their names do not resolve rather than go to the
+// system DNS; a success clears it. opMu is held.
+func (d *daemon) listen() {
+	if d.listening {
+		return
+	}
+	err := d.dnsListen()
+	var prev string
+	d.locked(func() {
+		prev = d.listenErr
+		d.listenErr = ""
+		if err != nil {
+			d.listenErr = "DNS resolver does not listen on " + dnsAddr + ": " + err.Error()
+		}
+	})
+	switch {
+	case err == nil:
+		d.listening = true
+		d.log.Info("dns server listening", "addr", dnsAddr)
+	case prev == "":
+		d.log.Error("dns server: names of the zones do not resolve; retrying", "addr", dnsAddr, "every", dnsRetry, "err", err)
+	default:
+		d.log.Debug("dns server retry", "addr", dnsAddr, "err", err)
+	}
+}
+
+// retryListen is listen under opMu; it reports whether the resolver
+// listens. After shutdown: nothing is tried, true.
+func (d *daemon) retryListen() bool {
+	d.opMu.Lock()
+	defer d.opMu.Unlock()
+	if d.closed {
+		return true
+	}
+	d.listen()
+	return d.listening
+}
+
+// lost handles a failure of the resolver after it listened (srv.Err): like
+// a busy port, it does not stop the daemon and the capture key stays
+// (fail-closed, design 9.1). The resolver is shut down (the other listener
+// may still serve), listening is reset and tried at once; the caller starts
+// listenEvery again. Reports whether the resolver listens again. After
+// shutdown: nothing is done, true.
+func (d *daemon) lost(err error) bool {
+	d.opMu.Lock()
+	defer d.opMu.Unlock()
+	if d.closed {
+		return true
+	}
+	d.log.Error("dns server stopped serving; retrying", "addr", dnsAddr, "err", err)
+	if serr := d.srv.Shutdown(); serr != nil {
+		d.log.Debug("dns server shutdown", "err", serr)
+	}
+	d.listening = false
+	d.locked(func() { d.listenErr = "DNS resolver stopped serving on " + dnsAddr + ": " + err.Error() })
+	d.listen()
+	return d.listening
+}
+
+// listenEvery calls retryListen on every tick (every dnsRetry in runDaemon)
+// until the resolver listens or ctx is done.
+func (d *daemon) listenEvery(ctx context.Context, tick <-chan time.Time) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick:
+			if d.retryListen() {
+				return
+			}
+		}
+	}
 }
 
 // startup applies the config at start, before the RPC (design 4.1, 10.2).
 // With an invalid config the daemon runs without tunnels on the block
 // snapshot of state.json (design 9.1): the table holds its reject routes
 // (empty without a snapshot, so the routes of the previous run go away) and
-// the system DNS is captured when the snapshot has domains, released
-// otherwise. Nothing is removed beforehand: a valid config replaces the
-// leftovers by its own sync.
+// the zones of its domains are captured (none: the key is released).
+// Nothing is removed beforehand: a valid config replaces the leftovers by
+// its own sync.
 func (d *daemon) startup() {
 	d.opMu.Lock()
 	defer d.opMu.Unlock()
 	if _, err := d.apply(); err == nil {
 		return
 	}
-	var needsDNS, hasSystem bool
+	var zones []string
 	d.locked(func() {
 		d.blockCfg, _ = blockConfig(d.toggles.Block)
 		if d.blockCfg != nil {
@@ -224,38 +340,104 @@ func (d *daemon) startup() {
 		} else {
 			d.sync()
 		}
-		needsDNS, hasSystem = d.blockCfg.NeedsDNS(), len(d.system) > 0
+		zones = d.blockCfg.Zones()
 	})
-	switch {
-	case !needsDNS:
-		if err := releaseDNS(d.log); err != nil {
-			// As if captured: the next apply without domains retries.
-			d.addWarning("DNS release failed: " + err.Error())
-			d.captured = true
-		} else {
-			d.captured = false
-			d.locked(func() { d.dnsErr = "" })
-		}
-	case !hasSystem:
-		d.log.Warn("no system DNS servers: DNS not captured")
-	default:
-		d.capture()
-	}
+	d.setCapture(zones)
 }
 
-// capture captures the system DNS (captureDNS) and records the outcome:
-// captured, or the error for status.get (icon warn, a warning). Returns the
-// warning of a failure ("": captured). opMu is held.
-func (d *daemon) capture() string {
-	if err := captureDNS(d.log); err != nil {
+// setCapture makes the capture key hold zones, the zones of the effective
+// config (design 8): none → the key is released; otherwise it is written
+// unless zones are the ones last written and the key holds exactly them (a
+// reload without a change of the zones writes nothing and keeps the cache;
+// a key lost or changed, by a configd restart, is put back). After a write
+// dns.VerifyZones checks the system resolver configuration; with zones
+// unchanged it checks again only after a failure. Pause, disableAll, the
+// tunnels and the resolver do not change the zones (design 8, 9.1).
+//
+// A failed write sets dnsErr, a failed check verifyErr (status.get icon
+// warn, the check also in its warnings); both are logged. A failed write or
+// release also is a warning of the config, returned for the apply result
+// ("": none). opMu is held.
+func (d *daemon) setCapture(zones []string) string {
+	if len(zones) == 0 {
+		return d.releaseCapture()
+	}
+	got, ok, err := d.dnsCaptured()
+	if err != nil {
+		d.log.Warn("dns capture key", "err", err) // written to be sure
+	}
+	if err == nil && ok && d.captured && slices.Equal(d.zones, zones) && slices.Equal(got, zones) {
+		var failed bool
+		d.locked(func() { failed = d.verifyErr != "" })
+		if failed {
+			d.verifyCapture(zones, 1)
+		}
+		return ""
+	}
+	if d.captured && err == nil && !ok {
+		d.log.Info("dns capture lost: restoring") // configd restarted
+	}
+	if err := d.captureDNS(zones); err != nil {
 		d.log.Error("dns capture", "err", err)
 		w := "DNS capture failed: " + err.Error()
-		d.locked(func() { d.dnsErr = err.Error() })
+		d.locked(func() { d.dnsErr, d.verifyErr = err.Error(), "" })
 		d.addWarning(w) // shown by status.get too
 		return w
 	}
-	d.locked(func() { d.dnsErr = "" })
-	d.captured = true
+	d.captured, d.zones = true, slices.Clone(zones)
+	d.verifyCapture(zones, verifyTries)
+	return ""
+}
+
+// verifyCapture runs dnsVerify up to tries times verifyGap apart until it
+// succeeds and records the outcome in verifyErr (dnsErr cleared: the write
+// succeeded). opMu is held.
+func (d *daemon) verifyCapture(zones []string, tries int) {
+	var err error
+	for i := range tries {
+		if i > 0 {
+			time.Sleep(verifyGap)
+		}
+		if err = d.dnsVerify(zones); err == nil {
+			break
+		}
+	}
+	d.locked(func() {
+		d.dnsErr, d.verifyErr = "", ""
+		if err != nil {
+			d.verifyErr = "DNS capture not verified: " + err.Error()
+		}
+	})
+	if err != nil {
+		d.log.Error("dns capture check", "err", err)
+	}
+}
+
+// releaseCapture is setCapture without zones: the key is released when it
+// may be ours (captured) or is present in the system, so a key left by a
+// previous config or a previous run goes too (design 4.1). An absent key is
+// left alone: Release would flush the mDNSResponder cache every time. A
+// failed release keeps captured: the next call retries. opMu is held.
+func (d *daemon) releaseCapture() string {
+	d.locked(func() { d.dnsErr, d.verifyErr = "", "" }) // nothing to capture
+	if !d.captured {
+		_, present, err := d.dnsCaptured()
+		if err == nil && !present {
+			d.log.Debug("dns release: no zones, no key")
+			return ""
+		}
+		if err != nil {
+			d.log.Warn("dns capture key", "err", err) // released to be sure
+		}
+	}
+	d.log.Debug("dns release: no zones")
+	if err := d.releaseDNS(); err != nil {
+		w := "DNS release failed: " + err.Error()
+		d.addWarning(w)
+		d.captured = true
+		return w
+	}
+	d.captured, d.zones = false, nil
 	return ""
 }
 
@@ -299,8 +481,6 @@ func (d *daemon) apply() (rpc.ApplyResult, error) {
 	} else {
 		d.setSystem()
 	}
-	var hasSystem bool
-	d.locked(func() { hasSystem = len(d.system) > 0 })
 
 	// The endpoints are resolved before replan: a tunnel to be restarted
 	// keeps running meanwhile instead of standing in starting.
@@ -351,41 +531,10 @@ func (d *daemon) apply() (rpc.ApplyResult, error) {
 		d.logOverlaps()
 	})
 
-	// The system DNS is captured only when the config has domains. Without
-	// them the key is released when captured or present in the system: a key
-	// left by a previous config or a previous run goes too (design 4.1). An
-	// absent key is left alone: Release would flush the mDNSResponder cache
-	// on every reload.
-	switch {
-	case !next.NeedsDNS():
-		d.locked(func() { d.dnsErr = "" }) // nothing to capture
-		if !d.captured {
-			present, err := dns.Captured()
-			if err == nil && !present {
-				d.log.Debug("dns release: no domains in config, no key")
-				break
-			}
-			if err != nil {
-				d.log.Warn("dns capture key", "err", err) // released to be sure
-			}
-		}
-		d.log.Debug("dns release: no domains in config")
-		if err := releaseDNS(d.log); err != nil {
-			// captured stays: the next apply without domains retries.
-			w := "DNS release failed: " + err.Error()
-			res.Warnings = append(res.Warnings, w)
-			d.addWarning(w)
-		} else {
-			d.captured = false
-			d.locked(func() { d.dnsErr = "" })
-		}
-	case !hasSystem:
-		d.log.Warn("no system DNS servers: DNS not captured")
-	default:
-		// Also puts the key back if configd lost it (the 30 s key check watches for that, design 8).
-		if w := d.capture(); w != "" {
-			res.Warnings = append(res.Warnings, w)
-		}
+	// The zones are those of the config only (design 8); also puts the key
+	// back if configd lost it (the 30 s key check watches for that too).
+	if w := d.setCapture(next.Zones()); w != "" {
+		res.Warnings = append(res.Warnings, w)
 	}
 	return res, nil
 }
@@ -857,6 +1006,23 @@ func (d *daemon) DisableAll() error {
 	return nil
 }
 
+// statusWarnings returns the warnings of the applied config and, while they
+// last, the busy resolver port and the failed check of the capture: added
+// here, not to warnings, which every apply replaces. A failed write of the
+// key is in warnings already (addWarning). mu is held.
+func (d *daemon) statusWarnings() []string {
+	if d.listenErr == "" && d.verifyErr == "" {
+		return d.warnings
+	}
+	res := slices.Clone(d.warnings)
+	for _, w := range []string{d.listenErr, d.verifyErr} {
+		if w != "" && !slices.Contains(res, w) {
+			res = append(res, w)
+		}
+	}
+	return res
+}
+
 // State returns a snapshot for status.get and diag.*, peer stats included.
 func (d *daemon) State() *rpc.State {
 	s := d.snapshot()
@@ -870,7 +1036,7 @@ func (d *daemon) snapshot() *rpc.State {
 	defer d.mu.Unlock()
 	s := &rpc.State{
 		Cfg:           d.cfg,
-		Warnings:      d.warnings,
+		Warnings:      d.statusWarnings(),
 		ConfigErrors:  d.cfgErrs,
 		Tunnels:       make(map[string]rpc.TunnelRuntime, len(d.tunnels)),
 		Rules:         slices.Clone(d.rules),
@@ -879,7 +1045,7 @@ func (d *daemon) snapshot() *rpc.State {
 		SyncErr:       d.syncErr,
 		Ifaces:        maps.Clone(d.env.Ifaces),
 		Paused:        d.toggles.Paused,
-		DNSError:      d.dnsErr,
+		DNSError:      joinNonEmpty(d.listenErr, d.dnsErr, d.verifyErr),
 		BlockSnapshot: d.cfg == nil && d.blockCfg != nil,
 		Switches:      d.switches(),
 	}
@@ -954,7 +1120,7 @@ func (d *daemon) shutdown() {
 	// The capture goes first: the system DNS must not point at a resolver
 	// that is gone. Released even if never captured (a crash leftover); a
 	// failure is logged, nothing more can be done.
-	_ = releaseDNS(d.log)
+	_ = d.releaseDNS()
 	if err := d.srv.Shutdown(); err != nil {
 		d.log.Warn("dns server shutdown", "err", err)
 	}
@@ -982,8 +1148,10 @@ func (d *daemon) shutdown() {
 // all within one resolveTimeout, without mu: DNS answers do not wait for it.
 // Resolving gives up when the daemon stops.
 func (d *daemon) resolve(ts []*config.Tunnel) ([][]netip.AddrPort, []error) {
-	var resolver tunnel.Resolver = net.DefaultResolver // not captured without system servers
-	var servers []netip.Addr                           // the servers of resolver; nil for net.DefaultResolver
+	// Without system servers: the system resolver, which sends to ours only
+	// the names of the zones.
+	var resolver tunnel.Resolver = net.DefaultResolver
+	var servers []netip.Addr // the servers of resolver; nil for net.DefaultResolver
 	d.locked(func() {
 		if len(d.system) > 0 {
 			servers = d.system
@@ -1426,36 +1594,47 @@ func findTunnel(cfg *config.Config, name string) *config.Tunnel {
 	return nil
 }
 
-// captureDNS makes the resolver the system DNS (dns.Capture) and logs it; a
-// failed cache flush is only logged.
-func captureDNS(log *slog.Logger) error {
-	err := dns.Capture()
+// captureDNS sends zones to the resolver (dnsCapture) and logs it; a failed
+// cache flush is only logged.
+func (d *daemon) captureDNS(zones []string) error {
+	err := d.dnsCapture(zones)
 	if err != nil && !errors.Is(err, dns.ErrFlush) {
 		return err
 	}
 	if err != nil {
-		log.Warn("dns cache", "err", err)
+		d.log.Warn("dns cache", "err", err)
 	}
-	log.Info("dns captured", "addr", dnsAddr)
+	d.log.Info("dns captured", "addr", dnsAddr, "zones", len(zones))
 	return nil
 }
 
-// releaseDNS releases the system DNS (dns.Release) and logs the outcome. It
+// releaseDNS releases the system DNS (dnsRelease) and logs the outcome. It
 // returns the error of the release; a failed cache flush is only logged and
 // counts as a release.
-func releaseDNS(log *slog.Logger) error {
-	err := dns.Release()
+func (d *daemon) releaseDNS() error {
+	err := d.dnsRelease()
 	switch {
 	case err == nil:
-		log.Info("dns released")
+		d.log.Info("dns released")
 	case errors.Is(err, dns.ErrFlush):
-		log.Warn("dns cache", "err", err)
-		log.Info("dns released")
+		d.log.Warn("dns cache", "err", err)
+		d.log.Info("dns released")
 	default:
-		log.Error("dns release", "err", err)
+		d.log.Error("dns release", "err", err)
 		return err
 	}
 	return nil
+}
+
+// joinNonEmpty joins the non-empty strings of ss with "; ".
+func joinNonEmpty(ss ...string) string {
+	var res []string
+	for _, s := range ss {
+		if s != "" {
+			res = append(res, s)
+		}
+	}
+	return strings.Join(res, "; ")
 }
 
 // logHostRoute logs the outcome of AddHost for dst.

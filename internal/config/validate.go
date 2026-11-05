@@ -16,8 +16,9 @@ import (
 // rule references to existing services and tunnels, valid domains and CIDRs,
 // DNS present in .conf for tunnels with dns_domains, no "=" in dns_domains,
 // one .conf per tunnel, required routes, no /0 in AllowedIPs with routes: config,
-// defaults (control_group: admin, ipv6_filter: true, autostart: false, fallback: default). Every error is collected rather than
-// stopping at the first one.
+// defaults (control_group: admin, ipv6_filter: true, autostart: false, fallback: default),
+// at most MaxZones zones (design 8; checked only when everything else is
+// valid). Every error is collected rather than stopping at the first one.
 //
 // Beyond design 10.1: a tunnel name must be non-empty, check must be an IP
 // address or an http(s) URL (parseCheckURL), a rule must list at least one service. Errors and warnings are
@@ -187,6 +188,10 @@ func build(raw *rawConfig, files map[string][]byte) (cfg *Config, warnings []str
 	}
 
 	if len(errs) > 0 {
+		return nil, warnings, errs
+	}
+	if n := len(cfg.Zones()); n > MaxZones {
+		errf("too many DNS zones: %d, at most %d (domains of services used by rules and dns_domains of tunnels)", n, MaxZones)
 		return nil, warnings, errs
 	}
 	return cfg, warnings, nil

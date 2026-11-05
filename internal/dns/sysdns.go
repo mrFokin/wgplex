@@ -2,7 +2,8 @@ package dns
 
 import (
 	"net/netip"
-	"strings"
+	"slices"
+	"strconv"
 )
 
 // CaptureKey is the synthetic service of wgplex in SCDynamicStore
@@ -10,71 +11,81 @@ import (
 // left by a crash is found and removed at the next start.
 const CaptureKey = "State:/Network/Service/50054742-C5CE-4C74-866E-FBD7AC0A16AE/DNS"
 
-// parseScutil parses the dictionary printed by `scutil` "show <key>":
-// scalar values and arrays of scalars by key; nested dictionaries are skipped.
-// A scalar is a one-element slice; an array keeps the order of its indexes.
-//
-// "No such key" (or any output without a dictionary) gives an empty map. A
-// line is "key : value", the value being everything after the first " : ";
-// an empty value ("key : ", trimmed to "key :") is the empty string, kept
-// both as a scalar and as an array element ("0 : " → ""). An array of
-// dictionaries is skipped as a whole.
-func parseScutil(out string) map[string][]string {
-	res := map[string][]string{}
-	var (
-		depth  int      // open braces
-		arrKey string   // the top-level array being read; "": none
-		arr    []string // its values
-		arrBad bool     // it holds a nested container: skipped
-	)
-	for _, line := range strings.Split(out, "\n") {
-		t := strings.TrimSpace(line)
-		if t == "" {
-			continue
-		}
-		if t == "}" {
-			if depth == 2 && arrKey != "" {
-				if !arrBad {
-					res[arrKey] = arr
-				}
-				arrKey = ""
-			}
-			if depth > 0 {
-				depth--
-			}
-			continue
-		}
-		k, v, ok := strings.Cut(t, " : ")
-		if !ok && strings.HasSuffix(t, " :") {
-			k, v, ok = strings.TrimSuffix(t, " :"), "", true
-		}
-		opens := strings.HasSuffix(t, "{")
-		switch {
-		case !ok: // "<dictionary> {" or "No such key"
-		case depth == 1 && v == "<array> {":
-			arrKey, arr, arrBad = k, []string{}, false
-		case depth == 1 && !opens:
-			res[k] = []string{v}
-		case depth == 2 && arrKey != "":
-			if opens {
-				arrBad = true
-			} else {
-				arr = append(arr, v)
-			}
-		}
-		if opens {
-			depth++
+// Port is the port of our resolver on 127.0.0.1 (design 8): ServerPort of
+// CaptureKey. Not 53, so the resolver lives next to another one on :53;
+// not 5353 (mDNS) nor 5354.
+const Port = 5301
+
+// matchOrder is the SupplementalMatchOrders value written for every zone:
+// with the same zone in another service the order decides the winner
+// (M0 D6, D7). That the smaller value wins is not verified yet: it is
+// checked in the VM in M4 (plan m4-dns, decision 10).
+const matchOrder = 1
+
+// captureValue returns the dictionary of CaptureKey for zones (design 8):
+// ServerAddresses [127.0.0.1], ServerPort Port, SupplementalMatchDomains
+// zones (as given), SupplementalMatchOrders matchOrder per zone and
+// SupplementalMatchDomainsNoSearch 1. A value is a string, an int, a
+// []string or an []int: the types the SC layer writes.
+func captureValue(zones []string) map[string]any {
+	orders := make([]int, len(zones))
+	for i := range orders {
+		orders[i] = matchOrder
+	}
+	return map[string]any{
+		"ServerAddresses":                  []string{"127.0.0.1"},
+		"ServerPort":                       Port,
+		"SupplementalMatchDomains":         slices.Clone(zones),
+		"SupplementalMatchOrders":          orders,
+		"SupplementalMatchDomainsNoSearch": 1,
+	}
+}
+
+// sameCapture reports whether got, a dictionary read back from the store
+// (scalars as one-element slices, numbers in decimal), holds exactly the
+// fields of want (a captureValue) and no others. An empty array and an
+// absent field differ.
+func sameCapture(got map[string][]string, want map[string]any) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for k, w := range want {
+		g, ok := got[k]
+		if !ok || !slices.Equal(g, valueStrings(w)) {
+			return false
 		}
 	}
-	return res
+	return true
+}
+
+// valueStrings is v of captureValue as the SC layer reads it back: a scalar
+// is a one-element slice, a number is decimal; an empty array is an empty,
+// non-nil slice.
+func valueStrings(v any) []string {
+	switch v := v.(type) {
+	case string:
+		return []string{v}
+	case int:
+		return []string{strconv.Itoa(v)}
+	case []string:
+		return append([]string{}, v...)
+	case []int:
+		res := []string{}
+		for _, n := range v {
+			res = append(res, strconv.Itoa(n))
+		}
+		return res
+	}
+	return nil
 }
 
 // systemServers returns ServerAddresses of setup if present, else of state
-// (the DNS keys of the primary service); invalid and loopback addresses
-// (127.0.0.0/8, ::1, also IPv4-mapped) are skipped: a loopback upstream would
-// send our queries back to our own resolver on 127.0.0.1. The choice between
-// setup and state is made before skipping: manual servers that are all
-// loopback give none, not the DHCP ones.
+// (the DNS keys of the primary service); invalid addresses are skipped.
+// Loopback addresses are kept (design 8): our resolver listens on Port and
+// asks the system servers on :53, so 127.0.0.1 is a local upstream
+// (dnscrypt-proxy, dnsmasq), not a loop back to us. The choice between setup
+// and state is made before skipping: manual servers that are all invalid
+// give none, not the DHCP ones.
 func systemServers(setup, state map[string][]string) []netip.Addr {
 	vals := setup["ServerAddresses"]
 	if len(vals) == 0 {
@@ -82,22 +93,9 @@ func systemServers(setup, state map[string][]string) []netip.Addr {
 	}
 	var res []netip.Addr
 	for _, v := range vals {
-		if a, err := netip.ParseAddr(v); err == nil && !a.Unmap().IsLoopback() {
+		if a, err := netip.ParseAddr(v); err == nil {
 			res = append(res, a)
 		}
 	}
 	return res
-}
-
-// captureScript returns the scutil stdin that sets the capture key
-// (CaptureKey, ServerAddresses 127.0.0.1, SupplementalMatchDomains ""):
-// d.init, d.add of both keys, set CaptureKey. The empty domain is written as
-// `""`: scutil's tokenizer takes quotes, so the array holds one empty string
-// and "show" prints it as "0 : " (assumed, checked by Capture reading the key
-// back).
-func captureScript() string {
-	return "d.init\n" +
-		"d.add ServerAddresses * 127.0.0.1\n" +
-		"d.add SupplementalMatchDomains * \"\"\n" +
-		"set " + CaptureKey + "\n"
 }
