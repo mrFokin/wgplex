@@ -1251,11 +1251,15 @@ type ruleReturn struct {
 // returnedRules returns the rules of cfg that moved from a tunnel of their
 // via in before to a tunnel before it in via in after (design 9.2); before
 // and after are SelectRules results for cfg. Fallback and direct rules,
-// either way, are not returns.
-func returnedRules(cfg *config.Config, before, after []router.RuleState) []ruleReturn {
+// either way, are not returns, nor is a move off a tunnel that is no longer
+// usable in states (that is a failover, design 9).
+func returnedRules(cfg *config.Config, before, after []router.RuleState, states map[string]router.TunnelState) []ruleReturn {
 	var res []ruleReturn
 	for i, r := range cfg.Rules {
 		if i >= len(before) || i >= len(after) || before[i].Tunnel == "" || after[i].Tunnel == "" {
+			continue
+		}
+		if st := states[before[i].Tunnel]; !st.Up || !st.Alive {
 			continue
 		}
 		k := slices.Index(r.Via, after[i].Tunnel)
@@ -1466,9 +1470,10 @@ func (d *daemon) states() map[string]router.TunnelState {
 func (d *daemon) reselect(prev []router.RuleState) {
 	cfg := d.effectiveCfg()
 	before := d.rules
-	d.rules = router.SelectRules(cfg, d.states(), prev)
+	states := d.states()
+	d.rules = router.SelectRules(cfg, states, prev)
 	if prev != nil { // the same config: the rules can be compared
-		for _, r := range returnedRules(cfg, before, d.rules) {
+		for _, r := range returnedRules(cfg, before, d.rules, states) {
 			d.log.Info("rule returned", "rule", r.index, "services", cfg.Rules[r.index].Services, "from", r.from, "to", r.to)
 		}
 	}

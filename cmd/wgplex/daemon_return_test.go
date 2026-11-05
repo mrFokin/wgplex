@@ -68,7 +68,8 @@ func TestReturnedRules(t *testing.T) {
 	cfg := returnCfg()
 	before := []router.RuleState{{Tunnel: "t3"}, {Tunnel: "t1"}, {}, {Fallback: true}, {Tunnel: "t3"}}
 	after := []router.RuleState{{Tunnel: "t2"}, {Tunnel: "t2"}, {}, {Tunnel: "t1"}, {Fallback: true}}
-	got := returnedRules(cfg, before, after)
+	up := map[string]router.TunnelState{"t1": {Up: true, Alive: true}, "t2": {Up: true, Alive: true}, "t3": {Up: true, Alive: true}}
+	got := returnedRules(cfg, before, after, up)
 	want := []ruleReturn{{index: 0, from: "t3", to: "t2"}, {index: 1, from: "t1", to: "t2"}}
 	if !slices.Equal(got, want) {
 		t.Fatalf("returnedRules = %v, want %v", got, want)
@@ -80,7 +81,19 @@ func TestReturnedRulesFailover(t *testing.T) {
 	cfg := returnCfg()
 	before := []router.RuleState{{Tunnel: "t1"}}
 	after := []router.RuleState{{Tunnel: "t2"}, {Tunnel: "t1"}, {}, {Tunnel: "t1"}, {Tunnel: "t3"}}
-	if got := returnedRules(cfg, before, after); len(got) != 0 {
+	if got := returnedRules(cfg, before, after, nil); len(got) != 0 {
+		t.Fatalf("returnedRules = %v, want none", got)
+	}
+}
+
+func TestReturnedRulesDeadSource(t *testing.T) {
+	// The tunnel the rule left died: a failover to a higher tunnel that was
+	// not Returnable yet, not a return.
+	cfg := returnCfg()
+	before := []router.RuleState{{Tunnel: "t3"}}
+	after := []router.RuleState{{Tunnel: "t2"}}
+	st := map[string]router.TunnelState{"t2": {Up: true, Alive: true}, "t3": {Up: true}}
+	if got := returnedRules(cfg, before, after, st); len(got) != 0 {
 		t.Fatalf("returnedRules = %v, want none", got)
 	}
 }
