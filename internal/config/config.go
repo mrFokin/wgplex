@@ -80,6 +80,21 @@ type Config struct {
 	Rules        []Rule // order = tie-break (design 7.4)
 }
 
+// MaxZones is the most DNS zones a config may have (design 8): LoadDir
+// rejects a config whose Zones exceed it, the error giving the number of
+// zones.
+const MaxZones = 1000
+
+// Zones returns the DNS zones captured for c (design 8): the domain names of
+// the services named by rules (an exact "=example.com" and a suffix
+// "example.com" both give the zone "example.com") and the dns_domains of the
+// tunnels; lowercase, without a trailing dot, deduplicated and sorted. A
+// service with domains named by no rule does not count. A nil c, or one
+// without domains, gives none; NeedsDNS is len(Zones()) > 0.
+func (c *Config) Zones() []string {
+	panic("not implemented")
+}
+
 // NeedsDNS reports whether the resolver has work for c (design 8): a rule names a service with domains, or a tunnel has
 // dns_domains. Without either the system DNS is left alone.
 // A service with domains named by no rule does not count. A nil c needs

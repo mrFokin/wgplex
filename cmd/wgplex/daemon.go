@@ -360,7 +360,7 @@ func (d *daemon) apply() (rpc.ApplyResult, error) {
 	case !next.NeedsDNS():
 		d.locked(func() { d.dnsErr = "" }) // nothing to capture
 		if !d.captured {
-			present, err := dns.Captured()
+			_, present, err := dns.Captured()
 			if err == nil && !present {
 				d.log.Debug("dns release: no domains in config, no key")
 				break
@@ -1429,7 +1429,7 @@ func findTunnel(cfg *config.Config, name string) *config.Tunnel {
 // captureDNS makes the resolver the system DNS (dns.Capture) and logs it; a
 // failed cache flush is only logged.
 func captureDNS(log *slog.Logger) error {
-	err := dns.Capture()
+	err := dns.Capture(nil) // M4: zones come with the daemon step
 	if err != nil && !errors.Is(err, dns.ErrFlush) {
 		return err
 	}

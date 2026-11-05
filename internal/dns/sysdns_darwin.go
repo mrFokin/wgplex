@@ -25,7 +25,14 @@ var ErrFlush = errors.New("flush the DNS cache")
 // The key is read back: Capture fails unless ServerAddresses is exactly
 // [127.0.0.1] and SupplementalMatchDomains exactly [""]. When only the flush
 // fails, the error wraps ErrFlush.
-func Capture() error {
+//
+// Signature step (M4): zones is ignored, the old capture of all names is kept
+// until the SC layer replaces it. The contract to come: Capture sets
+// CaptureKey through SCDynamicStore with ServerAddresses [127.0.0.1],
+// ServerPort Port, SupplementalMatchDomains zones, SupplementalMatchOrders
+// (1 per zone) and SupplementalMatchDomainsNoSearch 1, reads the key back
+// (it must match) and flushes the cache; a failed flush alone wraps ErrFlush.
+func Capture(zones []string) error {
 	if _, err := scutil(captureScript()); err != nil {
 		return fmt.Errorf("capture DNS: %w", err)
 	}
@@ -58,13 +65,26 @@ func Release() error {
 	return flush()
 }
 
-// Captured reports whether the capture key is set (a configd restart drops it).
-func Captured() (bool, error) {
+// Captured reports whether the capture key is set (a configd restart drops
+// it) and its SupplementalMatchDomains, the zones currently captured. An
+// absent key gives ok false and no zones.
+//
+// Signature step (M4): zones is always nil until the SC layer reads the key.
+func Captured() (zones []string, ok bool, err error) {
 	m, err := show(CaptureKey)
 	if err != nil {
-		return false, fmt.Errorf("dns capture key: %w", err)
+		return nil, false, fmt.Errorf("dns capture key: %w", err)
 	}
-	return len(m) > 0, nil
+	return nil, len(m) > 0, nil
+}
+
+// VerifyZones checks that the system resolver configuration sends zones to
+// our resolver (design 8): it runs `scutil --dns` (read only) and parses the
+// output with parseScutilDNS. Every zone must have a resolver block whose
+// domain is the zone, nameserver[0] 127.0.0.1 and port Port; otherwise the
+// error names the zones missing. No zones: nil.
+func VerifyZones(zones []string) error {
+	panic("not implemented")
 }
 
 // SystemServers returns the DNS servers of the primary service: the

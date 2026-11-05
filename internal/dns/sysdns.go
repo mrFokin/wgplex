@@ -10,6 +10,11 @@ import (
 // left by a crash is found and removed at the next start.
 const CaptureKey = "State:/Network/Service/50054742-C5CE-4C74-866E-FBD7AC0A16AE/DNS"
 
+// Port is the port of our resolver on 127.0.0.1 (design 8): ServerPort of
+// CaptureKey. Not 53, so the resolver lives next to another one on :53;
+// not 5353 (mDNS) nor 5354.
+const Port = 5301
+
 // parseScutil parses the dictionary printed by `scutil` "show <key>":
 // scalar values and arrays of scalars by key; nested dictionaries are skipped.
 // A scalar is a one-element slice; an array keeps the order of its indexes.

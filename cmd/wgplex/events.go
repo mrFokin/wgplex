@@ -200,7 +200,7 @@ func (d *daemon) checkCapture() {
 		// The block snapshot config counts: it has the domains too.
 		needsDNS = d.effectiveCfg().NeedsDNS()
 	})
-	ok, err := dns.Captured()
+	_, ok, err := dns.Captured()
 	if err != nil {
 		d.log.Warn("dns capture check", "err", err)
 		return
