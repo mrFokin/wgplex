@@ -2,8 +2,9 @@ BUILD   := build
 BIN     := $(BUILD)/wgplex
 VERSION := $(shell cat VERSION)
 LDFLAGS := -X main.version=$(VERSION)
+ARCHIVE := wgplex-$(VERSION)-darwin-universal.tar.gz
 
-.PHONY: check fmt-check vet test build clean FORCE
+.PHONY: check fmt-check vet test build release clean FORCE
 
 check: fmt-check vet test
 
@@ -27,6 +28,20 @@ $(BIN): FORCE
 	lipo -create -output $@ $@-arm64 $@-amd64
 	rm -f $@-arm64 $@-amd64
 	codesign --force --sign - $@
+
+# Release archive (design 16.2, M6 decisions 1-2): no top-level directory,
+# bin/wgplex, share/wgplex/wgplex.yaml and LICENSE, plus a sha256 file in the
+# `shasum -a 256` format with the bare archive name. Tagging and gh release
+# are manual (design 16.3).
+release: check build
+	rm -rf $(BUILD)/release $(BUILD)/$(ARCHIVE) $(BUILD)/$(ARCHIVE).sha256
+	mkdir -p $(BUILD)/release/bin $(BUILD)/release/share/wgplex
+	cp $(BIN) $(BUILD)/release/bin/wgplex
+	cp share/wgplex/wgplex.yaml $(BUILD)/release/share/wgplex/wgplex.yaml
+	cp LICENSE $(BUILD)/release/LICENSE
+	COPYFILE_DISABLE=1 tar -czf $(BUILD)/$(ARCHIVE) -C $(BUILD)/release bin share LICENSE
+	rm -rf $(BUILD)/release
+	cd $(BUILD) && shasum -a 256 $(ARCHIVE) > $(ARCHIVE).sha256
 
 clean:
 	rm -rf $(BUILD)
