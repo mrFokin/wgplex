@@ -89,3 +89,56 @@ func TestDaemonStartupBlockBusyPort(t *testing.T) {
 		t.Error("listening after a busy port")
 	}
 }
+
+// warnings of status.get hold the busy resolver port and the failed check of
+// the capture while they last, next to the warnings of the config (which an
+// apply replaces), and lose them once fixed; the icon stays warn meanwhile.
+func TestStatusWarningsDNS(t *testing.T) {
+	has := func(ws []string, sub string) bool {
+		return slices.ContainsFunc(ws, func(w string) bool { return strings.Contains(w, sub) })
+	}
+	busy := errors.New("address already in use")
+	f := &fakeDNS{listenErrs: []error{busy}, verifyErr: errors.New("zones missing: example.com")}
+	d := dnsDaemon(t, f)
+	d.retryListen()
+	d.testCapture([]string{"example.com"})
+	d.locked(func() { d.warnings = []string{"config warning"} }) // as an apply leaves them
+
+	ws := d.snapshot().Warnings
+	if !has(ws, "config warning") || !has(ws, "already in use") || !has(ws, "zones missing") || len(ws) != 3 {
+		t.Errorf("warnings = %q, want the config one, the busy port and the check", ws)
+	}
+	if d.snapshot().DNSError == "" {
+		t.Error("DNSError empty: icon not warn")
+	}
+	if got := d.warnings; len(got) != 1 {
+		t.Errorf("d.warnings = %q: the DNS warnings must not be stored in it", got)
+	}
+
+	d.retryListen()
+	ws = d.snapshot().Warnings
+	if has(ws, "already in use") || !has(ws, "zones missing") {
+		t.Errorf("warnings after listening = %q, want only the check left", ws)
+	}
+	f.verifyErr = nil
+	d.testCapture([]string{"example.com"})
+	if ws = d.snapshot().Warnings; len(ws) != 1 || ws[0] != "config warning" {
+		t.Errorf("warnings after the check passed = %q, want the config one", ws)
+	}
+}
+
+// A failed write of the key is one warning, not repeated by statusWarnings.
+func TestStatusWarningsCaptureOnce(t *testing.T) {
+	f := &fakeDNS{captureErr: errors.New("no root")}
+	d := dnsDaemon(t, f)
+	d.testCapture([]string{"example.com"})
+	n := 0
+	for _, w := range d.snapshot().Warnings {
+		if strings.Contains(w, "no root") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("warnings = %q, want the failed write once", d.snapshot().Warnings)
+	}
+}

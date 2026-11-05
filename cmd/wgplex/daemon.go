@@ -112,8 +112,9 @@ type daemon struct {
 	// set by a start with an invalid config and used by effectiveCfg while
 	// cfg is nil; the first successful apply drops it (design 9.1).
 	blockCfg  *config.Config
-	dnsErr    string   // the last DNS capture or its check failed: why; "": fine (status.get icon)
-	listenErr string   // the resolver does not listen: why; "": it does (status.get icon)
+	dnsErr    string   // the last DNS capture write failed: why; "": fine (status.get icon)
+	verifyErr string   // the last check of the capture failed: why; "": fine (icon, warnings)
+	listenErr string   // the resolver does not listen: why; "": it does (icon, warnings)
 	warnings  []string // of cfg
 	cfgErrs   []string // of the last failed apply; nil after a successful one
 	tunnels   map[string]*runTunnel
@@ -353,9 +354,10 @@ func (d *daemon) startup() {
 // unchanged it checks again only after a failure. Pause, disableAll, the
 // tunnels and the resolver do not change the zones (design 8, 9.1).
 //
-// A failed write or check sets dnsErr (status.get icon warn) and is logged;
-// a failed write or release also is a warning of the config, returned for
-// the apply result ("": none). opMu is held.
+// A failed write sets dnsErr, a failed check verifyErr (status.get icon
+// warn, the check also in its warnings); both are logged. A failed write or
+// release also is a warning of the config, returned for the apply result
+// ("": none). opMu is held.
 func (d *daemon) setCapture(zones []string) string {
 	if len(zones) == 0 {
 		return d.releaseCapture()
@@ -366,7 +368,7 @@ func (d *daemon) setCapture(zones []string) string {
 	}
 	if err == nil && ok && d.captured && slices.Equal(d.zones, zones) && slices.Equal(got, zones) {
 		var failed bool
-		d.locked(func() { failed = d.dnsErr != "" })
+		d.locked(func() { failed = d.verifyErr != "" })
 		if failed {
 			d.verifyCapture(zones, 1)
 		}
@@ -378,7 +380,7 @@ func (d *daemon) setCapture(zones []string) string {
 	if err := d.captureDNS(zones); err != nil {
 		d.log.Error("dns capture", "err", err)
 		w := "DNS capture failed: " + err.Error()
-		d.locked(func() { d.dnsErr = err.Error() })
+		d.locked(func() { d.dnsErr, d.verifyErr = err.Error(), "" })
 		d.addWarning(w) // shown by status.get too
 		return w
 	}
@@ -388,7 +390,8 @@ func (d *daemon) setCapture(zones []string) string {
 }
 
 // verifyCapture runs dnsVerify up to tries times verifyGap apart until it
-// succeeds and records the outcome in dnsErr. opMu is held.
+// succeeds and records the outcome in verifyErr (dnsErr cleared: the write
+// succeeded). opMu is held.
 func (d *daemon) verifyCapture(zones []string, tries int) {
 	var err error
 	for i := range tries {
@@ -400,9 +403,9 @@ func (d *daemon) verifyCapture(zones []string, tries int) {
 		}
 	}
 	d.locked(func() {
-		d.dnsErr = ""
+		d.dnsErr, d.verifyErr = "", ""
 		if err != nil {
-			d.dnsErr = err.Error()
+			d.verifyErr = "DNS capture not verified: " + err.Error()
 		}
 	})
 	if err != nil {
@@ -416,7 +419,7 @@ func (d *daemon) verifyCapture(zones []string, tries int) {
 // left alone: Release would flush the mDNSResponder cache every time. A
 // failed release keeps captured: the next call retries. opMu is held.
 func (d *daemon) releaseCapture() string {
-	d.locked(func() { d.dnsErr = "" }) // nothing to capture
+	d.locked(func() { d.dnsErr, d.verifyErr = "", "" }) // nothing to capture
 	if !d.captured {
 		_, present, err := d.dnsCaptured()
 		if err == nil && !present {
@@ -1003,6 +1006,23 @@ func (d *daemon) DisableAll() error {
 	return nil
 }
 
+// statusWarnings returns the warnings of the applied config and, while they
+// last, the busy resolver port and the failed check of the capture: added
+// here, not to warnings, which every apply replaces. A failed write of the
+// key is in warnings already (addWarning). mu is held.
+func (d *daemon) statusWarnings() []string {
+	if d.listenErr == "" && d.verifyErr == "" {
+		return d.warnings
+	}
+	res := slices.Clone(d.warnings)
+	for _, w := range []string{d.listenErr, d.verifyErr} {
+		if w != "" && !slices.Contains(res, w) {
+			res = append(res, w)
+		}
+	}
+	return res
+}
+
 // State returns a snapshot for status.get and diag.*, peer stats included.
 func (d *daemon) State() *rpc.State {
 	s := d.snapshot()
@@ -1016,7 +1036,7 @@ func (d *daemon) snapshot() *rpc.State {
 	defer d.mu.Unlock()
 	s := &rpc.State{
 		Cfg:           d.cfg,
-		Warnings:      d.warnings,
+		Warnings:      d.statusWarnings(),
 		ConfigErrors:  d.cfgErrs,
 		Tunnels:       make(map[string]rpc.TunnelRuntime, len(d.tunnels)),
 		Rules:         slices.Clone(d.rules),
@@ -1025,7 +1045,7 @@ func (d *daemon) snapshot() *rpc.State {
 		SyncErr:       d.syncErr,
 		Ifaces:        maps.Clone(d.env.Ifaces),
 		Paused:        d.toggles.Paused,
-		DNSError:      joinNonEmpty(d.listenErr, d.dnsErr),
+		DNSError:      joinNonEmpty(d.listenErr, d.dnsErr, d.verifyErr),
 		BlockSnapshot: d.cfg == nil && d.blockCfg != nil,
 		Switches:      d.switches(),
 	}
