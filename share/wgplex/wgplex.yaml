@@ -1,0 +1,65 @@
+# wgplex configuration: <prefix>/etc/wgplex/wgplex.yaml
+#
+# Everything below is commented out: an empty config is valid, the daemon
+# runs with no tunnels and does not touch system DNS.
+#
+# What goes into this directory:
+#   - wgplex.yaml        this file (mode 0600)
+#   - <name>.conf        WireGuard config of each tunnel (wg-quick format,
+#                        mode 0600), referenced by `conf` below without a path;
+#                        a symlink is fine, but not into ~/Documents, ~/Desktop,
+#                        ~/Downloads, iCloud Drive or removable volumes
+#                        (the daemon cannot read them there)
+#   - other *.yaml files are ignored with a warning
+#
+# The directory itself must be mode 0700. After editing, validate with
+# `wgplex check` and apply with `wgplex reload`.
+#
+# Example:
+#
+# control_group: admin   # who, besides root and the owner, may control wgplex
+# ipv6_filter: true
+#
+# # Tunnel order = priority for equal prefixes from AllowedIPs
+# tunnels:
+#   - name: work
+#     conf: work.conf            # file in this directory (a symlink is fine)
+#     routes: config             # AllowedIPs -> routing table
+#     autostart: true
+#     dns_domains:               # resolve via DNS from work.conf
+#       - corp.example
+#     check: 10.0.0.1            # optional: ping through the tunnel
+#                                # or http(s)://... for an HTTP check
+#
+#   - name: home
+#     conf: home.conf
+#     routes: config
+#     autostart: false
+#
+#   - name: nl
+#     conf: nl.conf
+#     routes: rules              # only routes from the rules
+#     autostart: true
+#     check: 1.1.1.1
+#
+#   - name: de
+#     conf: de.conf
+#     routes: rules
+#     autostart: true
+#     check: 1.1.1.1
+#
+# services:
+#   youtube:
+#     domains: [youtube.com, googlevideo.com, ytimg.com, youtu.be, ggpht.com]
+#   ai:
+#     domains: [openai.com, chatgpt.com, anthropic.com, claude.ai, gemini.google.com]
+#   telegram:
+#     cidrs: [91.108.4.0/22, 149.154.160.0/20]
+#
+# rules:
+#   - services: [youtube, telegram]
+#     via: [nl, de]
+#     fallback: default
+#   - services: [ai]
+#     via: [nl, de]
+#     fallback: block
