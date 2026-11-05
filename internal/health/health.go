@@ -21,6 +21,7 @@ const (
 	HTTPTimeout      = 5 * time.Second  // the whole HTTP check (design 9)
 	PokeEvery        = 30 * time.Second // handshake attempts of a dead tunnel
 	StrikesToDead    = 2                // passive: polls in a row sending without receiving
+	ReturnAfter      = 5 * time.Minute  // alive by the active check this long: the tunnel takes rules back (design 9.2)
 )
 
 // State is the verdict of Health.
@@ -87,6 +88,8 @@ type Health struct {
 	active  State     // verdict of the pings
 	passive State     // verdict of handshake and traffic
 	poked   time.Time // the last handshake attempt of Poke
+
+	aliveSince time.Time // active verdict Alive since; zero: not Alive by the check (design 9.2)
 
 	activeWhy, passiveWhy string // the reason of a Dead verdict
 }
@@ -209,4 +212,11 @@ func SampleOf(at time.Time, peers []tunnel.PeerStats, ping PingResult) Sample {
 		s.Rx += p.RxBytes
 	}
 	return s
+}
+
+// Returnable reports whether the tunnel may take rules back (design 9.2): the
+// active check has been Alive for ReturnAfter. Only the active verdict counts;
+// a tunnel without a check is never Returnable.
+func (h Health) Returnable(now time.Time) bool {
+	panic("not implemented")
 }

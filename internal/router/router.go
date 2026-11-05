@@ -16,6 +16,7 @@ type TunnelState struct {
 	// Up with Alive false and no entry in Env.Ifaces: its routes become reject.
 	Up        bool
 	Alive     bool         // health verdict (design 9); ignored when !Up
+	Return    bool         // may take rules back from a lower-priority tunnel (design 9.2)
 	Endpoints []netip.Addr // resolved peer endpoints (design 6, 7.1 item 1)
 }
 
