@@ -147,6 +147,9 @@ type runTunnel struct {
 	// dead tunnel resolves its host names again reresolveEvery after it).
 	resolvedAt time.Time
 	failedAt   time.Time // err set: when it failed (retryEvery)
+	// returnable: tun set, health was Returnable at the last health tick;
+	// the tick that first finds it so selects the rules again (design 9.2).
+	returnable bool
 }
 
 // hostRoute is the host route of an endpoint: the tunnel that put it in
@@ -509,7 +512,7 @@ func (d *daemon) apply() (rpc.ApplyResult, error) {
 	for i, t := range start {
 		started[t.Name] = true
 		// Each tunnel gets its Ifaces and rules as soon as it is up.
-		if err := d.up(t, endpoints[i], errs[i], false); err != nil {
+		if err := d.up(t, endpoints[i], errs[i], rulesScratch); err != nil {
 			res.Tunnels = append(res.Tunnels, rpc.TunnelError{Name: t.Name, Error: err.Error()})
 		}
 	}
@@ -779,7 +782,7 @@ func (d *daemon) Enable(name string) (rpc.EnableResult, error) {
 		return rpc.EnableResult{}, nil
 	}
 	endpoints, errs := d.resolve([]*config.Tunnel{t})
-	if err := d.up(t, endpoints[0], errs[0], true); err != nil {
+	if err := d.up(t, endpoints[0], errs[0], rulesReturn); err != nil {
 		return rpc.EnableResult{}, jrpc.NewError(rpc.CodeTunnelStart, fmt.Sprintf("tunnel %s: %v", name, err), nil)
 	}
 	return rpc.EnableResult{}, nil
@@ -863,7 +866,7 @@ func (d *daemon) Resume() error {
 	}
 	endpoints, errs := d.resolve(start)
 	for i, t := range start {
-		d.up(t, endpoints[i], errs[i], false) // logs its error; status.get shows it
+		d.up(t, endpoints[i], errs[i], rulesScratch) // logs its error; status.get shows it
 	}
 	return nil
 }
@@ -1180,9 +1183,9 @@ func (d *daemon) resolve(ts []*config.Tunnel) ([][]netip.AddrPort, []error) {
 // the host routes, starts t and adds the scoped routes to its DNS servers.
 // The starting entry of t in tunnels becomes the running tunnel or gets the
 // error; t stays enabled either way. Then the rules are
-// selected again (keepRules: from the current ones, else from scratch) and
-// the table is synced, so t gets its Ifaces and rules at once. Takes mu.
-func (d *daemon) up(t *config.Tunnel, endpoints []netip.AddrPort, rerr error, keepRules bool) error {
+// selected again (from: see rulesFrom) and the table is synced, so t gets
+// its Ifaces and rules at once. Takes mu.
+func (d *daemon) up(t *config.Tunnel, endpoints []netip.AddrPort, rerr error, from rulesFrom) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	rt := d.tunnels[t.Name]
@@ -1199,11 +1202,68 @@ func (d *daemon) up(t *config.Tunnel, endpoints []netip.AddrPort, rerr error, ke
 		d.log.Error("tunnel", "tunnel", t.Name, "err", err)
 	}
 	var prev []router.RuleState
-	if keepRules {
+	switch {
+	case from == rulesReturn && err == nil:
+		prev = returnTo(d.effectiveCfg(), d.rules, t.Name)
+	case from != rulesScratch:
 		prev = d.rules
 	}
 	d.reselect(prev)
 	return err
+}
+
+// rulesFrom is what up selects the rules from once the tunnel is up.
+type rulesFrom int
+
+const (
+	rulesScratch rulesFrom = iota // from scratch: apply, resume
+	rulesKeep                     // from the current ones: retry
+	// rulesReturn: from the current ones, the rules the tunnel stands higher
+	// in via for than their current tunnel from scratch: it takes them at
+	// once (tunnel.enable, design 9.2). A tunnel that failed: rulesKeep.
+	rulesReturn
+)
+
+// returnTo returns a copy of prev (the rules of cfg) with the rules whose via
+// has the tunnel name before their current tunnel set to zero: SelectRules
+// selects them from scratch, and they go to name if it is usable and nothing
+// before it is. The other rules keep their tunnels.
+func returnTo(cfg *config.Config, prev []router.RuleState, name string) []router.RuleState {
+	res := slices.Clone(prev)
+	for i := range res {
+		if i >= len(cfg.Rules) || res[i].Tunnel == "" {
+			continue
+		}
+		via := cfg.Rules[i].Via
+		if k := slices.Index(via, name); k >= 0 && k < slices.Index(via, res[i].Tunnel) {
+			res[i] = router.RuleState{}
+		}
+	}
+	return res
+}
+
+// ruleReturn is a rule that moved to a higher-priority tunnel of its via.
+type ruleReturn struct {
+	index    int // in cfg.Rules
+	from, to string
+}
+
+// returnedRules returns the rules of cfg that moved from a tunnel of their
+// via in before to a tunnel before it in via in after (design 9.2); before
+// and after are SelectRules results for cfg. Fallback and direct rules,
+// either way, are not returns.
+func returnedRules(cfg *config.Config, before, after []router.RuleState) []ruleReturn {
+	var res []ruleReturn
+	for i, r := range cfg.Rules {
+		if i >= len(before) || i >= len(after) || before[i].Tunnel == "" || after[i].Tunnel == "" {
+			continue
+		}
+		k := slices.Index(r.Via, after[i].Tunnel)
+		if k >= 0 && k < slices.Index(r.Via, before[i].Tunnel) {
+			res = append(res, ruleReturn{index: i, from: before[i].Tunnel, to: after[i].Tunnel})
+		}
+	}
+	return res
 }
 
 // start adds the host routes to endpoints, starts t and fills rt; on failure
@@ -1383,21 +1443,35 @@ func (d *daemon) gateway(ipv6 bool) (router.Gateway, error) {
 	return gw, nil
 }
 
-// states returns the router states of the enabled tunnels. mu is held.
+// states returns the router states of the enabled tunnels; Return is
+// health.Returnable at the moment of the call. mu is held.
 func (d *daemon) states() map[string]router.TunnelState {
+	now := time.Now()
 	st := make(map[string]router.TunnelState, len(d.tunnels))
 	for name, rt := range d.tunnels {
-		st[name] = router.TunnelState{Up: true, Alive: rt.tun != nil && rt.health.Alive(), Endpoints: rt.addrs}
+		st[name] = router.TunnelState{
+			Up:        true,
+			Alive:     rt.tun != nil && rt.health.Alive(),
+			Return:    rt.tun != nil && rt.health.Returnable(now),
+			Endpoints: rt.addrs,
+		}
 	}
 	return st
 }
 
 // reselect selects the rules again (prev nil: from scratch, design 7.3),
+// logs the rules that went back to a higher-priority tunnel (prev not nil),
 // passes the state to the resolver and syncs the table. mu is held, a config
 // or the block snapshot config is in force (effectiveCfg).
 func (d *daemon) reselect(prev []router.RuleState) {
 	cfg := d.effectiveCfg()
+	before := d.rules
 	d.rules = router.SelectRules(cfg, d.states(), prev)
+	if prev != nil { // the same config: the rules can be compared
+		for _, r := range returnedRules(cfg, before, d.rules) {
+			d.log.Info("rule returned", "rule", r.index, "services", cfg.Rules[r.index].Services, "from", r.from, "to", r.to)
+		}
+	}
 	env := router.Env{Ifaces: map[string]int{}}
 	for name, rt := range d.tunnels {
 		if rt.tun != nil && rt.index > 0 {

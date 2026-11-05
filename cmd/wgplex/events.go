@@ -119,7 +119,7 @@ func (d *daemon) retryFailed(due func(*runTunnel) bool) {
 	}
 	endpoints, errs := d.resolve(retry) // without mu
 	for i, t := range retry {
-		d.up(t, endpoints[i], errs[i], true) // logs its error
+		d.up(t, endpoints[i], errs[i], rulesKeep) // logs its error
 	}
 }
 

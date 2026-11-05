@@ -43,8 +43,10 @@ type probe struct {
 // a snapshot under mu, the checks of all tunnels in parallel without locks
 // (and the endpoints of the dead tunnels due it resolved again, design 6),
 // then under opMu → mu the verdicts of the tunnels that are still the same
-// (not restarted or stopped meanwhile). A change of Alive selects the rules
-// again without going back to a preferred tunnel (design 7.3); a dead tunnel
+// (not restarted or stopped meanwhile). A change of Alive, and a tunnel
+// becoming Returnable, select the rules again from the current ones: a rule
+// goes back to a higher-priority tunnel only if that one is Returnable
+// (design 7.3, 9.2); a dead tunnel
 // gets a handshake attempt every health.PokeEvery, a new endpoint address
 // (reendpoint). Last, the failed tunnels due it are brought up again
 // (retryEvery).
@@ -130,6 +132,12 @@ func (d *daemon) observe(probes []*probe, now time.Time) (offline bool) {
 		}
 		if rt.health.Alive() != was.Alive() {
 			changed = true
+		}
+		// Selected again once when the tunnel becomes Returnable, not on
+		// every tick it stays so (design 9.2).
+		if r := rt.health.Returnable(now); r != rt.returnable {
+			rt.returnable = r
+			changed = changed || r
 		}
 		// A newer resolving (renetwork during the checks) wins over this one.
 		if p.reresolve && !rt.resolvedAt.After(p.resolvedAt) {
