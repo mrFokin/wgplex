@@ -87,7 +87,7 @@ wgplex — отдельный продукт на основе кода Wirefork
 ### 4.1. Демон
 
 - `wgplex daemon` запускается launchd при загрузке, работает от root, перезапускается при падении (`KeepAlive`, кроме выхода с кодом 0).
-- Запущен не от root (`brew services start` без `sudo` ставит копию как LaunchAgent пользователя, M0, H7) — ошибка в stderr (лог root ему недоступен) и выход с кодом 0: launchd его не перезапускает (16.4; проверка — M6).
+- Запущен не от root (`brew services start` без `sudo` ставит копию как LaunchAgent пользователя, M0, H7) — ошибка в stderr и выход с кодом 0: launchd его не перезапускает (16.4). Stderr копии пользователя — `launchd.log` (15): лог демона `wgplex.log` для него закрыт (`0640` root), и launchd, не открыв файл, гонял бы копию с `EX_CONFIG` каждые 10 с (M6, VM).
 - Каталоги `var/wgplex`, `var/log/wgplex` и `var/run` (для сокета) создаёт формула (10.3); демон создаёт только недостающее внутри `var/wgplex` и `var/log/wgplex`. Родителей (`var`, `var/log`, `var/run`) не создаёт: созданный root общий каталог ломает brew пользователю (M0, H6); нет каталога — ошибка в stderr.
 - Со старта читает конфиг и поднимает туннели по состоянию (11) — вход пользователя не нужен (при FileVault — после разблокировки диска, 18).
 - Не следит за пользователем за консолью: ни сброса при выходе, ни переключателей на пользователя.
@@ -442,7 +442,7 @@ rules:
 
 ### 10.3. Шаблон
 
-Формула в `post_install_steps` (`post_install` в Homebrew 7 устарел, M0, H2, H18) создаёт каталог (`0700`) и `wgplex.yaml` (`0600`) из шаблона, если каталога нет (`unless_path_exists`), а также `var/wgplex`, `var/log/wgplex` и `var/run` (4.1). Шаблон целиком закомментирован (пустой конфиг валиден: туннелей нет, DNS не захватывается): что положить в каталог и пример 10.1. Шаблон лежит в архиве релиза как `share/wgplex/wgplex.yaml`, формула ставит его в `pkgshare`. Обновление формулы существующий каталог не трогает.
+Формула в `post_install_steps` (`post_install` в Homebrew 7 устарел, M0, H2, H18) создаёт каталог (`0700`) и `wgplex.yaml` (`0600`) из шаблона, если каталога нет (`unless_path_exists`), а также `var/wgplex`, `var/log/wgplex`, `var/run` (4.1) и пустой `var/log/wgplex/launchd.log` (`0664`, 15). Шаблон целиком закомментирован (пустой конфиг валиден: туннелей нет, DNS не захватывается): что положить в каталог и пример 10.1. Шаблон лежит в архиве релиза как `share/wgplex/wgplex.yaml`, формула ставит его в `pkgshare`. Обновление формулы существующий каталог не трогает.
 
 ## 11. Состояние
 
@@ -528,7 +528,7 @@ JSON-RPC 2.0 на `github.com/mrFokin/jrpc/v2` (Echo v5), HTTP поверх unix
 ## 15. Логи
 
 - `log/slog`; демон сам пишет `<prefix>/var/log/wgplex/wgplex.log` и подменяет им stdout и stderr (`dup2` на fd 1 и 2 — туда попадают и паники Go; иначе после ротации fd 1 писал бы в архив).
-- До `dup2` stderr и stdout — тот же файл через `log_path`/`error_log_path` формулы (16.4): без них launchd отдаёт `/dev/null`, и ранние ошибки теряются (M0, H5).
+- До `dup2` stderr и stdout — файл `<prefix>/var/log/wgplex/launchd.log` через `log_path`/`error_log_path` формулы (16.4): без них launchd отдаёт `/dev/null`, и ранние ошибки теряются (M0, H5). Файл создаёт формула с правами `0664`, владелец — пользователь prefix: launchd открывает его раньше демона, а копия службы без `sudo` (4.1) пишет в него от пользователя. Туда попадают только ранние ошибки и сообщение «не от root»; демон его не ротирует и не читает.
 - Ротация в демоне: writer считает записанные байты (под мьютексом); при 5 МБ файл переименовывается в `wgplex.log.1` (старый `.1` — в `.2`, `.2` удаляется), открывается новый и снова `dup2` на fd 1 и 2. newsyslog, pid-файл и SIGUSR1 не нужны (SIGUSR1 игнорируется, 4.1).
 - Файл и архивы — `0640`, владелец root, группа — `control_group` (без применённого конфига — `admin`): лог читают окно приложения и `tail` у тех, кто управляет. Остальным раздел логов в приложении показывает «нужно членство в группе …». Имена из DNS-запросов — только на уровне debug (`-v`).
 
@@ -556,14 +556,14 @@ JSON-RPC 2.0 на `github.com/mrFokin/jrpc/v2` (Echo v5), HTTP поверх unix
 ### 16.3. Релиз (вручную, пока нет CI)
 
 1. Поднять версию, `make release`, тег, `gh release create` с архивом.
-2. В tap — новые `url`, `sha256`, `version` формулы, коммит.
+2. В tap — новые `url` и `sha256` формулы (версия — из имени архива в `url`, явного `version` нет), коммит.
 3. Проверка: `brew upgrade wgplex`, `sudo brew services restart --sudo-service-user=root wgplex`, `brew list --versions wgplex` — одна версия, `brew test wgplex`, `wgplex version` — версии CLI и демона совпадают (13).
 
 ### 16.4. Формула
 
 - `wgplex` в `mrFokin/homebrew-tap` (`brew install mrfokin/tap/wgplex`): **готовый universal-бинарник** из релиза, Go у пользователя не нужен, установка — секунды. Так принято в собственных tap (например, `hashicorp/tap`); собрать самому — `make build` из репозитория. Формулы карантин не получают, Gatekeeper бинарник не проверяет. `depends_on :macos`.
 - Установка — только по полному имени `brew install mrfokin/tap/wgplex`: Homebrew 7 загружает формулы стороннего tap только при доверии, полное имя доверяет сам (иначе — `brew trust mrfokin/tap`, M0, H1).
-- `service do`: `run [opt_bin/"wgplex", "daemon"]`, `require_root true`, `keep_alive successful_exit: false` (4.1), `log_path` и `error_log_path` — `var/"log/wgplex/wgplex.log"` (15).
+- `service do`: `run [opt_bin/"wgplex", "daemon"]`, `require_root true`, `keep_alive successful_exit: false` (4.1), `log_path` и `error_log_path` — `var/"log/wgplex/launchd.log"` (15).
 - **Запуск — `sudo brew services start --sudo-service-user=root wgplex`.** Без `--sudo-service-user=root` brew делает root владельцем бинарника и симлинков формулы, после чего `brew upgrade`, `cleanup` и `uninstall` от пользователя оставляют мусор или падают (M0, H3, H8–H13); с опцией владельцы не меняются, демон всё равно root (H16). Защиты бинарника от владельца prefix это не убирает — её нет и так (5). Опция нужна при каждом `start` и `restart`.
 - **`brew upgrade` службу не перезапускает** (M0, H8): новая версия — после `sudo brew services restart --sudo-service-user=root wgplex`.
 - `brew services` без `sudo` управляет не службой root, а копией от пользователя (M0, H7).
