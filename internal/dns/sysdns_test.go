@@ -26,180 +26,94 @@ func isUUID(s string) bool {
 }
 
 // Tests follow design 8 (the capture key, the original system DNS: manual,
-// else DHCP; scutil samples, verbatim), not the implementation.
+// else DHCP), not the implementation.
 
-// scutil samples, verbatim.
-const (
-	scutilGlobalIPv4 = `<dictionary> {
-  PrimaryInterface : en0
-  PrimaryService : DB5E9594-52DD-4D6A-888E-8D98A75BEC1B
-  Router : 192.168.20.1
-}
-`
-	scutilStateDNS = `<dictionary> {
-  ServerAddresses : <array> {
-    0 : 192.168.20.1
-  }
-}
-`
-	scutilNoKey = "  No such key\n"
+// --- CaptureKey --------------------------------------------------------------
 
-	scutilGlobalDNS = `<dictionary> {
-  ServerAddresses : <array> {
-    0 : 192.168.20.1
-  }
-  __CONFIGURATION_ID__ : Default: DB5E9594-52DD-4D6A-888E-8D98A75BEC1B 0
-  __FLAGS__ : 2
-  __IF_INDEX__ : 14
-  __ORDER__ : 0
-}
-`
-	scutilServiceIPv4 = `<dictionary> {
-  ARPResolvedHardwareAddress : d4:9c:53:27:85:03
-  ARPResolvedIPAddress : 192.168.20.1
-  AdditionalRoutes : <array> {
-    0 : <dictionary> {
-      DestinationAddress : 192.168.20.135
-      SubnetMask : 255.255.255.255
-    }
-    1 : <dictionary> {
-      DestinationAddress : 169.254.0.0
-      SubnetMask : 255.255.0.0
-    }
-  }
-  Addresses : <array> {
-    0 : 192.168.20.135
-  }
-  ConfirmedInterfaceName : en0
-  InterfaceName : en0
-  NetworkSignature : IPv4.Router=192.168.20.1;IPv4.RouterHardwareAddress=d4:9c:53:27:85:03
-  NetworkSignatureHash : <data> 0x582ba13cf9132fd7fb8e3a3fc0a4dabc5eda57f5
-  Router : 192.168.20.1
-  SubnetMasks : <array> {
-    0 : 255.255.255.0
-  }
-}
-`
-	// Manual DNS (not on the user's machine; "the same form as State:…/DNS"):
-	// two servers of both families and SearchDomains.
-	scutilSetupDNS = `<dictionary> {
-  SearchDomains : <array> {
-    0 : corp.example
-    1 : example.net
-  }
-  ServerAddresses : <array> {
-    0 : 9.9.9.9
-    1 : 2620:fe::fe
-    2 : 149.112.112.112
-  }
-}
-`
-)
-
-func parseSections(t *testing.T, out string) map[string][]string {
-	t.Helper()
-	var m map[string][]string
-	noPanic(t, "parseScutil", func() { m = parseScutil(out) })
-	return m
-}
-
-// sameMap compares parsed maps; a key listed in want with a nil value must
-// be absent.
-func sameMap(t *testing.T, got, want map[string][]string) {
-	t.Helper()
-	for k, w := range want {
-		g, ok := got[k]
-		if w == nil {
-			if ok {
-				t.Errorf("key %q = %q, want absent", k, g)
-			}
-			continue
-		}
-		if !ok || !slices.Equal(g, w) {
-			t.Errorf("key %q = %q (present %v), want %q", k, g, ok, w)
-		}
+// design 8 "Точечный захват": the key State:/Network/Service/<constant
+// UUID>/DNS.
+func TestCaptureKey(t *testing.T) {
+	const prefix, suffix = "State:/Network/Service/", "/DNS"
+	if !strings.HasPrefix(CaptureKey, prefix) || !strings.HasSuffix(CaptureKey, suffix) {
+		t.Fatalf("CaptureKey = %q, want %s<UUID>%s", CaptureKey, prefix, suffix)
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(CaptureKey, prefix), suffix)
+	if !isUUID(id) {
+		t.Errorf("CaptureKey UUID %q is not 8-4-4-4-12 hex", id)
 	}
 }
 
-// --- parseScutil -------------------------------------------------------------
+// --- captureValue, sameCapture ------------------------------------------------
 
-// Scalars as one-element slices, arrays in index order, nested
-// dictionaries skipped (with arrays of them), the value of a scalar is all
-// after the first " : ".
-func TestParseScutil(t *testing.T) {
+// design 8, the table of the key: ServerAddresses [127.0.0.1], ServerPort,
+// SupplementalMatchDomains zones, SupplementalMatchOrders 1 per zone,
+// SupplementalMatchDomainsNoSearch 1; nothing else.
+func TestCaptureValue(t *testing.T) {
+	zones := []string{"example.com", "corp.example"}
+	v := captureValue(zones)
+	want := map[string][]string{
+		"ServerAddresses":                  {"127.0.0.1"},
+		"ServerPort":                       {"5301"},
+		"SupplementalMatchDomains":         {"example.com", "corp.example"},
+		"SupplementalMatchOrders":          {"1", "1"},
+		"SupplementalMatchDomainsNoSearch": {"1"},
+	}
+	if len(v) != len(want) {
+		t.Errorf("captureValue has %d fields, want %d: %v", len(v), len(want), v)
+	}
+	for k, w := range want {
+		if g := valueStrings(v[k]); !slices.Equal(g, w) {
+			t.Errorf("%s = %q, want %q", k, g, w)
+		}
+	}
+	if !sameCapture(want, v) {
+		t.Error("sameCapture(read back, captureValue) = false")
+	}
+	// The zones are copied: changing the caller's slice changes nothing.
+	zones[0] = "x.example"
+	if g := v["SupplementalMatchDomains"].([]string); g[0] != "example.com" {
+		t.Errorf("captureValue keeps the caller's slice: %q", g)
+	}
+}
+
+func TestSameCapture(t *testing.T) {
+	want := captureValue([]string{"a.example", "b.example"})
+	good := func() map[string][]string {
+		return map[string][]string{
+			"ServerAddresses":                  {"127.0.0.1"},
+			"ServerPort":                       {"5301"},
+			"SupplementalMatchDomains":         {"a.example", "b.example"},
+			"SupplementalMatchOrders":          {"1", "1"},
+			"SupplementalMatchDomainsNoSearch": {"1"},
+		}
+	}
 	cases := []struct {
-		name string
-		out  string
-		want map[string][]string
-		size int // exact number of keys; -1: not checked
+		why  string
+		edit func(m map[string][]string)
+		same bool
 	}{
-		{"State:/Network/Global/IPv4", scutilGlobalIPv4, map[string][]string{
-			"PrimaryInterface": {"en0"},
-			"PrimaryService":   {"DB5E9594-52DD-4D6A-888E-8D98A75BEC1B"},
-			"Router":           {"192.168.20.1"},
-		}, 3},
-		{"State:/Network/Service/<id>/DNS", scutilStateDNS, map[string][]string{
-			"ServerAddresses": {"192.168.20.1"},
-		}, 1},
-		{"State:/Network/Global/DNS", scutilGlobalDNS, map[string][]string{
-			"ServerAddresses":      {"192.168.20.1"},
-			"__CONFIGURATION_ID__": {"Default: DB5E9594-52DD-4D6A-888E-8D98A75BEC1B 0"},
-			"__FLAGS__":            {"2"},
-			"__IF_INDEX__":         {"14"},
-			"__ORDER__":            {"0"},
-		}, 5},
-		// The value of NetworkSignatureHash ("<data> 0x…") is not checked:
-		// how <data> is read is not specified.
-		{"State:/Network/Service/<id>/IPv4", scutilServiceIPv4, map[string][]string{
-			"ARPResolvedHardwareAddress": {"d4:9c:53:27:85:03"},
-			"ARPResolvedIPAddress":       {"192.168.20.1"},
-			"Addresses":                  {"192.168.20.135"},
-			"ConfirmedInterfaceName":     {"en0"},
-			"InterfaceName":              {"en0"},
-			"NetworkSignature":           {"IPv4.Router=192.168.20.1;IPv4.RouterHardwareAddress=d4:9c:53:27:85:03"},
-			"Router":                     {"192.168.20.1"},
-			"SubnetMasks":                {"255.255.255.0"},
-			// Nested dictionaries and the array of them are skipped.
-			"AdditionalRoutes":   nil,
-			"DestinationAddress": nil,
-			"SubnetMask":         nil,
-		}, -1},
-		{"Setup:/Network/Service/<id>/DNS, manual", scutilSetupDNS, map[string][]string{
-			"SearchDomains":   {"corp.example", "example.net"},
-			"ServerAddresses": {"9.9.9.9", "2620:fe::fe", "149.112.112.112"},
-		}, 2},
-		{"No such key", scutilNoKey, map[string][]string{}, 0},
-		{"empty output", "", map[string][]string{}, 0},
+		{"as written", func(map[string][]string) {}, true},
+		{"zone missing", func(m map[string][]string) { m["SupplementalMatchDomains"] = []string{"a.example"} }, false},
+		{"zones reordered", func(m map[string][]string) {
+			m["SupplementalMatchDomains"] = []string{"b.example", "a.example"}
+		}, false},
+		{"other port", func(m map[string][]string) { m["ServerPort"] = []string{"53"} }, false},
+		{"no NoSearch", func(m map[string][]string) { delete(m, "SupplementalMatchDomainsNoSearch") }, false},
+		{"extra field", func(m map[string][]string) { m["SearchDomains"] = []string{"x"} }, false},
+		{"orders short", func(m map[string][]string) { m["SupplementalMatchOrders"] = []string{"1"} }, false},
 	}
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := parseSections(t, c.out)
-			sameMap(t, got, c.want)
-			if c.size >= 0 && len(got) != c.size {
-				t.Errorf("parsed %d keys %q, want %d", len(got), got, c.size)
+		t.Run(c.why, func(t *testing.T) {
+			m := good()
+			c.edit(m)
+			if got := sameCapture(m, want); got != c.same {
+				t.Errorf("sameCapture = %v, want %v", got, c.same)
 			}
 		})
 	}
-
-	// The IPv4 sample has exactly these top-level keys, NetworkSignatureHash
-	// included whatever its value.
-	t.Run("IPv4 keys", func(t *testing.T) {
-		got := parseSections(t, scutilServiceIPv4)
-		var keys []string
-		for k := range got {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		want := []string{
-			"ARPResolvedHardwareAddress", "ARPResolvedIPAddress", "Addresses",
-			"ConfirmedInterfaceName", "InterfaceName", "NetworkSignature",
-			"NetworkSignatureHash", "Router", "SubnetMasks",
-		}
-		slices.Sort(want)
-		if !slices.Equal(keys, want) {
-			t.Errorf("keys = %q, want %q", keys, want)
-		}
-	})
+	if sameCapture(nil, want) {
+		t.Error("sameCapture(nil) = true")
+	}
 }
 
 // --- systemServers -----------------------------------------------------------
@@ -207,16 +121,20 @@ func TestParseScutil(t *testing.T) {
 // design 8 "Остальное": DNS of the primary service, manual (Setup) first,
 // else DHCP (State); invalid addresses are skipped.
 func TestSystemServers(t *testing.T) {
-	setup := parseSections(t, scutilSetupDNS)
-	state := parseSections(t, scutilStateDNS)
-	none := parseSections(t, scutilNoKey)
+	// Manual DNS: two servers of both families and SearchDomains.
+	setup := map[string][]string{
+		"SearchDomains":   {"corp.example", "example.net"},
+		"ServerAddresses": {"9.9.9.9", "2620:fe::fe", "149.112.112.112"},
+	}
+	state := map[string][]string{"ServerAddresses": {"192.168.20.1"}}
+	none := map[string][]string{}
 	cases := []struct {
 		why          string
 		setup, state map[string][]string
 		want         []string
 	}{
 		{"Setup wins over State", setup, state, []string{"9.9.9.9", "2620:fe::fe", "149.112.112.112"}},
-		{"no Setup key: State (the user's machine)", none, state, []string{"192.168.20.1"}},
+		{"no Setup key: State", none, state, []string{"192.168.20.1"}},
 		{"nil Setup: State", nil, state, []string{"192.168.20.1"}},
 		{"Setup without ServerAddresses: State",
 			map[string][]string{"SearchDomains": {"corp.example"}}, state, []string{"192.168.20.1"}},
@@ -242,55 +160,114 @@ func TestSystemServers(t *testing.T) {
 	}
 }
 
-// --- captureScript -----------------------------------------------------------
+// --- parseScutilDNS, missingZones --------------------------------------------
 
-// design 8 "Точечный захват": the key State:/Network/Service/<constant
-// UUID>/DNS; the script is d.init, d.add of ServerAddresses 127.0.0.1 and
-// SupplementalMatchDomains "" (arrays), set of the key.
-func TestCaptureScript(t *testing.T) {
-	const prefix, suffix = "State:/Network/Service/", "/DNS"
-	if !strings.HasPrefix(CaptureKey, prefix) || !strings.HasSuffix(CaptureKey, suffix) {
-		t.Fatalf("CaptureKey = %q, want %s<UUID>%s", CaptureKey, prefix, suffix)
-	}
-	id := strings.TrimSuffix(strings.TrimPrefix(CaptureKey, prefix), suffix)
-	if !isUUID(id) {
-		t.Errorf("CaptureKey UUID %q is not 8-4-4-4-12 hex", id)
-	}
+// A synthetic `scutil --dns` output in the format of macOS 26: a default
+// resolver, our supplemental zones, another service with the same zone on
+// :53, an mdns block, and scoped blocks that must be skipped.
+const scutilDNSSample = `DNS configuration
 
-	var script string
-	noPanic(t, "captureScript", func() { script = captureScript() })
-	var lines []string
-	for _, l := range strings.Split(script, "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			lines = append(lines, l)
+resolver #1
+  nameserver[0] : 192.0.2.1
+  if_index : 14 (en0)
+  flags    : Request A records
+  reach    : 0x00000002 (Reachable)
+  order    : 200000
+
+resolver #2
+  domain   : example.com
+  nameserver[0] : 127.0.0.1
+  port     : 5301
+  flags    : Supplemental, Request A records, Request AAAA records
+  reach    : 0x00030002 (Reachable,Local Address,Directly Reachable Address)
+  order    : 1
+
+resolver #3
+  domain   : Corp.Example.
+  nameserver[0] : 127.0.0.1
+  port     : 5301
+  flags    : Supplemental, Request A records, Request AAAA records
+  order    : 1
+
+resolver #4
+  domain   : other.example
+  nameserver[0] : 127.0.0.1
+  nameserver[1] : 127.0.0.2
+  flags    : Supplemental, Request A records
+  order    : 2
+
+resolver #5
+  domain   : local
+  options  : mdns
+  timeout  : 5
+  flags    : Request A records
+  reach    : 0x00000000 (Not Reachable)
+  order    : 300000
+
+DNS configuration (for scoped queries)
+
+resolver #1
+  domain   : scoped.example
+  nameserver[0] : 127.0.0.1
+  port     : 5301
+  if_index : 14 (en0)
+  flags    : Scoped, Request A records
+  reach    : 0x00000002 (Reachable)
+`
+
+func TestScutilDNSSample(t *testing.T) {
+	var got []resolverBlock
+	noPanic(t, "parseScutilDNS", func() { got = parseScutilDNS(scutilDNSSample) })
+	want := []resolverBlock{
+		{nameserver: "192.0.2.1"},
+		{domain: "example.com", nameserver: "127.0.0.1", port: 5301},
+		{domain: "Corp.Example.", nameserver: "127.0.0.1", port: 5301},
+		{domain: "other.example", nameserver: "127.0.0.1"},
+		{domain: "local"},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("parseScutilDNS =\n%+v\nwant\n%+v", got, want)
+	}
+	if b := parseScutilDNS(""); len(b) != 0 {
+		t.Errorf("empty output: %+v", b)
+	}
+	if b := parseScutilDNS("No DNS configuration available\n"); len(b) != 0 {
+		t.Errorf("no configuration: %+v", b)
+	}
+}
+
+func TestMissingZones(t *testing.T) {
+	blocks := parseScutilDNS(scutilDNSSample)
+	cases := []struct {
+		zones, want []string
+	}{
+		{[]string{"example.com", "corp.example"}, nil},
+		// Port 53 (absent) is not ours; scoped blocks do not count.
+		{[]string{"example.com", "other.example", "scoped.example", "absent.example"},
+			[]string{"other.example", "scoped.example", "absent.example"}},
+		{nil, nil},
+	}
+	for _, c := range cases {
+		if got := missingZones(blocks, c.zones); !slices.Equal(got, c.want) {
+			t.Errorf("missingZones(%q) = %q, want %q", c.zones, got, c.want)
 		}
 	}
-	find := func(pred func(string) bool) int { return slices.IndexFunc(lines, pred) }
-	iInit := find(func(l string) bool { return l == "d.init" })
-	iServers := find(func(l string) bool {
-		f := strings.Fields(l)
-		return len(f) == 4 && f[0] == "d.add" && f[1] == "ServerAddresses" && f[2] == "*" && f[3] == "127.0.0.1"
-	})
-	// How the empty string is written (`""` or nothing) is up to scutil;
-	// only the array of one empty domain is required, so the token after
-	// "*" is not checked beyond not being a real domain.
-	iDomains := find(func(l string) bool {
-		f := strings.Fields(l)
-		return len(f) >= 3 && f[0] == "d.add" && f[1] == "SupplementalMatchDomains" && f[2] == "*" &&
-			(len(f) == 3 || (len(f) == 4 && f[3] == `""`))
-	})
-	iSet := find(func(l string) bool { return l == "set "+CaptureKey })
-	if iInit < 0 || iServers < 0 || iDomains < 0 || iSet < 0 {
-		t.Fatalf("captureScript lacks a line (d.init %d, ServerAddresses %d, SupplementalMatchDomains %d, set %d):\n%s",
-			iInit, iServers, iDomains, iSet, script)
+}
+
+func TestMissingError(t *testing.T) {
+	if err := missingError(nil, 3); err != nil {
+		t.Errorf("no zones missing: %v", err)
 	}
-	if !(iInit < iServers && iInit < iDomains && iServers < iSet && iDomains < iSet) {
-		t.Errorf("order: d.init, then d.add, then set:\n%s", script)
+	err := missingError([]string{"a.example"}, 3)
+	if err == nil || !strings.Contains(err.Error(), "a.example") || !strings.Contains(err.Error(), "1 of 3") {
+		t.Errorf("one missing: %v", err)
 	}
-	// Nothing else is set: one set, no remove.
-	for _, l := range lines {
-		if (strings.HasPrefix(l, "set ") && l != "set "+CaptureKey) || strings.HasPrefix(l, "remove") {
-			t.Errorf("unexpected line %q in:\n%s", l, script)
-		}
+	var many []string
+	for i := range 15 {
+		many = append(many, "z"+strings.Repeat("x", i)+".example")
+	}
+	err = missingError(many, 20)
+	if err == nil || !strings.Contains(err.Error(), "and 5 more") || strings.Contains(err.Error(), many[14]) {
+		t.Errorf("many missing: %v", err)
 	}
 }
