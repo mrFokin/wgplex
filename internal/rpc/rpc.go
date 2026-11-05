@@ -1,6 +1,7 @@
 // Package rpc is the JSON-RPC 2.0 interface of the wgplex daemon (design 14): wire
-// types, the server over the unix socket with the peer uid check, and the
-// pure builders of status.get and diag.* replies from a daemon snapshot.
+// types, the server over the unix socket with rights per method (design 5),
+// the pure builders of status.get and diag.* replies from a daemon snapshot
+// and their redaction for callers that cannot control.
 //
 // No reply type carries a key, public ones included (design 10.1 Keys).
 package rpc
@@ -10,12 +11,24 @@ import "time"
 const (
 	Path = "/rpc" // the JSON-RPC endpoint
 
+	// APIVersion is api_version of status.get (design 14): within it fields
+	// and methods are only added.
+	APIVersion = 1
+
 	// JSON-RPC error codes of the daemon.
 	CodeConfigInvalid = 1 // config.reload: the config is invalid; data: ConfigErrorData
 	CodeNoConfig      = 2 // tunnel.* without an applied config
 	CodeUnknownTunnel = 3 // the tunnel name is not in the config
-	CodeTunnelStart   = 4 // tunnel.setEnabled true: the tunnel failed to start
+	CodeTunnelStart   = 4 // tunnel.enable: the tunnel failed to start
+	CodeNoPermission  = 5 // a mutating method from a caller that cannot control; data: PermissionData
 )
+
+// PermissionData is the data of a CodeNoPermission error: the control_group
+// of the applied config ("" without one: only root and the owner of the
+// config directory control).
+type PermissionData struct {
+	ControlGroup string `json:"control_group"`
+}
 
 // ApplyResult is the result of config.reload (no params): the daemon re-reads
 // its config directory (design 10.2).
@@ -36,21 +49,39 @@ type ConfigErrorData struct {
 	Warnings []string `json:"warnings"`
 }
 
-// SetEnabledParams are the params of tunnel.setEnabled; tunnel.disableAll
-// takes no params; both return null.
-type SetEnabledParams struct {
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
+// EnableParams are the params of tunnel.enable and tunnel.disable.
+// tunnel.disable, tunnel.disableAll, daemon.pause and daemon.resume return
+// null; tunnel.disableAll, daemon.pause and daemon.resume take no params.
+type EnableParams struct {
+	Name string `json:"name"`
 }
 
-// Status is the result of status.get (no params).
+// EnableResult is the result of tunnel.enable: StartsOnResume is true when
+// the daemon is paused, so the toggle is on but nothing was brought up
+// (design 12); otherwise {}.
+type EnableResult struct {
+	StartsOnResume bool `json:"starts_on_resume,omitempty"`
+}
+
+// Status is the result of status.get (no params). For a caller that cannot
+// control it is redacted by RedactStatus (design 5, Visibility).
 type Status struct {
-	Configured   bool           `json:"configured"`              // a config has been applied
-	Icon         string         `json:"icon"`                    // "off" | "on" | "warn"
-	ConfigErrors []string       `json:"config_errors,omitempty"` // last failed apply (start or config.reload); cleared by a successful one
-	Warnings     []string       `json:"warnings,omitempty"`      // of the applied config
-	Tunnels      []TunnelStatus `json:"tunnels"`                 // config order
-	Rules        []RuleStatus   `json:"rules"`                   // config order
+	APIVersion       int            `json:"api_version"`             // APIVersion
+	Version          string         `json:"version"`                 // of the engine
+	CanControl       bool           `json:"can_control"`             // for the caller
+	ControlGroup     string         `json:"control_group"`           // of the applied config; "": none applied
+	Configured       bool           `json:"configured"`              // a config has been applied
+	BlockSnapshot    bool           `json:"block_snapshot"`          // no config, but the block snapshot is enforced
+	Paused           bool           `json:"paused"`                  // daemon.pause (design 12)
+	ConfigDir        string         `json:"config_dir"`              // the config directory of the daemon
+	LogPath          string         `json:"log_path"`                // the log file of the daemon
+	Icon             string         `json:"icon"`                    // "off" | "on" | "warn" | "paused" (design 14)
+	ConfigErrors     []string       `json:"config_errors,omitempty"` // last failed apply (start or config.reload); cleared by a successful one
+	ConfigErrorCount int            `json:"config_error_count"`      // len(ConfigErrors); kept by the redaction
+	Warnings         []string       `json:"warnings,omitempty"`      // of the applied config
+	WarningCount     int            `json:"warning_count"`           // len(Warnings); kept by the redaction
+	Tunnels          []TunnelStatus `json:"tunnels"`                 // config order
+	Rules            []RuleStatus   `json:"rules"`                   // config order
 }
 
 // TunnelStatus is one tunnel of Status.
@@ -70,7 +101,7 @@ type TunnelStatus struct {
 
 // CheckStatus is the active check: ping of the check address or GET of the check URL.
 type CheckStatus struct {
-	Addr   string    `json:"addr"`             // the check address or URL
+	Addr   string    `json:"addr,omitempty"`   // the check address or URL; "": redacted
 	LastOK time.Time `json:"last_ok,omitzero"` // zero: never
 	RTTMs  float64   `json:"rtt_ms,omitempty"` // of the last successful check
 	Fails  int       `json:"fails"`            // consecutive
@@ -78,7 +109,7 @@ type CheckStatus struct {
 
 // PeerStatus is one peer of a running tunnel; its public key is not shown.
 type PeerStatus struct {
-	Endpoint      string    `json:"endpoint"`                // as in the .conf ("" if none)
+	Endpoint      string    `json:"endpoint,omitempty"`      // as in the .conf; "": none or redacted
 	Resolved      string    `json:"resolved,omitempty"`      // addr:port in use
 	LastHandshake time.Time `json:"last_handshake,omitzero"` // zero: never
 	RxBytes       uint64    `json:"rx_bytes"`
@@ -94,6 +125,9 @@ type RuleStatus struct {
 	Tunnel     string   `json:"tunnel,omitempty"` // serving tunnel; "": direct or in fallback
 	InFallback bool     `json:"in_fallback"`
 	Degraded   bool     `json:"degraded"` // via non-empty and not on via[0] (design 14)
+	// Reason is why a degraded rule (on a backup or in fallback) is not on
+	// via[0]: "dead" | "disabled" | "paused" (design 14); "" otherwise.
+	Reason string `json:"reason,omitempty"`
 }
 
 // ExplainParams are the params of diag.explain.

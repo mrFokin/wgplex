@@ -94,7 +94,7 @@ func (d *daemon) onNetwork(wake bool) {
 }
 
 // retryFailed brings up again the failed tunnels (err set) that due reports
-// true for, in config order, as SetEnabled does them (design 6: on a network
+// true for, in config order, as Enable does them (design 6: on a network
 // change and retryEvery after a failure). Each one gets its rules as soon as
 // it is up; one that fails again gets a new failedAt. opMu is held.
 func (d *daemon) retryFailed(due func(*runTunnel) bool) {
@@ -197,7 +197,8 @@ func (d *daemon) checkCapture() {
 	var hasSystem, needsDNS bool
 	d.locked(func() {
 		hasSystem = len(d.system) > 0
-		needsDNS = d.cfg != nil && d.cfg.NeedsDNS()
+		// The block snapshot config counts: it has the domains too.
+		needsDNS = d.effectiveCfg().NeedsDNS()
 	})
 	ok, err := dns.Captured()
 	if err != nil {

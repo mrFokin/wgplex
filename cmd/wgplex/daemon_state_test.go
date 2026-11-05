@@ -43,7 +43,8 @@ func TestDaemonNoConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	d := testDaemon(t, path, state.State{})
 	wantCode(t, "DisableAll", d.DisableAll(), rpc.CodeNoConfig)
-	wantCode(t, "SetEnabled", d.SetEnabled("x", true), rpc.CodeNoConfig)
+	_, err := d.Enable("x")
+	wantCode(t, "Enable", err, rpc.CodeNoConfig)
 	if s, err := state.Load(path); err != nil || len(s.Tunnels) != 0 {
 		t.Errorf("state.json = %+v, %v; want nothing written", s, err)
 	}
@@ -126,8 +127,8 @@ func TestDaemonStateDirty(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Unchanged toggle, written because the last write failed.
-	if err := d.SetEnabled("work", false); err != nil {
-		t.Fatalf("SetEnabled: %v", err)
+	if err := d.Disable("work"); err != nil {
+		t.Fatalf("Disable: %v", err)
 	}
 	if s, err := state.Load(path); err != nil || len(s.Tunnels) != 4 {
 		t.Errorf("state.json = %+v, %v; want the four toggles", s, err)
@@ -161,12 +162,12 @@ func TestDaemonReloadInvalid(t *testing.T) {
 
 // design 11: disabling a tunnel that is not running is an explicit toggle,
 // written to state.json.
-func TestDaemonSetEnabledOffWritesState(t *testing.T) {
+func TestDaemonDisableWritesState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	d := testDaemon(t, path, state.State{})
 	d.cfg = loadConfig(t, baseYAML(baseTunnels()...), newConfFiles(t).texts(nil))
-	if err := d.SetEnabled("home", false); err != nil {
-		t.Fatalf("SetEnabled: %v", err)
+	if err := d.Disable("home"); err != nil {
+		t.Fatalf("Disable: %v", err)
 	}
 	s, err := state.Load(path)
 	if err != nil {

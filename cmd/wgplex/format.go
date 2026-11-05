@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -26,9 +28,27 @@ func newTable(w io.Writer) *tabwriter.Writer {
 	return tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 }
 
+// printJSON prints v as indented JSON with a trailing newline: the reply of
+// status.get, diag.explain, diag.routes or config.reload as it is in the API
+// (design 13).
+func printJSON(w io.Writer, v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(append(b, '\n'))
+	return err
+}
+
 // printStatus prints the reply of status.get.
 func printStatus(w io.Writer, s rpc.Status, now time.Time) {
 	fmt.Fprintf(w, "icon: %s\n", s.Icon)
+	if !s.Configured {
+		fmt.Fprintln(w, "configured: false")
+	}
+	if s.Paused {
+		fmt.Fprintln(w, "paused: true (wgplex resume)")
+	}
 	if len(s.ConfigErrors) > 0 {
 		fmt.Fprintln(w, "config error:")
 		for _, e := range s.ConfigErrors {
@@ -37,6 +57,13 @@ func printStatus(w io.Writer, s rpc.Status, now time.Time) {
 	}
 	for _, x := range s.Warnings {
 		fmt.Fprintf(w, "warning: %s\n", x)
+	}
+	// Redacted for a caller that cannot control (design 5): counts only.
+	if len(s.ConfigErrors) == 0 && s.ConfigErrorCount > 0 {
+		fmt.Fprintf(w, "config errors: %d (%s)\n", s.ConfigErrorCount, detailsFor(s.ControlGroup))
+	}
+	if len(s.Warnings) == 0 && s.WarningCount > 0 {
+		fmt.Fprintf(w, "warnings: %d (%s)\n", s.WarningCount, detailsFor(s.ControlGroup))
 	}
 	if !s.Configured {
 		fmt.Fprintln(w, "no config applied (sudo wgplex reload)")
@@ -93,18 +120,24 @@ func via(r rpc.RuleStatus) string {
 }
 
 // ruleTarget formats where r sends traffic: "de", "de (degraded)",
-// "block (fallback)", "direct".
+// "block (fallback)", "direct"; the Reason of a rule off its primary tunnel
+// goes into the parentheses (design 14): "de (degraded, dead)".
 func ruleTarget(r rpc.RuleStatus) string {
+	var target string
 	switch {
 	case len(r.Via) == 0:
 		return "direct"
 	case r.InFallback:
-		return r.Fallback + " (fallback)"
+		target = r.Fallback + " (fallback"
 	case r.Degraded:
-		return r.Tunnel + " (degraded)"
+		target = r.Tunnel + " (degraded"
 	default:
 		return r.Tunnel
 	}
+	if r.Reason != "" {
+		target += ", " + r.Reason
+	}
+	return target + ")"
 }
 
 // ruleName formats r as "#1 [youtube,telegram]".
@@ -212,9 +245,10 @@ func printApply(w io.Writer, r rpc.ApplyResult) {
 }
 
 // printError prints err: a *jrpc.JRPCError by its code (config errors one per
-// line from ConfigErrorData), HTTP 403 as "permission denied: ...", a missing
-// or dead socket (ENOENT, ECONNREFUSED of the dial) as "wgplex daemon is not
-// running"; the same errors elsewhere (reading the config) print as they are.
+// line from ConfigErrorData, "permission denied" from PermissionData), a
+// missing or dead socket as "wgplex daemon is not running", a timeout as
+// "wgplex daemon is not responding", an over-large request as HTTP 413; the
+// same errors elsewhere (reading the config) print as they are.
 func printError(w io.Writer, err error) {
 	var (
 		rpcErr  *jrpc.JRPCError
@@ -224,16 +258,17 @@ func printError(w io.Writer, err error) {
 	case errors.As(err, &rpcErr):
 		printRPCError(w, rpcErr)
 	case errors.As(err, &httpErr):
-		switch httpErr.Code {
-		case http.StatusForbidden:
-			fmt.Fprintln(w, "permission denied: run as root")
-		case http.StatusRequestEntityTooLarge:
+		if httpErr.Code == http.StatusRequestEntityTooLarge {
 			fmt.Fprintln(w, "error: the request is too large for the daemon (over 1 MiB, HTTP 413)")
-		default:
+		} else {
 			fmt.Fprintf(w, "error: %v\n", httpErr)
 		}
-	case isDialError(err) && (errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED)):
-		fmt.Fprintln(w, "wgplex daemon is not running")
+	case daemonUnavailable(err):
+		if isTimeout(err) {
+			fmt.Fprintln(w, "wgplex daemon is not responding (timed out)")
+		} else {
+			fmt.Fprintln(w, "wgplex daemon is not running")
+		}
 	case errors.Is(err, fs.ErrPermission):
 		fmt.Fprintf(w, "permission denied: %v\n", err)
 	default:
@@ -241,10 +276,26 @@ func printError(w io.Writer, err error) {
 	}
 }
 
-// isDialError reports whether err comes from connecting to the socket.
-func isDialError(err error) bool {
+// daemonUnavailable reports whether err means that the daemon could not be
+// reached at all (design 13: exit code 3): the dial of the socket failed
+// (ENOENT, ECONNREFUSED) or the call timed out. A socket that exists but
+// refuses is the stale file of a crashed daemon.
+func daemonUnavailable(err error) bool {
+	if isTimeout(err) {
+		return true
+	}
 	var op *net.OpError
-	return errors.As(err, &op) && op.Op == "dial"
+	return errors.As(err, &op) && op.Op == "dial" &&
+		(errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED))
+}
+
+// isTimeout reports whether err is a deadline or a timeout of the network.
+func isTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 // printRPCError prints a JSON-RPC error object of the daemon.
@@ -264,6 +315,12 @@ func printRPCError(w io.Writer, e *jrpc.JRPCError) {
 		}
 	case rpc.CodeNoConfig:
 		fmt.Fprintf(w, "error: %s (wgplex reload)\n", e.Message)
+	case rpc.CodeNoPermission:
+		var data rpc.PermissionData
+		if b, err := json.Marshal(e.Data); err == nil {
+			json.Unmarshal(b, &data)
+		}
+		fmt.Fprintln(w, permissionText(data.ControlGroup))
 	case rpc.CodeTunnelStart:
 		fmt.Fprintln(w, e.Message) // "tunnel <name>: <error>"
 	default:
@@ -273,6 +330,25 @@ func printRPCError(w io.Writer, e *jrpc.JRPCError) {
 			fmt.Fprintf(w, "error: %s\n", e.Message)
 		}
 	}
+}
+
+// detailsFor says who sees the details redacted for others (design 5).
+func detailsFor(group string) string {
+	if group == "" {
+		return "details for root and the config owner"
+	}
+	return `details for root, the config owner and group "` + group + `"`
+}
+
+// permissionText is the text of a permission denied error (design 13, plan M3
+// decision 11): the mutating commands and who may run them; without a
+// control_group only root and the owner of the config directory.
+func permissionText(group string) string {
+	const text = "permission denied: up/down/pause/resume/reload require root, the config owner"
+	if group == "" {
+		return text
+	}
+	return text + ` or membership in group "` + group + `"`
 }
 
 // formatCheckStatus formats the active check for the CHECK column: "-" without a
@@ -324,3 +400,20 @@ func formatAgo(t, now time.Time) string {
 		return fmt.Sprintf("%dh %dm ago", s/3600, s%3600/60)
 	}
 }
+
+// versionWarning returns the warning for status and version when the version
+// of the daemon differs from the version of the CLI: a "warning: ..." line
+// with "sudo brew services restart --sudo-service-user=root wgplex"; "" when
+// they are the same (design 13, plan M3 decision 11).
+func versionWarning(cli, daemon string) string {
+	if cli == daemon {
+		return ""
+	}
+	return fmt.Sprintf("warning: the daemon runs version %s, this CLI is %s; restart the service: %s",
+		daemon, cli, restartService)
+}
+
+// restartService restarts the daemon after a brew upgrade (design 16.4): the
+// option keeps the owners of the formula paths, and brew services does not
+// restart the service on upgrade.
+const restartService = "sudo brew services restart --sudo-service-user=root wgplex"

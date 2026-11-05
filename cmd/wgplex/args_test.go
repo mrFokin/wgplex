@@ -40,6 +40,17 @@ func TestParseArgs(t *testing.T) {
 		{"up", []string{"up", "de"}, command{Name: "up", Arg: "de", Socket: sock}},
 		{"down", []string{"down", "de"}, command{Name: "down", Arg: "de", Socket: sock}},
 
+		// m3 decision 11: pause and resume take no argument; down -all takes
+		// the flag instead of a tunnel; -json for the read-only commands and check.
+		{"pause", []string{"pause"}, command{Name: "pause", Socket: sock}},
+		{"resume", []string{"resume"}, command{Name: "resume", Socket: sock}},
+		{"down all", []string{"down", "-all"}, command{Name: "down", All: true, Socket: sock}},
+		{"down all before flag", []string{"-all", "down"}, command{Name: "down", All: true, Socket: sock}},
+		{"status json", []string{"status", "-json"}, command{Name: "status", JSON: true, Socket: sock}},
+		{"explain json", []string{"explain", "a.com", "-json"}, command{Name: "explain", Arg: "a.com", JSON: true, Socket: sock}},
+		{"routes json", []string{"routes", "-json"}, command{Name: "routes", JSON: true, Socket: sock}},
+		{"check json", []string{"check", "-json"}, command{Name: "check", ConfigDir: cfg, JSON: true}},
+
 		// decision 11: -socket for every command, before or after.
 		{"status socket before", []string{"-socket", "/x.sock", "status"}, command{Name: "status", Socket: "/x.sock"}},
 		{"status socket after", []string{"status", "-socket", "/x.sock"}, command{Name: "status", Socket: "/x.sock"}},
@@ -109,9 +120,6 @@ func TestParseArgsUsage(t *testing.T) {
 		{"empty command", []string{""}},
 		{"unknown", []string{"start"}},
 		{"unknown case", []string{"Status"}},
-		// design 13 commands that are not in M1 (decision 11).
-		{"pause", []string{"pause"}},
-		{"resume", []string{"resume"}},
 
 		// contract: explain, up, down need exactly one non-empty argument.
 		{"explain no arg", []string{"explain"}},
@@ -153,10 +161,19 @@ func TestParseArgsUsage(t *testing.T) {
 		// contract: unknown flags, including those of later stages.
 		{"unknown flag", []string{"status", "-x"}},
 		{"unknown flag before", []string{"-x", "status"}},
-		{"json not in M1", []string{"status", "-json"}},
-		// design 13: -all is a flag of down, not a tunnel name; not in M1.
-		{"down all not in M1", []string{"down", "-all"}},
-		{"up all not in M1", []string{"up", "-all"}},
+		// m3 decision 11: -json only for status, explain, routes and check;
+		// -all only for down, never with a tunnel.
+		{"json up", []string{"up", "de", "-json"}},
+		{"json down", []string{"down", "de", "-json"}},
+		{"json pause", []string{"pause", "-json"}},
+		{"json reload", []string{"reload", "-json"}},
+		{"json daemon", []string{"daemon", "-json"}},
+		{"json version", []string{"version", "-json"}},
+		{"down all json", []string{"down", "-all", "-json"}},
+		{"down tunnel and all", []string{"down", "de", "-all"}},
+		{"all with arg", []string{"down", "-all", "de"}},
+		// design 13: -all is a flag of down, not a tunnel name.
+		{"up all", []string{"up", "-all"}},
 		// an argument is never a flag: -socket between command and argument
 		// is a usage error (the contract: before the command or after it
 		// and its argument).

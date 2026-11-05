@@ -13,8 +13,8 @@ import (
 	"github.com/mrFokin/jrpc/v2"
 )
 
-// httpError is a non-200 HTTP reply of the daemon (403: uid not allowed,
-// 413: body too large, 415: not JSON).
+// httpError is a non-200 HTTP reply of the daemon (413: body too large, 415:
+// not JSON). A permission denied is a JSON-RPC error, not HTTP (design 14).
 type httpError struct {
 	Code int
 	Body string

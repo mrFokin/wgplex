@@ -182,6 +182,7 @@ func newState(f *fixture) *State {
 	return &State{
 		Cfg:      f.cfg,
 		Warnings: []string{`service "x" is not used by any rule`},
+		Switches: map[string]bool{"work": true, "de": true, "fi": true, "bad": true},
 		Tunnels: map[string]TunnelRuntime{
 			"work": {
 				Interface: "utun5",
@@ -305,12 +306,12 @@ func wantRules() []RuleStatus {
 
 // --- StatusOf ------------------------------------------------------------------
 
-// design 4.1: before any applied config the daemon is empty: not
-// configured, icon off, no tunnels or rules.
+// design 4.1, 14: before any applied config the daemon is empty: not
+// configured, icon warn, no tunnels or rules.
 func TestStatusNoConfig(t *testing.T) {
 	got := statusOf(t, &State{})
-	if got.Configured || got.Icon != "off" || len(got.Tunnels) != 0 || len(got.Rules) != 0 || len(got.ConfigErrors) != 0 {
-		t.Errorf("empty state: %+v, want not configured, icon off, nothing else", got)
+	if got.Configured || got.Icon != "warn" || len(got.Tunnels) != 0 || len(got.Rules) != 0 || len(got.ConfigErrors) != 0 {
+		t.Errorf("empty state: %+v, want not configured, icon warn, nothing else", got)
 	}
 
 	// The first apply failed: still not configured, the errors are
