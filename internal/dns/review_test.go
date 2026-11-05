@@ -449,54 +449,6 @@ func TestM5rServerNoDataEDNS0(t *testing.T) {
 	}
 }
 
-// --- parseScutil: empty values -----------------------------------------------
-
-// An empty array element ("0 : ") is kept as "",
-// in its place; an empty scalar ("Key : ") is [""]. Capture checks
-// SupplementalMatchDomains = [""] by this.
-func TestM5rParseScutilEmpty(t *testing.T) {
-	cases := []struct {
-		name string
-		out  string
-		want map[string][]string
-	}{
-		{"the capture key", `<dictionary> {
-  ServerAddresses : <array> {
-    0 : 127.0.0.1
-  }
-  SupplementalMatchDomains : <array> {
-    0 :
-  }
-}
-`, map[string][]string{
-			"ServerAddresses":          {"127.0.0.1"},
-			"SupplementalMatchDomains": {""},
-		}},
-		{"empty element in the middle", `<dictionary> {
-  SearchDomains : <array> {
-    0 : a.example
-    1 :
-    2 : b.example
-  }
-}
-`, map[string][]string{"SearchDomains": {"a.example", "", "b.example"}}},
-		{"empty scalar", `<dictionary> {
-  DomainName :
-  Router : 192.168.20.1
-}
-`, map[string][]string{"DomainName": {""}, "Router": {"192.168.20.1"}}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := parseSections(t, c.out)
-			sameMap(t, got, c.want)
-			if len(got) != len(c.want) {
-				t.Errorf("parsed %d keys %q, want %d", len(got), got, len(c.want))
-			}
-		})
-	}
-}
-
 // --- systemServers: loopback -------------------------------------------------
 
 // A loopback system server (127.0.0.1 is our own

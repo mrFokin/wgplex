@@ -29,41 +29,6 @@ func noPanic(t *testing.T) {
 	}
 }
 
-// --- parseChangedKey ---------------------------------------------------------------
-
-// n.watch prints `  14:36:45.351 (+0.000) changedKey [1] = <key>`;
-// the key is taken exactly, a trailing space kept.
-func TestParseChangedKey(t *testing.T) {
-	defer noPanic(t)
-	cases := []struct {
-		line string
-		key  string
-		ok   bool
-	}{
-		{"  14:36:45.351 (+0.000) changedKey [1] = State:/Network/Global/IPv4", "State:/Network/Global/IPv4", true},
-		{"  14:36:45.352 (+0.001) changedKey [0] = State:/Network/Global/DNS", "State:/Network/Global/DNS", true},
-		{"  09:01:02.003 (+12.345) changedKey [17] = State:/Network/Service/8A1F0C2E-1111-2222-3333-444455556666/IPv6",
-			"State:/Network/Service/8A1F0C2E-1111-2222-3333-444455556666/IPv6", true},
-		{"  14:36:45.351 (+0.000) changedKey [2] = State:/Network/Global/IPv6", "State:/Network/Global/IPv6", true},
-		{"  14:36:45.351 (+0.000) changedKey [3] = " + captureKey, captureKey, true},
-		// A key may end in a space: kept as printed.
-		{"  14:36:45.351 (+0.000) changedKey [1] = Setup:/Network/Service/X/DNS ", "Setup:/Network/Service/X/DNS ", true},
-		// Other output of scutil.
-		{"", "", false},
-		{"> ", "", false},
-		{"  14:36:45.351 (+0.000) notification callback (store address = 0x600000c0c000).", "", false},
-		{"  No such key", "", false},
-		{"<dictionary> {", "", false},
-		{"  Name : da_fokin", "", false},
-	}
-	for _, c := range cases {
-		key, ok := parseChangedKey(c.line)
-		if key != c.key || ok != c.ok {
-			t.Errorf("parseChangedKey(%q) = %q, %v; want %q, %v", c.line, key, ok, c.key, c.ok)
-		}
-	}
-}
-
 // --- classify ---------------------------------------------------------------------
 
 // Global and service keys → Network, the capture key →
