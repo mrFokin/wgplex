@@ -86,8 +86,8 @@ func exists(path string) bool {
 }
 
 // runDaemon starts the daemon listening on cmd.Socket and serves until
-// SIGINT/SIGTERM (exit code 0) or a failure of the resolver or the RPC
-// server (1), then stops: DNS released, routes, tunnels and the socket
+// SIGINT/SIGTERM (exit code 0) or a failure of the resolver after it
+// listened or of the RPC server (1), then stops: DNS released, routes, tunnels and the socket
 // removed. logFile is the log (nil: none), its group follows control_group.
 //
 // Before the RPC it reads state.json (a broken one: a warning, the tunnels
@@ -130,15 +130,15 @@ func runDaemon(log *slog.Logger, logFile *rotatingFile, cmd command) int {
 	// Watching from before the config: a change of the network during the
 	// first apply is seen too.
 	events := netwatch.Watch(ctx, dns.CaptureKey, log)
-	if err := srv.Start(dnsAddr); err != nil {
-		log.Error("dns server", "err", err)
-		ln.Close()
-		return 1
-	}
-	log.Info("dns server listening", "addr", dnsAddr)
-
-	// The resolver listens before the config may capture the system DNS.
+	// The resolver listens before the config may capture the zones. A busy
+	// port does not stop the daemon (fail-closed, design 8): the zones are
+	// captured all the same, so a KeepAlive restart does not break block
+	// (9.1), and listening is tried again every dnsRetry and at reload.
+	d.retryListen()
 	d.startup()
+	dnsT := time.NewTicker(dnsRetry)
+	defer dnsT.Stop()
+	go d.listenEvery(ctx, dnsT.C)
 
 	served := make(chan error, 1)
 	go func() {
@@ -160,6 +160,7 @@ loop:
 		case <-ctx.Done():
 			log.Info("stopping")
 			break loop
+		// nil until the resolver listens; a later Start is seen at the next round.
 		case err := <-srv.Err():
 			log.Error("dns server", "err", err)
 			code = 1

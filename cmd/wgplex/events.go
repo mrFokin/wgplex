@@ -183,43 +183,20 @@ func (d *daemon) renetwork(wake bool) {
 	})
 }
 
-// checkCapture puts the DNS capture back when it was made and its key is
-// gone (a configd restart, design 8). Our own write of the key also gives a
-// Capture event: the key is there then, nothing is done. Without system DNS
-// servers the capture is not put back, as in apply: the resolver would have
-// no upstream. Nor is it put back when the config has no domains: captured
-// is then left by a failed release, and the lost key completes
-// that release. opMu is held.
+// checkCapture puts the capture key back in line with the zones of the
+// effective config (setCapture): a key gone (a configd restart, design 8)
+// or holding other zones is written again, a failed write is retried. Our
+// own write of the key also gives a Capture event: the key holds the zones
+// then, nothing is written. Without zones and nothing of ours captured
+// there is nothing to check. opMu is held.
 func (d *daemon) checkCapture() {
-	if !d.captured {
-		return
-	}
-	var hasSystem, needsDNS bool
+	var zones []string
 	d.locked(func() {
-		hasSystem = len(d.system) > 0
-		// The block snapshot config counts: it has the domains too.
-		needsDNS = d.effectiveCfg().NeedsDNS()
+		// The block snapshot config counts: it has zones too.
+		zones = d.effectiveCfg().Zones()
 	})
-	_, ok, err := dns.Captured()
-	if err != nil {
-		d.log.Warn("dns capture check", "err", err)
+	if len(zones) == 0 && !d.captured {
 		return
 	}
-	if ok {
-		return
-	}
-	if !needsDNS {
-		d.log.Info("dns capture lost; no domains in config: released")
-		d.captured = false
-		return
-	}
-	if !hasSystem {
-		d.log.Warn("dns capture lost; no system DNS servers: not restored")
-		return
-	}
-	if err := captureDNS(d.log); err != nil {
-		d.log.Error("dns capture", "err", err)
-		return
-	}
-	d.log.Info("dns capture restored")
+	d.setCapture(zones)
 }
