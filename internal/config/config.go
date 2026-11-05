@@ -80,9 +80,9 @@ type Config struct {
 	Rules        []Rule // order = tie-break (design 7.4)
 }
 
-// MaxZones is the most DNS zones a config may have (design 8): LoadDir
-// rejects a config whose Zones exceed it, the error giving the number of
-// zones.
+// MaxZones is the most DNS zones a config may have (design 8): Load (and so
+// LoadDir) rejects a config whose Zones exceed it, the error giving the
+// number of zones.
 const MaxZones = 1000
 
 // Zones returns the DNS zones captured for c (design 8): the domain names of
@@ -92,30 +92,43 @@ const MaxZones = 1000
 // service with domains named by no rule does not count. A nil c, or one
 // without domains, gives none; NeedsDNS is len(Zones()) > 0.
 func (c *Config) Zones() []string {
-	panic("not implemented")
-}
-
-// NeedsDNS reports whether the resolver has work for c (design 8): a rule names a service with domains, or a tunnel has
-// dns_domains. Without either the system DNS is left alone.
-// A service with domains named by no rule does not count. A nil c needs
-// nothing.
-func (c *Config) NeedsDNS() bool {
 	if c == nil {
-		return false
+		return nil
+	}
+	seen := map[string]bool{}
+	add := func(ds []Domain) {
+		for _, d := range ds {
+			// Already normalized by parseDomain; normalized again for
+			// configs built in code (the block snapshot, tests).
+			seen[strings.TrimSuffix(strings.ToLower(d.Name), ".")] = true
+		}
 	}
 	for _, t := range c.Tunnels {
-		if len(t.DNSDomains) > 0 {
-			return true
-		}
+		add(t.DNSDomains)
 	}
 	for _, r := range c.Rules {
 		for _, name := range r.Services {
-			if len(c.Services[name].Domains) > 0 {
-				return true
-			}
+			add(c.Services[name].Domains)
 		}
 	}
-	return false
+	delete(seen, "")
+	if len(seen) == 0 {
+		return nil
+	}
+	zones := make([]string, 0, len(seen))
+	for z := range seen {
+		zones = append(zones, z)
+	}
+	sort.Strings(zones)
+	return zones
+}
+
+// NeedsDNS reports whether the resolver has work for c (design 8): a rule
+// names a service with domains, or a tunnel has dns_domains, that is
+// len(c.Zones()) > 0. Without either the system DNS is left alone. A service
+// with domains named by no rule does not count. A nil c needs nothing.
+func (c *Config) NeedsDNS() bool {
+	return len(c.Zones()) > 0
 }
 
 // RouteMode selects which routes a tunnel contributes to the routing table (design 6.1).
