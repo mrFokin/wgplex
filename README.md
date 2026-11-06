@@ -56,6 +56,20 @@ one keeps running.
 | `services` | — | named sets of `domains` (suffix, or `=name` for an exact match) and/or `cidrs` |
 | `rules` | — | `services` (required), `via` (ordered tunnels; empty means direct), `fallback` (`default` or `block`, default `default`) |
 
+A rule uses the first tunnel in `via` that is enabled and alive. `fallback`
+applies when none of them is:
+
+- `default`: the rule adds no routes, and its traffic follows the system's
+  normal route (usually direct).
+- `block`: the traffic is not sent direct. Domains of the rule's services get
+  an empty answer (NODATA), and CIDRs and addresses already resolved from them
+  get reject routes, so connections fail at once instead of hanging. This holds
+  while the service runs: while tunnels are down, paused or turned off, after a
+  daemon crash, and after a start with a broken config (the last valid config's
+  `block` rules are enforced then, with no tunnels). Stopping the service or
+  uninstalling it is not covered: the daemon removes its routes and DNS capture
+  on stop.
+
 Each tunnel has `name`, `conf` (a `.conf` file name in the config directory),
 `routes` (`config` puts `AllowedIPs` into the routing table, `rules` uses only
 routes from the rules; required), and optional `autostart` (default `false`),
