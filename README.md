@@ -42,6 +42,37 @@ wgplex reload    # apply it
 wgplex status
 ```
 
+Files are read only at start and on `wgplex reload`; edits are not picked up
+automatically. A config with errors is not applied; on `reload` the previous
+one keeps running.
+
+### wgplex.yaml
+
+| Key | Default | Meaning |
+|---|---|---|
+| `control_group` | `admin` | group, besides root and the config owner, that may control the daemon |
+| `ipv6_filter` | `true` | drop AAAA answers for rule domains when the target tunnel has no IPv6 |
+| `tunnels` | — | tunnels; list order is the priority for overlapping `AllowedIPs` |
+| `services` | — | named sets of `domains` (suffix, or `=name` for an exact match) and/or `cidrs` |
+| `rules` | — | `services` (required), `via` (ordered tunnels; empty means direct), `fallback` (`default` or `block`, default `default`) |
+
+Each tunnel has `name`, `conf` (a `.conf` file name in the config directory),
+`routes` (`config` puts `AllowedIPs` into the routing table, `rules` uses only
+routes from the rules; required), and optional `autostart` (default `false`),
+`dns_domains` (zones resolved through the DNS from the `.conf`) and `check`
+(an IP to ping or an `http(s)` URL, through the tunnel).
+
+### .conf files
+
+Standard `wg-quick` format. `[Interface]` uses `PrivateKey` (required),
+`Address`, `DNS` (IP addresses only), `MTU` (default `1420`) and `ListenPort`.
+`[Peer]` (one or more) uses `PublicKey` (required), `PresharedKey`,
+`AllowedIPs`, `Endpoint` and `PersistentKeepalive`. `Table`, `PreUp`, `PostUp`,
+`PreDown`, `PostDown`, `SaveConfig` and `FwMark` are ignored with a warning.
+
+The full reference, including validation rules and limits, is in
+[docs/design.md](docs/design.md), section 10.
+
 Logs: `$(brew --prefix)/var/log/wgplex/wgplex.log`.
 
 ## Uninstall
